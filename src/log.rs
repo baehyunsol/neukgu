@@ -80,4 +80,9 @@ impl Logger {
 
         Ok(())
     }
+
+    pub fn log_api_usage(&self) -> Result<(), Error> {
+        // TODO
+        Ok(())
+    }
 }

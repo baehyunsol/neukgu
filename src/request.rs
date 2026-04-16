@@ -79,6 +79,7 @@ impl Request {
                                         // It's un-recoverable, so we just unwrap.
                                         ApiProvider::Anthropic => Response::from_anthropic(&s).unwrap(),
                                     };
+                                    logger.log_api_usage()?;
                                     return Ok(response);
                                 },
                                 429 => {
