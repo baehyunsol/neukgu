@@ -20,8 +20,6 @@
   - 앞 32KiB만 잘라서 context에 집어넣어도 원하는 바는 다 전달이 되잖아? 그렇게 하자
   - 근데 지금 구현으로는 Tool의 arg만 잘라낼 방법이 없음...
   - 지금 당장은 고민할 필요가 없음. 애초에 AI가 저렇게 긴 파일을 한번에 쓸 능력이 안되거든!
-17. browser screenshot
-  - https://docs.rs/headless_chrome/latest/headless_chrome/browser/tab/struct.Tab.html
 18. more user friendliness
   - Create a new project with instruction
   - instruction을 받아서 (cli로 받든 gui로 받든), 새 working-dir 만들고, instruction.md도 만들기! 실행까지 바로 해버리기!

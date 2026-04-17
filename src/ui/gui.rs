@@ -23,6 +23,7 @@ use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle}
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
+use iced::widget::text_editor::{Action as TextEditorAction, Content as TextEditorContent, TextEditor};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -65,6 +66,7 @@ struct GuiContext {
 
     pub interrupt: Option<Interrupt>,
     pub user_response: Option<(u64, String)>,
+    pub interrupt_input_content: TextEditorContent,
 }
 
 impl GuiContext {
@@ -78,11 +80,17 @@ impl GuiContext {
                 self.text_diff = self.fe_context.calc_diff(&turn)?;
                 self.loaded_turn = Some((index, turn));
             },
+            Popup::Interrupt => {
+                // There's nothing to load
+            },
             Popup::Logs => {
                 self.loaded_log = Some(LogView::Logs(load_logs_tail()?));
             },
             Popup::Log(id) => {
                 self.loaded_log = Some(LogView::Log(load_log(&id)?));
+            },
+            Popup::Help => {
+                // There's nothing to load
             },
             Popup::Image(id) => {
                 self.loaded_image = Some(id);
@@ -120,14 +128,17 @@ enum Message {
     PauseNeukgu,
     ResumeNeukgu,
     InterruptNeukgu,
+    EditText(TextEditorAction),
     None,
 }
 
 #[derive(Clone, Debug)]
 enum Popup {
     Turn((usize, TurnId)),
+    Interrupt,
     Logs,
     Log(LogId),
+    Help,
     Image(ImageId),
     Diff,
 }
@@ -154,6 +165,7 @@ fn boot() -> GuiContext {
         text_diff: None,
         interrupt: None,
         user_response: None,
+        interrupt_input_content: TextEditorContent::with_text(""),
     }
 }
 
@@ -210,6 +222,7 @@ fn update(context: &mut GuiContext, message: Message) -> Task<Message> {
             context.interrupt = Some(Interrupt::Resume);
         },
         Message::InterruptNeukgu => {},
+        Message::EditText(a) => panic!("TODO: {a:?}"),
         Message::None => {},
     }
 
@@ -304,6 +317,20 @@ fn view(context: &GuiContext) -> Element<'_, Message> {
         ]).into();
     }
 
+    else if let Some(Popup::Help) = context.curr_popup {
+        todo!()
+    }
+
+    else if let Some(Popup::Interrupt) = context.curr_popup {
+        let interrupt_edit = TextEditor::new(&context.interrupt_input_content)
+            .placeholder("Say something to neukgu!")
+            .on_action(|action| Message::EditText(action));
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(interrupt_edit.into(), context).into(),
+        ]).into();
+    }
+
     full_view_stacked
 }
 
@@ -318,8 +345,9 @@ fn render_buttons<'a, 'b>(context: &'a GuiContext) -> Element<'b, Message> {
         vec![button("Pause", Message::PauseNeukgu, blue()).into()]
     };
 
-    buttons.push(button("Interrupt", Message::InterruptNeukgu, blue()).into());
+    buttons.push(button("Interrupt", Message::OpenPopup { curr: Popup::Interrupt, prev: None }, blue()).into());
     buttons.push(button("See logs", Message::OpenPopup { curr: Popup::Logs, prev: None }, blue()).into());
+    buttons.push(button("Help", Message::OpenPopup { curr: Popup::Help, prev: None }, pink()).into());
 
     Row::from_vec(buttons).padding(8).spacing(8).into()
 }
@@ -539,4 +567,8 @@ fn blue() -> Color {
 
 fn yellow() -> Color {
     Color::from_rgb(0.8, 0.8, 0.2)
+}
+
+fn pink() -> Color {
+    Color::from_rgb(0.5, 0.2, 0.2)
 }
