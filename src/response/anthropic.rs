@@ -15,9 +15,9 @@ pub struct AnthropicResponse {
 
 #[derive(Deserialize, Serialize)]
 pub struct AnthropicUsage {
-    pub cache_read_input_tokens: u32,
-    pub input_tokens: u32,
-    pub output_tokens: u32,
+    pub cache_read_input_tokens: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 impl Response {

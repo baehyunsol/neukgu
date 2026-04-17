@@ -36,7 +36,7 @@
     - instruction이 짧을 때 쓰기 귀찮음
     - instruction.md가 이미 있는 경우 노답임
     - 동시에 여러 agent를 돌리기 불편함
-23. `FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`)`
+23. `` FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`) ``
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
 25. fe 더 개량하기...
@@ -50,3 +50,12 @@
 27. pdf reader
   - https://github.com/LaurenzV/hayro
   - read에서는 당연히 구현할 거고, render 기능도 추가해? 그럼 render를 하면 모든 페이지를 다 render해? 아니면 페이지를 지정해서 해?
+28. 특정 파일에 제일 최근에 ReadText/WriteText를 한 기록과, 그 파일의 실제 내용 (파일을 읽어서)을 비교해서 둘이 다르면 경고를 날리기
+  - 일단, tool에 사용되는 모든 path는 normalize 돼 있으므로, primary key로 사용 가능
+  - ReadText나 WriteText가 성공하면 걔의 log_id를 저장하면 됨
+    - `HashMap<Path, Vec<LogId>>`처럼 저장하면 됨! log_id는 순서대로 저장되어 있으므로 diff를 뜰 때는 바로 이전의 내용과 비교하면 됨!
+29. 한 파일에 truncate_and_write를 연속으로 하면 write 할 때마다 diff 계산해서 보여주기
+  - AI는... 지가 알아서 git으로 비교하면 되니 상관없고
+  - GUI에서 이거 볼 수 있는 view가 있으면 좋겠음
+30. 사용량 추적하기!!
+  - ... 구현 완료!!

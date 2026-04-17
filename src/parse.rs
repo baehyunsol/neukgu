@@ -71,6 +71,9 @@ NONE OF YOUR ACTIONS IN YOUR PREVIOUS TURN WAS RUN.
 You can call exactly 1 tool per turn. You have to call exactly 1 tool per turn, do you understand?
 I repeat, just call a single tool and finish your turn.
             "))],
+            ParseError::UnterminatedArg { tag, arg } => vec![StringOrImage::String(format!(
+"Argument `{arg}` in tool `{tag}` is not terminated properly. I can't find `</{arg}>`."
+            ))],
             ParseError::NotBash => vec![StringOrImage::String(String::from("
 Failed to run the command.
 
@@ -388,6 +391,7 @@ impl ToolCall {
                 Ok(ToolCall::Ask { id: rand::random::<u64>(), to, question })
             },
             ToolKind::Render => {
+                let scroll = parse_int_arg(args, "scroll");
                 let input = match parse_path_arg(args, "input") {
                     Some(input) => input,
                     None => {
@@ -406,7 +410,7 @@ impl ToolCall {
                         });
                     },
                 };
-                Ok(ToolCall::Render { input, output })
+                Ok(ToolCall::Render { scroll, input, output })
             },
         }
     }

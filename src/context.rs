@@ -55,9 +55,7 @@ impl Context {
             true,
         )?;
         let available_binaries = load_available_binaries()?;
-
-        // TODO: configure logger name
-        let logger = Logger::new(String::from(".neukgu/logs"));
+        let logger = Logger::new();
 
         Ok(Context {
             history: vec![],
@@ -129,6 +127,11 @@ impl Context {
         let new_turn_summary = new_turn.summary(config);
         new_turn.store()?;
         self.history.push(new_turn_summary.clone());
+
+        if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, .. }) = &new_turn.turn_result {
+            self.logger.log_file_content(path, &new_turn.id)?;
+        }
+
         Ok(())
     }
 
@@ -243,6 +246,8 @@ impl Context {
             //    1. Recent turns are more important than old turns.
             //    2. Very early turns are important, because `instruction.md` is very likely to be there.
             // So I fill the first quarter with the very first turns and the remaining 3 quarters with the recent turns.
+            //
+            // It doesn't include parse-error turns.
             let mut pre_len = config.llm_context_max_len / 4;
             let mut pre_turns = vec![];
             let mut post_len = config.llm_context_max_len * 3 / 4;
@@ -254,8 +259,10 @@ impl Context {
                     break;
                 }
 
-                pre_turns.push((turn.clone(), false));
-                pre_len -= turn.llm_len_short;
+                if turn.result != TurnResultSummary::ParseError {
+                    pre_turns.push((turn.clone(), false));
+                    pre_len -= turn.llm_len_short;
+                }
             }
 
             post_len += pre_len;
@@ -272,8 +279,10 @@ impl Context {
                     break;
                 }
 
-                post_turns.push((turn.clone(), false));
-                post_len -= turn.llm_len_short;
+                if turn.result != TurnResultSummary::ParseError {
+                    post_turns.push((turn.clone(), false));
+                    post_len -= turn.llm_len_short;
+                }
             }
 
             let chosen_turns = vec![

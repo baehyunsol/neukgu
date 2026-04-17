@@ -72,9 +72,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             init_working_dir(instruction)?;
             Ok(())
         },
-        Some(c @ ("step" | "headless")) => {
-            let single_step = c == "step";
-
+        Some("headless") => {
             let parsed_args = ArgParser::new()
                 .args(ArgType::String, ArgCount::None)
                 .optional_flag(&["--attach-fe"])
@@ -109,10 +107,6 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                     if let Err(e) = step(&mut context, &config).await {
                         return Err(e);
                     }
-
-                    if single_step {
-                        return Ok(());
-                    }
                 }
             })?;
             Ok(())
@@ -135,6 +129,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             let no_backend = parsed_args.get_flag(0).is_some();
             gui::run(no_backend)
         },
+        Some("help") => todo!(),
         _ => todo!(),
     }
 }

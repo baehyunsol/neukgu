@@ -3,24 +3,26 @@ use crate::{
     Error,
     ImageId,
     Interrupt,
+    LogId,
     StringOrImage,
     Turn,
     TurnId,
     TurnPreview,
     TurnResultSummary,
-    load_log_tail,
+    load_log,
+    load_logs_tail,
     prettify_time,
 };
-use iced::{Background, Color, ContentFit, Element, Font, Length, Size, Subscription, Theme};
+use iced::{Background, Color, ContentFit, Element, Font, Length, Size, Subscription, Task, Theme};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
 use iced::keyboard::{self, Event as KeyboardEvent, Key, key::Named as NamedKey};
 use iced::time::{self, Duration};
-use iced::widget::{Column, MouseArea, Row, Sensor, Scrollable, Space, Stack, text};
+use iced::widget::{Column, Id, MouseArea, Row, Sensor, Scrollable, Space, Stack, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
-use ragit_fs::{exists, join3, read_string};
+use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -48,12 +50,19 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
 struct GuiContext {
     pub fe_context: FeContext,
     pub window_size: Size,
+    pub turn_view_id: Id,
+    pub logs_view_id: Id,
+    pub turn_view_scrolled: AbsoluteOffset,
     pub hovered_turn: Option<TurnId>,
-    pub loaded_turn: Option<Turn>,
+    pub loaded_turn: Option<(usize, Turn)>,
     pub loaded_log: Option<LogView>,
     pub loaded_image: Option<ImageId>,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
+
+    // If it's set, it'll display "diff" button in the turn popup.
+    pub text_diff: Option<String>,
+
     pub interrupt: Option<Interrupt>,
     pub user_response: Option<(u64, String)>,
 }
@@ -64,18 +73,22 @@ impl GuiContext {
         self.curr_popup = Some(popup.clone());
 
         match popup {
-            Popup::Turn(id) => {
-                let turn = Turn::load(&id)?;
-                self.loaded_turn = Some(turn);
+            Popup::Turn((index, turn_id)) => {
+                let turn = Turn::load(&turn_id)?;
+                self.text_diff = self.fe_context.calc_diff(&turn)?;
+                self.loaded_turn = Some((index, turn));
             },
             Popup::Logs => {
-                self.loaded_log = Some(LogView::Logs(load_log_tail()?));
+                self.loaded_log = Some(LogView::Logs(load_logs_tail()?));
             },
-            Popup::Log(log_path) => {
-                self.loaded_log = Some(LogView::Log(read_string(&log_path)?));
+            Popup::Log(id) => {
+                self.loaded_log = Some(LogView::Log(load_log(&id)?));
             },
             Popup::Image(id) => {
                 self.loaded_image = Some(id);
+            },
+            Popup::Diff => {
+                // It's already loaded in `self.text_diff`
             },
         }
 
@@ -95,6 +108,7 @@ impl GuiContext {
 enum Message {
     Tick,
     WindowResized(Size),
+    TurnViewScrolled(AbsoluteOffset),
     HoverOnTurn(Option<TurnId>),
     OpenPopup {
         curr: Popup,
@@ -111,10 +125,11 @@ enum Message {
 
 #[derive(Clone, Debug)]
 enum Popup {
-    Turn(TurnId),
+    Turn((usize, TurnId)),
     Logs,
-    Log(String),
+    Log(LogId),
     Image(ImageId),
+    Diff,
 }
 
 #[derive(Clone, Debug)]
@@ -127,25 +142,29 @@ fn boot() -> GuiContext {
     GuiContext {
         fe_context: FeContext::load().unwrap(),
         window_size: Size::new(0.0, 0.0),
+        turn_view_id: Id::unique(),
+        logs_view_id: Id::unique(),
+        turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
         hovered_turn: None,
         loaded_turn: None,
         loaded_log: None,
         loaded_image: None,
         curr_popup: None,
         prev_popup: None,
+        text_diff: None,
         interrupt: None,
         user_response: None,
     }
 }
 
 // TODO: too many unwraps here...
-fn update(context: &mut GuiContext, message: Message) {
+fn update(context: &mut GuiContext, message: Message) -> Task<Message> {
     match message {
         Message::Tick => {
             context.fe_context.end_frame(context.interrupt.take(), context.user_response.take()).unwrap();
 
             if let Some(LogView::Logs(_)) = &context.loaded_log {
-                context.loaded_log = Some(LogView::Logs(load_log_tail().unwrap()));
+                context.loaded_log = Some(LogView::Logs(load_logs_tail().unwrap()));
             }
 
             context.fe_context.start_frame().unwrap();
@@ -153,12 +172,24 @@ fn update(context: &mut GuiContext, message: Message) {
         Message::WindowResized(s) => {
             context.window_size = s;
         },
+        Message::TurnViewScrolled(o) => {
+            context.turn_view_scrolled = o;
+        },
         Message::HoverOnTurn(id) => {
             context.hovered_turn = id;
         },
         Message::OpenPopup { curr, prev } => {
+            let mut scrolls: Vec<Task<Message>> = vec![
+                scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled),
+            ];
+
+            if let Popup::Logs = &curr {
+                scrolls.push(snap_to(context.logs_view_id.clone(), RelativeOffset::END));
+            }
+
             context.open_popup(curr).unwrap();
             context.prev_popup = prev;
+            return Task::batch(scrolls);
         },
         Message::BackPopup => {
             if let Some(prev_popup) = &context.prev_popup {
@@ -170,6 +201,7 @@ fn update(context: &mut GuiContext, message: Message) {
         Message::CopyPopup => todo!(),
         Message::ClosePopup => {
             context.close_popup();
+            return scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled);
         },
         Message::PauseNeukgu => {
             context.interrupt = Some(Interrupt::Pause);
@@ -180,11 +212,13 @@ fn update(context: &mut GuiContext, message: Message) {
         Message::InterruptNeukgu => {},
         Message::None => {},
     }
+
+    Task::none()
 }
 
 fn view(context: &GuiContext) -> Element<'_, Message> {
-    let mut turns: Vec<Element<Message>> = context.fe_context.iter_previews().into_iter().map(
-        |p| render_turn_preview(&p, context)
+    let mut turns: Vec<Element<Message>> = context.fe_context.iter_previews().into_iter().enumerate().map(
+        |(i, p)| render_turn_preview(i, &p, context)
     ).collect();
 
     turns.push(text!("{}", context.fe_context.curr_status()).into());
@@ -200,11 +234,15 @@ fn view(context: &GuiContext) -> Element<'_, Message> {
         .padding(12)
         .spacing(12);
 
-    let turns_scrollable = Scrollable::new(turns_stretched);
+    let mut turns_scrollable = Scrollable::new(turns_stretched).id(context.turn_view_id.clone());
+
+    if context.curr_popup.is_none() {
+        turns_scrollable = turns_scrollable.on_scroll(|v| Message::TurnViewScrolled(v.absolute_offset()));
+    }
     let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
 
     let full_view = Column::from_vec(vec![
-        Container::new(text!("{}", context.fe_context.top_bar())).padding(8).into(),
+        Container::new(text!("{}", context.fe_context.top_bar().unwrap_or_else(|e| format!("{e:?}")))).padding(8).into(),
         horizontal_bar(context),
         render_buttons(context),
         horizontal_bar(context),
@@ -217,10 +255,10 @@ fn view(context: &GuiContext) -> Element<'_, Message> {
 
     let mut full_view_stacked: Element<Message> = Container::new(full_view_resizable).into();
 
-    if let Some(turn) = &context.loaded_turn {
+    if let Some((index, turn)) = &context.loaded_turn {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            render_turn(turn, context),
+            render_turn(*index, turn, context),
         ]).into()
     }
 
@@ -242,6 +280,27 @@ fn view(context: &GuiContext) -> Element<'_, Message> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             image_view,
+        ]).into();
+    }
+
+    else if let Some(Popup::Diff) = context.curr_popup {
+        let diff_view = Column::from_vec(context.text_diff.as_ref().unwrap().lines().map(
+            |line| {
+                let color = match line.chars().next() {
+                    Some('+') => green(),
+                    Some('-') => red(),
+                    Some('@') => blue(),
+                    _ => white(),
+                };
+
+                text!("{line}").color(color).into()
+            }
+        ).collect());
+        let diff_view = Scrollable::new(diff_view);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(diff_view.into(), context).into(),
         ]).into();
     }
 
@@ -273,7 +332,7 @@ fn horizontal_bar<'a, 'b>(context: &'a GuiContext) -> Element<'b, Message> {
         .into()
 }
 
-fn render_turn_preview<'a, 'b, 'c>(p: &'a TurnPreview, context: &'b GuiContext) -> Element<'c, Message> {
+fn render_turn_preview<'a, 'b, 'c>(index: usize, p: &'a TurnPreview, context: &'b GuiContext) -> Element<'c, Message> {
     let truncation_color = match context.fe_context.truncation.get(&p.id).unwrap() {
         Truncation::Hidden => red(),
         Truncation::FullRender => green(),
@@ -288,6 +347,7 @@ fn render_turn_preview<'a, 'b, 'c>(p: &'a TurnPreview, context: &'b GuiContext) 
     }.into();
 
     let row = Row::from_vec(vec![
+        text!("{index:>3}. ").into(),
         truncation.into(),
         text!("[{}]", p.timestamp).into(),
         Column::from_vec(vec![
@@ -297,7 +357,7 @@ fn render_turn_preview<'a, 'b, 'c>(p: &'a TurnPreview, context: &'b GuiContext) 
             ]).into(),
             text!("(LLM: {}, TOOL: {})", prettify_time(p.llm_elapsed_ms), prettify_time(p.tool_elapsed_ms)).width(Length::FillPortion(2)).into(),
         ]).width(Length::Fill).into(),
-    ]).width(Length::Fixed(context.window_size.width)).spacing(12);
+    ]).width(Length::Fixed(context.window_size.width)).align_y(Vertical::Center).spacing(12);
 
     let mut with_color = Container::new(row).padding(8);
 
@@ -313,7 +373,7 @@ fn render_turn_preview<'a, 'b, 'c>(p: &'a TurnPreview, context: &'b GuiContext) 
         MouseArea::new(with_color)
             .on_enter(Message::HoverOnTurn(Some(p.id.clone())))
             .on_exit(Message::HoverOnTurn(None))
-            .on_press(Message::OpenPopup { curr: Popup::Turn(p.id.clone()), prev: None })
+            .on_press(Message::OpenPopup { curr: Popup::Turn((index, p.id.clone())), prev: None })
             .into()
     }
 
@@ -322,8 +382,9 @@ fn render_turn_preview<'a, 'b, 'c>(p: &'a TurnPreview, context: &'b GuiContext) 
     }
 }
 
-fn render_turn<'a, 'b, 'c>(turn: &'a Turn, context: &'b GuiContext) -> Element<'c, Message> {
-    let turn_content = vec![
+fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b GuiContext) -> Element<'c, Message> {
+    let mut turn_content = vec![
+        text!("# {index}. {}", turn.preview().preview_title).into(),
         text!("<|LLM|>").into(),
         Container::new(
             render_llm_tokens(vec![StringOrImage::String(turn.raw_response.to_string())], context)
@@ -333,6 +394,15 @@ fn render_turn<'a, 'b, 'c>(turn: &'a Turn, context: &'b GuiContext) -> Element<'
             render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), context)
         ).padding(8).style(|_| set_bg(Color::from_rgb(0.3, 0.3, 0.3))).into(),
     ];
+
+    if context.text_diff.is_some() {
+        turn_content.push(button(
+            "Diff",
+            Message::OpenPopup { curr: Popup::Diff, prev: context.curr_popup.clone() },
+            green(),
+        ).into());
+    }
+
     let turn_content = Scrollable::new(Column::from_vec(turn_content).padding(8).spacing(8).width(Length::Fill)).width(Length::Fill);
     popup(turn_content.into(), context)
 }
@@ -344,22 +414,11 @@ fn render_logs<'a, 'b, 'c>(logs: &'a [String], context: &'b GuiContext) -> Eleme
         logs.iter().map(
             |log| {
                 if let Some(cap) = LOG_DETAIL_RE.captures(log) {
-                    let log_id = cap.get(1).unwrap().as_str().to_string();
-                    let mut log_path = None;
-
-                    for ext in ["rs", "json", "txt"] {
-                        let candidate = join3(".neukgu", "logs", &format!("{log_id}.{ext}")).unwrap();
-
-                        if exists(&candidate) {
-                            log_path = Some(candidate);
-                            break;
-                        }
-                    }
-
+                    let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
                     Row::from_vec(vec![
                         text!("{log}").into(),
                         button("see details", Message::OpenPopup {
-                            curr: Popup::Log(log_path.unwrap()),
+                            curr: Popup::Log(log_id),
                             prev: Some(Popup::Logs),
                         }, green()).into(),
                     ]).align_y(Vertical::Center).spacing(20).into()
@@ -370,7 +429,7 @@ fn render_logs<'a, 'b, 'c>(logs: &'a [String], context: &'b GuiContext) -> Eleme
                 }
             }
         ).collect()
-    ).padding(8).spacing(8).width(Length::Fill)).width(Length::Fill);
+    ).padding(8).spacing(8).width(Length::Fill)).id(context.logs_view_id.clone()).width(Length::Fill);
     popup(logs.into(), context)
 }
 

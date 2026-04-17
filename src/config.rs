@@ -48,7 +48,7 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
-            llm_context_max_len: 200_000,
+            llm_context_max_len: 204_800,
             text_file_max_len: 32_768,
             text_file_max_lines: 512,
             dir_max_entries: 256,

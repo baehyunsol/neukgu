@@ -9,6 +9,8 @@ use crate::{
     from_browser_error,
     import_from_sandbox,
     normalize_and_get_id,
+    prettify_bytes,
+    prettify_time,
     subprocess,
 };
 use headless_chrome::Browser;
@@ -18,6 +20,7 @@ use ragit_fs::{
     basename,
     create_dir_all,
     exists,
+    is_dir,
     parent,
     read_bytes,
     read_dir,
@@ -78,6 +81,7 @@ pub enum ToolCall {
         question: String,
     },
     Render {
+        scroll: Option<i64>,
         input: Path,
         output: Path,
     },
@@ -166,6 +170,7 @@ impl ToolCall {
                             Ok(Err(ToolCallError::TooManyEntriesToRead {
                                 path: joined_path,
                                 entries: entries.len() as u64,
+                                limit: config.dir_max_entries,
                                 given_range: (*start, *end),
                             }))
                         }
@@ -174,6 +179,7 @@ impl ToolCall {
                             Ok(Err(ToolCallError::TooManyEntriesToRead {
                                 path: joined_path,
                                 entries: entries.len() as u64,
+                                limit: config.dir_max_entries,
                                 given_range: (*start, Some(*end)),
                             }))
                         }
@@ -198,7 +204,11 @@ impl ToolCall {
                 }
             },
             ToolCall::Write { path, mode, content } => {
-                let joined_path = path.join("/");
+                let joined_path = match normalize_path(path) {
+                    Some(path) if path.is_empty() => String::from("."),
+                    Some(path) => path.join("/"),
+                    None => path.join("/"),
+                };
 
                 if content.len() as u64 > config.text_file_max_len {
                     return Ok(Err(ToolCallError::TextTooLongToWrite {
@@ -209,6 +219,9 @@ impl ToolCall {
                 }
 
                 match (*mode, exists(&joined_path)) {
+                    (mode @ (WriteMode::Truncate | WriteMode::Append), _) if is_dir(&joined_path) => {
+                        return Ok(Err(ToolCallError::IsDir { path: joined_path, mode }));
+                    },
                     (WriteMode::Create, false) |
                     (WriteMode::Truncate, true) |
                     (WriteMode::Append, true) => {},
@@ -242,6 +255,8 @@ impl ToolCall {
 
                 Ok(Ok(ToolCallSuccess::Write {
                     path: joined_path,
+                    content: content.to_string(),
+                    mode: *mode,
                     bytes: byte_count,
                     chars: char_count,
                     lines: line_count,
@@ -369,7 +384,7 @@ impl ToolCall {
                 let answer = ask_question_to_web(question, &mut context.logger).await?;
                 Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
             },
-            ToolCall::Render { input, output } => {
+            ToolCall::Render { scroll, input, output } => {
                 let joined_output = output.join("/");
                 let joined_input = input.join("/");
 
@@ -421,6 +436,10 @@ impl ToolCall {
                 let tab = browser.new_tab().map_err(from_browser_error)?;
                 tab.navigate_to(&url).map_err(from_browser_error)?;
 
+                if let Some(scroll) = scroll {
+                    tab.evaluate(&format!("window.scrollBy(0, {scroll})"), false).map_err(from_browser_error)?;
+                }
+
                 // TODO: maybe we have to wait a few seconds until it loads?
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
                 let image_id = normalize_and_get_id(&png_data)?;
@@ -463,10 +482,11 @@ impl ToolCall {
                 "Ask to {}",
                 format!("{to:?}").to_ascii_lowercase(),
             ),
-            ToolCall::Render { input, output } => format!(
-                "Render `{}` to `{}`",
+            ToolCall::Render { scroll, input, output } => format!(
+                "Render `{}` to `{}`{}",
                 input.join("/"),
                 output.join("/"),
+                if let Some(scroll) = scroll { format!(" (scroll {scroll})") } else { String::new() },
             ),
         }
     }
@@ -492,6 +512,8 @@ pub enum ToolCallSuccess {
     },
     Write {
         path: String,
+        content: String,
+        mode: WriteMode,
         bytes: u64,
         chars: u64,
         lines: u64,
@@ -531,15 +553,14 @@ impl ToolCallSuccess {
             ToolCallSuccess::ReadDir { path, entries, total_entries, range } => {
                 let entries_count = match range {
                     (None, None) => format!("{total_entries} entries"),
-                    (None | Some(0), Some(e)) => format!("{total_entries} entries (seeing the first {} entries)", e + 1),
-                    (Some(s), None) => format!("{total_entries} entries (seeing the last {} entries)", total_entries - s),
+                    (None | Some(0 | 1), Some(e)) => format!("{total_entries} entries (seeing the first {} entries)", e + 1),
+                    (Some(s), None) => format!("{total_entries} entries (seeing the last {} entries)", total_entries - s + 1),
                     _ => todo!(),
                 };
                 let entries = entries.iter().map(
                     |entry| match entry {
                         FileEntry::TextFile { name, bytes, lines, .. } => format!("{name}\ttext\t{}\t{lines} lines", prettify_bytes(*bytes)),
-                        FileEntry::ImageFile { name, bytes } => format!("{name}\timage\t{}", prettify_bytes(*bytes)),
-                        FileEntry::EtcFile { name, bytes } => format!("{name}\tetc\t{}", prettify_bytes(*bytes)),
+                        FileEntry::EtcFile { name, bytes } => format!("{name}\t{}", prettify_bytes(*bytes)),
                         FileEntry::Dir { name } => format!("{name}/\tdirectory"),
                     }
                 ).collect::<Vec<_>>().join("\n");
@@ -621,6 +642,7 @@ pub enum ToolCallError {
     TooManyEntriesToRead {
         path: String,
         entries: u64,
+        limit: u64,
         given_range: (Option<u64>, Option<u64>),
     },
     TooManyReadWithoutWrite,
@@ -628,6 +650,10 @@ pub enum ToolCallError {
     // write errors
     NoPermissionToWrite {
         path: String,
+    },
+    IsDir {
+        path: String,
+        mode: WriteMode,
     },
     WriteModeError {
         path: String,
@@ -672,6 +698,12 @@ impl ToolCallError {
                     prettify_bytes(*limit),
                 )),
             ],
+            ToolCallError::TooManyEntriesToRead { path, entries, limit: _, given_range: (None, None) } => vec![
+                StringOrImage::String(format!("`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.")),
+            ],
+            ToolCallError::TooManyEntriesToRead { limit, .. } => vec![
+                StringOrImage::String(format!("You can read at most `{limit}` entries at once. Please give me a smaller range.")),
+            ],
             ToolCallError::TooManyReadWithoutWrite => vec![
                 StringOrImage::String(String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this.")),
             ],
@@ -684,6 +716,13 @@ impl ToolCallError {
                 };
                 vec![StringOrImage::String(s)]
             },
+            ToolCallError::TextTooLongToWrite { path, length, limit } => vec![
+                StringOrImage::String(format!(
+                    "Failed to write to the file.\nYou attempted to write too long contents to `{path}`. The environment allows up to {} write at once, but your content is {}.\nYou can try to make it shorter, or split it into multiple files.",
+                    prettify_bytes(*limit),
+                    prettify_bytes(*length),
+                )),
+            ],
             ToolCallError::NoSuchBinary { binary, available_binaries } => vec![
                 StringOrImage::String(format!(
                     "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
@@ -745,29 +784,6 @@ fn normalize_path(path: &Path) -> Option<Path> {
     }
 
     Some(result)
-}
-
-pub fn prettify_bytes(b: u64) -> String {
-    match b {
-        0..=19_999 => format!("{b} bytes"),
-        20_000..=19_999_999 => format!("{} KiB", b >> 10),
-        20_000_000..=19_999_999_999 => format!("{} MiB", b >> 20),
-        _ => format!("{} GiB", b >> 30),
-    }
-}
-
-pub fn prettify_time(ms: u64) -> String {
-    let seconds = ms / 1000;
-    let minutes = seconds / 60;
-    let hours = minutes / 60;
-
-    if seconds < 60 {
-        format!("{:.2} seconds", ms as f64 / 1000.0)
-    } else if hours < 2 {
-        format!("{minutes} minutes {} seconds", seconds % 60)
-    } else {
-        format!("{hours} hours {} minutes", minutes % 60)
-    }
 }
 
 fn join_command_args(args: &[String]) -> String {

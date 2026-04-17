@@ -25,10 +25,6 @@ pub enum FileEntry {
         chars: u64,
         lines: u64,
     },
-    ImageFile {
-        name: String,
-        bytes: u64,
-    },
     EtcFile {
         name: String,
         bytes: u64,
@@ -68,7 +64,9 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> 
                         let bytes = bytes.len() as u64;
                         entries.push(FileEntry::TextFile { name, bytes, chars, lines });
                     },
-                    Err(_) => todo!(),
+                    Err(_) => {
+                        entries.push(FileEntry::EtcFile { name, bytes: bytes.len() as u64 });
+                    },
                 }
             }
         }

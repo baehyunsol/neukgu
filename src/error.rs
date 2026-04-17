@@ -1,3 +1,4 @@
+use crate::TurnId;
 use ragit_fs::FileError;
 
 #[derive(Debug)]
@@ -10,20 +11,23 @@ pub enum Error {
 
     // CLI has `--instruction` arg, but `instruction.md` already exists.
     InstructionAlreadyExists,
+
     FrontendNotAvailable,
+    CannotCalcDiff { path: String, turn_id: TurnId },
     HttpError { status_code: u16 },
     CliError {
         message: String,
         span: Option<ragit_cli::RenderedSpan>,
     },
 
+    IoError(std::io::Error),
+    FromUtf8Error(std::string::FromUtf8Error),
+
     /// I don't know how to handle `anyhow::Error`, so I just convert it to string.
     BrowserError(String),
 
     /// see <https://docs.rs/ragit-fs/latest/ragit_fs/struct.FileError.html>
     FileError(FileError),
-
-    IoError(std::io::Error),
 
     /// see <https://docs.rs/image/latest/image/error/enum.ImageError.html>
     ImageError(image::ImageError),
@@ -56,6 +60,12 @@ impl From<ragit_cli::Error> for Error {
 impl From<FileError> for Error {
     fn from(e: FileError) -> Error {
         Error::FileError(e)
+    }
+}
+
+impl From<std::string::FromUtf8Error> for Error {
+    fn from(e: std::string::FromUtf8Error) -> Error {
+        Error::FromUtf8Error(e)
     }
 }
 

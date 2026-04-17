@@ -1,11 +1,8 @@
 use ragit_fs::{
     FileError,
-    WriteMode,
+    WriteMode as RagitFsWriteMode,
     create_dir,
     exists,
-    file_size,
-    join3,
-    read_bytes_offset,
     read_string,
     remove_dir_all,
     write_string,
@@ -22,6 +19,7 @@ mod image;
 mod interrupt;
 mod log;
 mod parse;
+mod prettify;
 mod request;
 mod response;
 mod sandbox;
@@ -35,8 +33,13 @@ pub use context::{ChosenTurn, Context, ContextJson};
 pub use error::{Error, from_browser_error};
 pub use image::{ImageId, normalize_and_get_id};
 pub use interrupt::Interrupt;
-use log::{Logger, LogEntry};
+use log::{FileContent, Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
+use prettify::{
+    prettify_bytes,
+    prettify_time,
+    prettify_tokens,
+};
 pub use request::{ApiProvider, Request, StringOrImage, Thinking};
 pub use response::Response;
 pub use sandbox::{export_to_sandbox, import_from_sandbox};
@@ -46,9 +49,8 @@ pub use tool::{
     ToolCallError,
     ToolCallSuccess,
     ToolKind,
+    WriteMode,
     load_available_binaries,
-    prettify_bytes,
-    prettify_time,
 };
 pub use turn::{
     Turn,
@@ -62,6 +64,11 @@ pub use turn::{
 pub use ui::{Be2Fe, Fe2Be, gui, tui};
 
 pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
+    if let Some(Interrupt::Pause) = context.check_user_interrupt()? {
+        sleep(Duration::from_millis(100));  // prevent busy-loop
+        return Ok(());
+    }
+
     let lock_file = std::fs::File::create(".neukgu/.lock").map_err(|e| FileError::from_std(e, ".neukgu/.lock"))?;
 
     match lock_file.try_lock() {
@@ -96,7 +103,6 @@ async fn step_inner(
     is_fake_turn: bool,
 ) -> Result<(), Error> {
     if let Some(Interrupt::Pause) = context.check_user_interrupt()? {
-        sleep(Duration::from_millis(100));  // prevent busy-loop
         return Ok(());
     }
 
@@ -116,7 +122,6 @@ async fn step_inner(
         context.store()?;
 
         if let Some(Interrupt::Pause) = context.check_user_interrupt()? {
-            sleep(Duration::from_millis(100));  // prevent busy-loop
             return Ok(());
         }
     }
@@ -176,7 +181,7 @@ pub fn init_working_dir(instruction: Option<String>) -> Result<(), Error> {
         write_string(
             "instruction.md",
             &instruction.unwrap_or(String::new()),
-            WriteMode::AlwaysCreate,
+            RagitFsWriteMode::AlwaysCreate,
         )?;
     }
 
@@ -194,7 +199,9 @@ pub fn init_working_dir(instruction: Option<String>) -> Result<(), Error> {
     create_dir(".neukgu/images")?;
     create_dir(".neukgu/turns")?;
     create_dir(".neukgu/logs")?;
-    write_string(".neukgu/logs/log", "", WriteMode::AlwaysCreate)?;
+    write_string(".neukgu/logs/log", "", RagitFsWriteMode::AlwaysCreate)?;
+    write_string(".neukgu/logs/tokens.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
+    write_string(".neukgu/logs/files.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
 
     let config = Config::default();
     config.store()?;
@@ -234,20 +241,4 @@ pub fn load_json<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
     }
 
     Err(curr_error.unwrap())
-}
-
-pub fn load_log_tail() -> Result<Vec<String>, Error> {
-    let path = join3(".neukgu", "logs", "log")?;
-    let file_size = file_size(&path)?;
-
-    if file_size > 8192 {
-        let log_tail = String::from_utf8_lossy(&read_bytes_offset(&path, file_size - 8192, file_size)?).to_string();
-
-        // first line is incomplete
-        Ok(log_tail.lines().skip(1).map(|s| s.to_string()).collect())
-    }
-
-    else {
-        Ok(read_string(&path)?.lines().map(|s| s.to_string()).collect())
-    }
 }

@@ -14,26 +14,25 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
 
     let mut context = FeContext::load()?;
     let mut has_to_erase_terminal = false;
+    let mut prev_buffer = vec![];
+    let mut curr_buffer = vec![];
 
     loop {
+        prev_buffer = curr_buffer;
+        curr_buffer = vec![];
         context.start_frame()?;
 
-        if has_to_erase_terminal {
-            println!("\x1b[2J");
-            println!("\x1bc");
-        }
+        curr_buffer.push(format!("{}", context.top_bar()?));
 
-        println!("{}", context.top_bar());
-
-        for preview in context.iter_previews() {
+        for (i, preview) in context.iter_previews().into_iter().enumerate() {
             let truncation = match context.truncation.get(&preview.id).unwrap() {
                 Truncation::Hidden => "\x1b[101m   \x1b[0m",
                 Truncation::FullRender => "\x1b[102m   \x1b[0m",
                 Truncation::ShortRender => "\x1b[104m   \x1b[0m",
             };
 
-            println!(
-                "{truncation}[{}] {}{}\n{}(LLM: {}, TOOL: {})",
+            curr_buffer.push(format!(
+                "{i:>3}. {truncation}[{}] {}{}\n{}(LLM: {}, TOOL: {})",
                 preview.timestamp,
                 preview.preview_title,
                 match preview.result {
@@ -44,13 +43,22 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
                 " ".repeat(35),
                 prettify_time(preview.llm_elapsed_ms),
                 prettify_time(preview.tool_elapsed_ms),
-            );
+            ));
         }
 
-        println!("{}", context.curr_status());
+        curr_buffer.push(format!("{}", context.curr_status()));
 
         if let Some(error) = context.curr_error() {
-            println!("\x1b[101m{error}\x1b[0m");
+            curr_buffer.push(format!("\x1b[101m{error}\x1b[0m"));
+        }
+
+        if curr_buffer != prev_buffer {
+            if has_to_erase_terminal {
+                println!("\x1b[2J");
+                println!("\x1bc");
+            }
+
+            println!("{}", curr_buffer.join("\n"));
         }
 
         sleep(Duration::from_millis(3000));

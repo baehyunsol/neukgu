@@ -5,27 +5,36 @@ use crate::{
     Context,
     ContextJson,
     Error,
+    FileContent,
     Interrupt,
+    LogId,
+    TokenUsage,
     ToolCall,
+    ToolCallSuccess,
     Turn,
     TurnId,
     TurnPreview,
+    TurnResult,
     TurnSummary,
+    WriteMode as ToolWriteMode,
     load_json,
-    load_log_tail,
+    load_log,
+    load_logs_tail,
     prettify_bytes,
+    prettify_tokens,
 };
 use ragit_fs::{
     FileError,
-    WriteMode,
+    WriteMode as FsWriteMode,
     exists,
     join,
     join3,
-    read_string,
     write_string,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use similar::Algorithm as DiffAlgorithm;
+use similar::udiff::unified_diff;
 use std::collections::HashMap;
 use std::fs::TryLockError;
 use std::process::{Command, Stdio};
@@ -116,12 +125,12 @@ impl FeContext {
             write_string(
                 &join(".neukgu", "fe2be.json")?,
                 &serde_json::to_string(&Fe2Be::default())?,
-                WriteMode::Atomic,
+                FsWriteMode::Atomic,
             )?;
         }
 
         let be_context: ContextJson = load_json(&join(".neukgu", "context.json")?)?;
-        let log_lines = load_log_tail()?;
+        let log_lines = load_logs_tail()?;
 
         let history: Vec<TurnSummary> = be_context.history.iter().map(
             |t| t.get_turn_summary()
@@ -130,32 +139,38 @@ impl FeContext {
         let mut truncated_context = None;
         let mut last_api_error = None;
         let mut last_backend_error = None;
+        let mut in_turn = true;
+        let mut in_session = true;
 
         for log_line in log_lines.iter().rev() {
             // This is the end of a turn.
-            if TOOL_CALL_END_RE.is_match(log_line) || INIT_LOGGER_RE.is_match(log_line) {
-                break;
+            if TOOL_CALL_END_RE.is_match(log_line) {
+                in_turn = false;
             }
 
-            else if let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
-                let log_id = cap.get(1).unwrap().as_str().to_string();
-                let tool_call: ToolCall = load_json(&join3(".neukgu", "logs", &format!("{log_id}.json"))?)?;
+            else if INIT_LOGGER_RE.is_match(log_line) {
+                in_session = false;
+            }
+
+            else if in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
+                let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
+                let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id)?)?;
                 curr_tool_call = Some(tool_call);
             }
 
-            else if let Some(cap) = TRUNCATED_CONTEXT_RE.captures(log_line) {
-                let log_id = cap.get(1).unwrap().as_str().to_string();
-                let c: Vec<ChosenTurn> = load_json(&join3(".neukgu", "logs", &format!("{log_id}.json"))?)?;
+            else if truncated_context.is_none() && let Some(cap) = TRUNCATED_CONTEXT_RE.captures(log_line) {
+                let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
+                let c: Vec<ChosenTurn> = serde_json::from_str(&load_log(&log_id)?)?;
                 truncated_context = Some(c);
             }
 
-            else if let Some(cap) = BACKEND_ERROR_RE.captures(log_line) {
-                let log_id = cap.get(1).unwrap().as_str().to_string();
-                let e = read_string(&join3(".neukgu", "logs", &format!("{log_id}.rs"))?)?;
+            else if in_session && last_backend_error.is_none() && let Some(cap) = BACKEND_ERROR_RE.captures(log_line) {
+                let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
+                let e = load_log(&log_id)?;
                 last_backend_error = Some(e);
             }
 
-            else if let Some(cap) = GOT_RESPONSE_RE.captures(log_line) {
+            else if in_session && last_api_error.is_none() && let Some(cap) = GOT_RESPONSE_RE.captures(log_line) {
                 let status = cap.get(1).unwrap().as_str().parse::<u16>().unwrap();
 
                 if status < 200 || status >= 300 {
@@ -249,7 +264,7 @@ impl FeContext {
         write_string(
             &fe2be_at,
             &serde_json::to_string(&fe2be)?,
-            WriteMode::Atomic,
+            FsWriteMode::Atomic,
         )?;
 
         Ok(())
@@ -268,7 +283,7 @@ impl FeContext {
         write_string(
             &fe2be_at,
             &serde_json::to_string(&fe2be)?,
-            WriteMode::Atomic,
+            FsWriteMode::Atomic,
         )?;
         Ok(())
     }
@@ -280,7 +295,7 @@ impl FeContext {
         write_string(
             &fe2be_at,
             &serde_json::to_string(&fe2be)?,
-            WriteMode::Atomic,
+            FsWriteMode::Atomic,
         )?;
         Ok(())
     }
@@ -292,10 +307,15 @@ impl FeContext {
         }
     }
 
-    pub fn top_bar(&self) -> String {
-        format!(
-            "llm context: {}, neukgu: {}",
+    pub fn top_bar(&self) -> Result<String, Error> {
+        let token_usage: TokenUsage = load_json(&join3(".neukgu", "logs", "tokens.json")?)?;
+        let (total_input, total_output) = token_usage.total();
+        let (recent_input, recent_output) = token_usage.recent();
+
+        Ok(format!(
+            "llm context: {} / {}, neukgu: {}\ntotal input tokens: {}, total output tokens: {}, last 6hrs input tokens: {}, last 6hrs output tokens: {}",
             prettify_bytes(self.get_total_llm_bytes()),
+            prettify_bytes(self.config.llm_context_max_len),
             if self.is_paused() {
                 "paused"
             } else if self.is_be_busy().unwrap_or(false) {
@@ -303,7 +323,11 @@ impl FeContext {
             } else {
                 "not responding"
             },
-        )
+            prettify_tokens(total_input),
+            prettify_tokens(total_output),
+            prettify_tokens(recent_input),
+            prettify_tokens(recent_output),
+        ))
     }
 
     // Push `curr_status` and `curr_error` at the end of turns.
@@ -327,6 +351,52 @@ impl FeContext {
         } else {
             None
         }
+    }
+
+    pub fn calc_diff(&self, turn: &Turn) -> Result<Option<String>, Error> {
+        if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, content, mode: ToolWriteMode::Truncate, .. }) = &turn.turn_result {
+            let file_content_map: FileContent = load_json(&join3(".neukgu", "logs", "files.json")?)?;
+
+            match file_content_map.0.get(path) {
+                Some(turn_ids) => {
+                    let mut prev_content = String::new();
+
+                    for (i, turn_id) in turn_ids.iter().enumerate() {
+                        if turn_id == &turn.id {
+                            if i > 0 {
+                                let prev_turn = Turn::load(&turn_ids[i - 1])?;
+
+                                match &prev_turn.turn_result {
+                                    TurnResult::ToolCallSuccess(ToolCallSuccess::ReadText { content, .. } | ToolCallSuccess::Write { content, .. }) => {
+                                        prev_content = content.to_string();
+                                    },
+                                    _ => {
+                                        // It's kinda internal error.
+                                        return Err(Error::CannotCalcDiff { path: path.to_string(), turn_id: turn.id.clone() });
+                                    },
+                                }
+                            }
+
+                            break;
+                        }
+                    }
+
+                    return Ok(Some(unified_diff(
+                        DiffAlgorithm::Patience,
+                        &prev_content,
+                        content,
+                        5,
+                        None,
+                    )));
+                },
+                None => {
+                    // There's a bug in backend.
+                    return Err(Error::CannotCalcDiff { path: path.to_string(), turn_id: turn.id.clone() });
+                },
+            }
+        }
+
+        Ok(None)
     }
 
     fn get_total_llm_bytes(&self) -> u64 {

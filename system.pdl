@@ -129,6 +129,14 @@ It spawns a chrome browser, opens the input file, captures a screenshot of the b
 <output>output.png</output>
 </render>
 
+If you're rendering an html file, you can scroll down the page with `<scroll>` tag. The below example scrolls down 500 pixels and captures a screenshot.
+
+<render>
+<scroll>500</scroll>
+<input>doc.html</input>
+<output>doc-500.png</output>
+</render>
+
 ---
 
 You have to use exactly 1 tool per turn. When you call a tool, finish your turn and wait for response.
