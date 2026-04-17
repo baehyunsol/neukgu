@@ -14,7 +14,7 @@ use crate::{
     prettify_time,
 };
 use iced::{Background, Color, ContentFit, Element, Font, Length, Size, Subscription, Task, Theme};
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{self, Event as KeyboardEvent, Key, key::Named as NamedKey};
 use iced::time::{self, Duration};
@@ -221,8 +221,14 @@ fn update(context: &mut GuiContext, message: Message) -> Task<Message> {
         Message::ResumeNeukgu => {
             context.interrupt = Some(Interrupt::Resume);
         },
-        Message::InterruptNeukgu => {},
-        Message::EditText(a) => panic!("TODO: {a:?}"),
+        Message::InterruptNeukgu => {
+            context.interrupt = Some(Interrupt::Request { request_id: rand::random::<u64>(), request: context.interrupt_input_content.text() });
+            context.close_popup();
+            context.interrupt_input_content = TextEditorContent::with_text("");
+        },
+        Message::EditText(a) => {
+            context.interrupt_input_content.perform(a);
+        },
         Message::None => {},
     }
 
@@ -325,6 +331,11 @@ fn view(context: &GuiContext) -> Element<'_, Message> {
         let interrupt_edit = TextEditor::new(&context.interrupt_input_content)
             .placeholder("Say something to neukgu!")
             .on_action(|action| Message::EditText(action));
+        let interrupt_edit = Column::from_vec(vec![
+            interrupt_edit.into(),
+            button("Send", Message::InterruptNeukgu, green()).padding(20).into(),
+        ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill);
+
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             popup(interrupt_edit.into(), context).into(),
