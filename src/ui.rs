@@ -237,30 +237,53 @@ impl FeContext {
 
     pub fn start_frame(&mut self) -> Result<(), Error> {
         self.update()?;
+        let be2fe_at = join(".neukgu", "be2fe.json")?;
+
+        if exists(&be2fe_at) {
+            let be2fe = load_json::<Be2Fe>(&be2fe_at)?;
+
+            if let Some(id) = be2fe.completed_user_request {
+                let fe2be_at = join(".neukgu", "fe2be.json")?;
+                let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
+
+                if let Some((id_, _)) = fe2be.user_request && id_ == id {
+                    fe2be.user_request = None;
+                }
+
+                write_string(
+                    &fe2be_at,
+                    &serde_json::to_string(&fe2be)?,
+                    FsWriteMode::Atomic,
+                )?;
+            }
+        }
+
         Ok(())
     }
 
     // Interrupt::Request: The user asked a question to LLM and the LLM has to answer this.
     // user_response: LLM asked a question to the user and the user answered this.
     pub fn end_frame(&mut self, interrupt: Option<Interrupt>, user_response: Option<(u64, String)>) -> Result<(), Error> {
+        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
+
         match interrupt {
             Some(Interrupt::Pause) => {
-                self.pause()?;
+                fe2be.pause = true;
             },
             Some(Interrupt::Resume) => {
-                self.resume()?;
+                fe2be.pause = false;
             },
-            Some(Interrupt::Request { .. }) => todo!(),
+            Some(Interrupt::Request { request_id, request }) => {
+                fe2be.user_request = Some((request_id, request));
+            },
             None => {},
         }
 
-        // There are many many things to consider..
         if let Some(user_response) = user_response {
             todo!()
         }
 
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
-        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
         fe2be.updated_at = Local::now().timestamp();
         write_string(
             &fe2be_at,
@@ -275,30 +298,6 @@ impl FeContext {
         self.history.iter().map(
             |turn| self.previews.get(&turn.id).unwrap().clone()
         ).collect()
-    }
-
-    fn pause(&mut self) -> Result<(), Error> {
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
-        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
-        fe2be.pause = true;
-        write_string(
-            &fe2be_at,
-            &serde_json::to_string(&fe2be)?,
-            FsWriteMode::Atomic,
-        )?;
-        Ok(())
-    }
-
-    fn resume(&mut self) -> Result<(), Error> {
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
-        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
-        fe2be.pause = false;
-        write_string(
-            &fe2be_at,
-            &serde_json::to_string(&fe2be)?,
-            FsWriteMode::Atomic,
-        )?;
-        Ok(())
     }
 
     pub fn is_paused(&self) -> bool {
