@@ -372,8 +372,11 @@ impl ToolCall {
                 }
             },
             ToolCall::Ask { id, to: AskTo::User, question } => {
-                if let Some(request) = &context.user_request {
-                    todo!()
+                if let Some((_, request)) = &context.user_request {
+                    Ok(Ok(ToolCallSuccess::Ask {
+                        to: AskTo::User,
+                        answer: request.to_string(),
+                    }))
                 }
 
                 else {

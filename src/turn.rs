@@ -56,10 +56,8 @@ pub struct Turn {
     pub llm_elapsed_ms: u64,
     pub tool_elapsed_ms: u64,
 
-    // Neukgu tries to control AI by inserting fake turns.
-    // For example, if the user wants to interrupt AI, the backend
-    // inserts Tool::Ask { to: User } as if the AI asked a question
-    // to the user.
+    // Currently, user-interrupt is implemented by inserting a fake turn
+    // with `Ask { to: User }`.
     pub is_fake: bool,
 }
 
@@ -142,7 +140,11 @@ impl Turn {
     pub fn preview(&self) -> TurnPreview {
         let preview_title = match &self.parse_result {
             Some(parse_result) => {
-                if let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {
+                if self.is_user_interrupt() {
+                    String::from("User interrupt")
+                }
+
+                else if let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {
                     call.preview()
                 }
 
@@ -161,6 +163,11 @@ impl Turn {
             tool_elapsed_ms: self.tool_elapsed_ms,
             timestamp: TURN_TIMESTAMP_REGEX.captures(&self.id.0).unwrap().get(1).unwrap().as_str().to_string(),
         }
+    }
+
+    // As of now, this is the only condition to check...
+    pub fn is_user_interrupt(&self) -> bool {
+        self.is_fake
     }
 }
 

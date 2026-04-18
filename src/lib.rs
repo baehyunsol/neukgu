@@ -154,7 +154,7 @@ async fn step_inner(
 
     let mut has_processed_user_request = false;
 
-    if let Some(Interrupt::Request { request_id, request }) = context.check_user_interrupt()? {
+    if !is_fake_turn && let Some(Interrupt::Request { request_id, request }) = context.check_user_interrupt()? {
         context.add_user_request_turn(request_id, request);
         Box::pin(step_inner(context, config, true)).await?;
         has_processed_user_request = true;

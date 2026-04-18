@@ -50,6 +50,14 @@ pub struct Be2Fe {
     pub completed_user_request: Option<u64>,
 }
 
+impl Default for Be2Fe {
+    fn default() -> Be2Fe {
+        Be2Fe {
+            completed_user_request: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fe2Be {
     pub pause: bool,

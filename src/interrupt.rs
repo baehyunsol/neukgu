@@ -1,6 +1,7 @@
 use crate::{Be2Fe, Context, Error, Fe2Be, load_json};
 use ragit_fs::{
     WriteMode,
+    exists,
     join,
     write_string,
 };
@@ -49,11 +50,17 @@ impl Context {
 
     pub fn mark_user_request_complete(&mut self) -> Result<(), Error> {
         if let Some((id, _)) = self.user_request.take() {
-            let mut be2fe = load_json::<Be2Fe>(&join(".neukgu", "be2fe.json")?)?;
+            let be2fe_at = join(".neukgu", "be2fe.json")?;
+            let mut be2fe = if exists(&be2fe_at) {
+                load_json::<Be2Fe>(&be2fe_at)?
+            } else {
+                Be2Fe::default()
+            };
             be2fe.completed_user_request = Some(id);
             self.completed_user_requests.insert(id);
+
             write_string(
-                &join(".neukgu", "be2fe.json")?,
+                &be2fe_at,
                 &serde_json::to_string_pretty(&be2fe)?,
                 WriteMode::Atomic,
             )?;
