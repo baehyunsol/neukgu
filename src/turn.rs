@@ -2,11 +2,12 @@ use chrono::{Local, SecondsFormat};
 use crate::{
     Config,
     Error,
+    LLMToken,
     ParseError,
     ParsedSegment,
     ToolCallError,
     ToolCallSuccess,
-    StringOrImage,
+    count_bytes_of_llm_tokens,
     get_first_tool_call,
 };
 use flate2::Compression;
@@ -110,15 +111,12 @@ impl Turn {
 
     // `.summary()` is used by be and fe, and `.preview()` is used by fe.
     pub fn summary(&self, config: &Config) -> TurnSummary {
-        let result_len = self.turn_result.to_llm_tokens(config).iter().map(
-            |t| match t {
-                StringOrImage::String(s) => s.len() as u64,
+        let result_len = count_bytes_of_llm_tokens(
+            &self.turn_result.to_llm_tokens(config),
 
-                // An image is treated like a 2048 bytes string.
-                // TODO: make it configurable.
-                StringOrImage::Image(_) => 2048,
-            }
-        ).sum::<u64>();
+            // TODO: make it configurable
+            /* bytes_per_image: */ 2048,
+        );
         let response_len_full = self.raw_response.len() as u64;
         let response_len_short = match &self.parse_result {
             Some(segments) => {
@@ -179,7 +177,7 @@ pub enum TurnResult {
 }
 
 impl TurnResult {
-    pub fn to_llm_tokens(&self, config: &Config) -> Vec<StringOrImage> {
+    pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         match self {
             TurnResult::ParseError(e) => e.to_llm_tokens(),
             TurnResult::ToolCallError(e) => e.to_llm_tokens(),

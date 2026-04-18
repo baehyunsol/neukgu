@@ -1,4 +1,4 @@
-use super::{HttpRequest, Request, StringOrImage, Thinking};
+use super::{HttpRequest, LLMToken, Request, Thinking};
 use base64::Engine;
 use crate::Error;
 use ragit_fs::read_bytes;
@@ -104,16 +104,16 @@ impl Request {
     }
 }
 
-fn contents_to_json(contents: &[StringOrImage]) -> Result<Value, Error> {
+fn contents_to_json(contents: &[LLMToken]) -> Result<Value, Error> {
     let mut result = Vec::with_capacity(contents.len());
 
     for part in contents.iter() {
         let part = match part {
-            StringOrImage::String(s) => json!({
+            LLMToken::String(s) => json!({
                 "type": "text",
                 "text": s,
             }),
-            StringOrImage::Image(id) => {
+            LLMToken::Image(id) => {
                 let bytes = read_bytes(&id.path()?)?;
                 let image_base64 = encode_base64(&bytes);
 

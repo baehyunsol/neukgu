@@ -15,6 +15,8 @@ pub enum Error {
     FrontendNotAvailable,
     InvalidModelName(String),
     CannotCalcDiff { path: String, turn_id: TurnId },
+    MockApiExpectationFailure { expect: String },
+
     HttpError { status_code: u16 },
     CliError {
         message: String,

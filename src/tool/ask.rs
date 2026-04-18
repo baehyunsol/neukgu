@@ -1,10 +1,10 @@
 use crate::{
     Error,
+    LLMToken,
     Logger,
     LogEntry,
     Model,
     Request,
-    StringOrImage,
     Thinking,
 };
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub async fn ask_question_to_web(q: &str, logger: &mut Logger, model: Model) -> 
         model,
         system_prompt: String::from("Search web and answer the user question."),
         history: vec![],
-        query: vec![StringOrImage::String(q.to_string())],
+        query: vec![LLMToken::String(q.to_string())],
         enable_web_search: true,
         thinking: Thinking::Disabled,
     };

@@ -1,21 +1,27 @@
 use async_std::task::sleep;
 use crate::{Error, ImageId, Logger, LogEntry, Response};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
 
 mod anthropic;
+mod mock;
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ApiProvider {
     Anthropic,
+    Mock,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HttpRequest {
     pub url: String,
     pub headers: HashMap<String, String>,
     pub body: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Model {
     pub name: String,
     pub provider: ApiProvider,
@@ -28,31 +34,36 @@ impl Model {
             provider: ApiProvider::Anthropic,
         }
     }
+
+    pub fn mock() -> Model {
+        Model {
+            name: String::from("mock"),
+            provider: ApiProvider::Mock,
+        }
+    }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Request {
     pub model: Model,
     pub system_prompt: String,
     pub history: Vec<Turn>,
-    pub query: Vec<StringOrImage>,
+    pub query: Vec<LLMToken>,
     pub enable_web_search: bool,
     pub thinking: Thinking,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum Thinking {
     Enabled,
     Disabled,
     Adaptive,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Turn {
-    pub query: Vec<StringOrImage>,
+    pub query: Vec<LLMToken>,
     pub response: String,
-}
-
-pub enum StringOrImage {
-    String(String),
-    Image(ImageId),
 }
 
 impl Request {
@@ -63,6 +74,7 @@ impl Request {
         for _ in 0..5 {
             let http_request = match self.model.provider {
                 ApiProvider::Anthropic => self.to_anthropic_request()?,
+                ApiProvider::Mock => self.to_mock_request()?,
             };
             let mut request = client
                 .post(&http_request.url)
@@ -75,6 +87,16 @@ impl Request {
 
             logger.log(LogEntry::SendRequest(request.try_clone().unwrap()))?;
             logger.log(LogEntry::RequestBody(http_request.body))?;
+
+            // It has to generate all the logs that *real* API calls generate.
+            if let ApiProvider::Mock = self.model.provider {
+                let response = self.send_mock_request().await?;
+                logger.log(LogEntry::GotResponse(200))?;
+                logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
+                logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;
+                logger.log_api_usage(response.input_tokens, response.output_tokens)?;
+                return Ok(response);
+            }
 
             match request.send().await {
                 Ok(response) => {
@@ -89,8 +111,8 @@ impl Request {
                             match status_code {
                                 200..=299 => {
                                     let response = match self.model.provider {
-                                        // It's un-recoverable, so we just unwrap.
-                                        ApiProvider::Anthropic => Response::from_anthropic(&s).unwrap(),
+                                        ApiProvider::Anthropic => Response::from_anthropic(&s)?,
+                                        ApiProvider::Mock => unreachable!(),
                                     };
                                     logger.log_api_usage(response.input_tokens, response.output_tokens)?;
                                     return Ok(response);
@@ -128,4 +150,19 @@ impl Request {
 
         Err(error.unwrap())
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum LLMToken {
+    String(String),
+    Image(ImageId),
+}
+
+pub fn count_bytes_of_llm_tokens(tokens: &[LLMToken], bytes_per_image: u64) -> u64 {
+    tokens.iter().map(
+        |token| match token {
+            LLMToken::String(s) => s.len() as u64,
+            LLMToken::Image(_) => bytes_per_image,
+        }
+    ).sum()
 }

@@ -52,12 +52,6 @@
   - 일단, tool에 사용되는 모든 path는 normalize 돼 있으므로, primary key로 사용 가능
   - ReadText나 WriteText가 성공하면 걔의 log_id를 저장하면 됨
     - `HashMap<Path, Vec<LogId>>`처럼 저장하면 됨! log_id는 순서대로 저장되어 있으므로 diff를 뜰 때는 바로 이전의 내용과 비교하면 됨!
-31. Test
-  - 가라 LLM API endpoint 만들기
-    - run `cargo new foo` -> read `foo/Cargo.toml` -> write something to `foo/Cargo.toml` -> read `foo/Cargo.toml` -> run `cargo run --manifest-path foo/Cargo.toml`
-    - 첫번째 read랑 두번째 read의 값 확인하면 될 듯?
-    - 첫번째 run은 성공, 두번째 run은 실패하는 것도 확인하기
-    - 중간중간에 헛소리 좀 시키기
 32. multiple guis
   - 보니까 state랑 message를 enum으로 만든 다음에 각 variant마다 update/view를 각각 구현하고 각 variant를 합치는 하나의 거대한 update/view를 구현하더라... -> 구현은 별로 안 어려움!!
   - `neukgu init`, `neukgu new`를 위한 gui도 따로 만들고 init/new 한 다음에 바로 turn으로 이어지도록 설계하자!!

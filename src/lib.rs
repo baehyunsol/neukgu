@@ -40,7 +40,7 @@ use prettify::{
     prettify_time,
     prettify_tokens,
 };
-pub use request::{Model, Request, StringOrImage, Thinking};
+pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens};
 pub use response::Response;
 pub use sandbox::{export_to_sandbox, import_from_sandbox};
 pub use tool::{
@@ -172,7 +172,7 @@ async fn step_inner(
     Ok(())
 }
 
-pub fn init_working_dir(instruction: Option<String>) -> Result<(), Error> {
+pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(), Error> {
     if exists(".neukgu/") {
         return Err(Error::IndexDirAlreadyExists);
     }
@@ -203,7 +203,12 @@ pub fn init_working_dir(instruction: Option<String>) -> Result<(), Error> {
     write_string(".neukgu/logs/tokens.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
     write_string(".neukgu/logs/files.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
 
-    let config = Config::default();
+    let mut config = Config::default();
+
+    if mock_api {
+        config.model = String::from("mock");
+    }
+
     config.store()?;
 
     let context = Context::new(&config)?;

@@ -1,11 +1,11 @@
 use crate::{
     Config,
     Error,
+    LLMToken,
     Logger,
     LogEntry,
     ParsedSegment,
     Request,
-    StringOrImage,
     Thinking,
     ToolCallSuccess,
     Turn,
@@ -200,7 +200,7 @@ impl Context {
     // 4. If there are too many turns, we have to omit less important turns. But how do we know which turn is important?
     //    - Recent turns are likely to be more relevant than old turns.
     //    - The LLM is likely to gather important information in early turns (e.g. reading `instruction.md`).
-    fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<StringOrImage>), Error> {
+    fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
         let mut truncated_context = false;
 
         let chosen_turns = 'b: {
@@ -297,7 +297,7 @@ impl Context {
 
         let mut llm_turns = vec![request::Turn {
             // TODO: better starting message?
-            query: vec![StringOrImage::String(String::from("Go on."))],
+            query: vec![LLMToken::String(String::from("Go on."))],
             response: String::new(),
         }];
 

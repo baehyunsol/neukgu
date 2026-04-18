@@ -3,8 +3,8 @@ use crate::{
     Context,
     Error,
     ImageId,
+    LLMToken,
     LogEntry,
-    StringOrImage,
     export_to_sandbox,
     from_browser_error,
     import_from_sandbox,
@@ -540,19 +540,19 @@ pub enum ToolCallSuccess {
 }
 
 impl ToolCallSuccess {
-    pub fn to_llm_tokens(&self, config: &Config) -> Vec<StringOrImage> {
+    pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         match self {
             ToolCallSuccess::ReadText { content, .. } => {
                 if content.is_empty() {
                     // claude requires every turn to be non-empty
-                    vec![StringOrImage::String(String::from("(This file is empty.)"))]
+                    vec![LLMToken::String(String::from("(This file is empty.)"))]
                 }
 
                 else {
-                    vec![StringOrImage::String(content.to_string())]
+                    vec![LLMToken::String(content.to_string())]
                 }
             },
-            ToolCallSuccess::ReadImage { id, .. } => vec![StringOrImage::Image(*id)],
+            ToolCallSuccess::ReadImage { id, .. } => vec![LLMToken::Image(*id)],
             ToolCallSuccess::ReadDir { path, entries, total_entries, range } => {
                 let entries_count = match range {
                     (None, None) => format!("{total_entries} entries"),
@@ -571,11 +571,11 @@ impl ToolCallSuccess {
                     "{path}{}\n{entries_count}\n\n{entries}",
                     if path.ends_with("/") { "" } else { "/" },
                 );
-                vec![StringOrImage::String(s)]
+                vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Write { path, bytes, lines, .. } => {
                 let s = format!("{} ({lines} lines) of text was successfully written to `{path}`.", prettify_bytes(*bytes));
-                vec![StringOrImage::String(s)]
+                vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Run { command, elapsed_ms, exit_code, stdout, stderr } => {
                 let stdout = match stdout {
@@ -604,12 +604,12 @@ impl ToolCallSuccess {
                     join_command_args(command),
                     prettify_time(*elapsed_ms),
                 );
-                vec![StringOrImage::String(s)]
+                vec![LLMToken::String(s)]
             },
-            ToolCallSuccess::Ask { answer, .. } => vec![StringOrImage::String(answer.to_string())],
+            ToolCallSuccess::Ask { answer, .. } => vec![LLMToken::String(answer.to_string())],
             ToolCallSuccess::Render { input, output_path, output_image } => vec![
-                StringOrImage::String(format!("Successfully opened `{input}` with chrome, captured a screenshot, and saved it to `{output_path}`.")),
-                StringOrImage::Image(*output_image),
+                LLMToken::String(format!("Successfully opened `{input}` with chrome, captured a screenshot, and saved it to `{output_path}`.")),
+                LLMToken::Image(*output_image),
             ],
         }
     }
@@ -689,26 +689,26 @@ pub enum ToolCallError {
 }
 
 impl ToolCallError {
-    pub fn to_llm_tokens(&self) -> Vec<StringOrImage> {
+    pub fn to_llm_tokens(&self) -> Vec<LLMToken> {
         match self {
             ToolCallError::NoSuchFile { path } => vec![
-                StringOrImage::String(format!("There's no such file: `{path}`.")),
+                LLMToken::String(format!("There's no such file: `{path}`.")),
             ],
             ToolCallError::TextTooLongToRead { path, length, limit } => vec![
-                StringOrImage::String(format!(
+                LLMToken::String(format!(
                     "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 200 lines with <end>200</end>, or use search tools like ripgrep.",
                     prettify_bytes(*length),
                     prettify_bytes(*limit),
                 )),
             ],
             ToolCallError::TooManyEntriesToRead { path, entries, limit: _, given_range: (None, None) } => vec![
-                StringOrImage::String(format!("`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.")),
+                LLMToken::String(format!("`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.")),
             ],
             ToolCallError::TooManyEntriesToRead { limit, .. } => vec![
-                StringOrImage::String(format!("You can read at most `{limit}` entries at once. Please give me a smaller range.")),
+                LLMToken::String(format!("You can read at most `{limit}` entries at once. Please give me a smaller range.")),
             ],
             ToolCallError::TooManyReadWithoutWrite => vec![
-                StringOrImage::String(String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this.")),
+                LLMToken::String(String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this.")),
             ],
             ToolCallError::WriteModeError { path, mode, exists } => {
                 let s = match (mode, exists) {
@@ -717,17 +717,17 @@ impl ToolCallError {
                     (WriteMode::Append, false) => format!("You can't append to `{path}` because it does not exist. Try with \"create\"."),
                     _ => unreachable!(),
                 };
-                vec![StringOrImage::String(s)]
+                vec![LLMToken::String(s)]
             },
             ToolCallError::TextTooLongToWrite { path, length, limit } => vec![
-                StringOrImage::String(format!(
+                LLMToken::String(format!(
                     "Failed to write to the file.\nYou attempted to write too long contents to `{path}`. The environment allows up to {} write at once, but your content is {}.\nYou can try to make it shorter, or split it into multiple files.",
                     prettify_bytes(*limit),
                     prettify_bytes(*length),
                 )),
             ],
             ToolCallError::NoSuchBinary { binary, available_binaries } => vec![
-                StringOrImage::String(format!(
+                LLMToken::String(format!(
                     "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
                     available_binaries.join(", "),
                     if binary.contains("/") {

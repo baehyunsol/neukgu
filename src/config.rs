@@ -26,6 +26,7 @@ impl Config {
     pub fn model(&self) -> Result<Model, Error> {
         match self.model.as_str() {
             "sonnet" => Ok(Model::sonnet()),
+            "mock" => Ok(Model::mock()),
             _ => Err(Error::InvalidModelName(self.model.to_string())),
         }
     }

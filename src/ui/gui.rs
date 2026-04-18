@@ -3,8 +3,8 @@ use crate::{
     Error,
     ImageId,
     Interrupt,
+    LLMToken,
     LogId,
-    StringOrImage,
     Turn,
     TurnId,
     TurnPreview,
@@ -431,7 +431,7 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b GuiContext
         text!("# {index}. {}", turn.preview().preview_title).into(),
         text!("<|LLM|>").into(),
         Container::new(
-            render_llm_tokens(vec![StringOrImage::String(turn.raw_response.to_string())], context)
+            render_llm_tokens(vec![LLMToken::String(turn.raw_response.to_string())], context)
         ).padding(8).style(|_| set_bg(Color::from_rgb(0.3, 0.3, 0.3))).into(),
         text!("<|result|>").into(),
         Container::new(
@@ -477,11 +477,11 @@ fn render_logs<'a, 'b, 'c>(logs: &'a [String], context: &'b GuiContext) -> Eleme
     popup(logs.into(), context)
 }
 
-fn render_llm_tokens(llm_tokens: Vec<StringOrImage>, context: &GuiContext) -> Element<'static, Message> {
+fn render_llm_tokens(llm_tokens: Vec<LLMToken>, context: &GuiContext) -> Element<'static, Message> {
     Column::from_vec(llm_tokens.iter().map(
         |token| match token {
-            StringOrImage::String(s) => text!("{s}").width(Length::Fill).into(),
-            StringOrImage::Image(id) => MouseArea::new(
+            LLMToken::String(s) => text!("{s}").width(Length::Fill).into(),
+            LLMToken::Image(id) => MouseArea::new(
                 Image::new(ImageHandle::from_path(id.path().unwrap()))
                     .width(Length::Fixed(300.0))
                     .height(Length::Fixed(300.0))

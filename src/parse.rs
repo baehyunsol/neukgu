@@ -1,4 +1,4 @@
-use crate::{AskTo, StringOrImage, ToolCall, ToolKind};
+use crate::{AskTo, LLMToken, ToolCall, ToolKind};
 use crate::tool::WriteMode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -56,14 +56,14 @@ pub enum ParseError {
 }
 
 impl ParseError {
-    pub fn to_llm_tokens(&self) -> Vec<StringOrImage> {
+    pub fn to_llm_tokens(&self) -> Vec<LLMToken> {
         match self {
-            ParseError::NoTag => vec![StringOrImage::String(String::from("
+            ParseError::NoTag => vec![LLMToken::String(String::from("
 I can't find any XML-syntaxed tool calls in your response.
 Please call a tool.
 "))],
             // Why the fuck is claude calling multiple tools in a single turn?
-            ParseError::MultipleTags => vec![StringOrImage::String(String::from("
+            ParseError::MultipleTags => vec![LLMToken::String(String::from("
 Failed to call tools.
 
 You tried to call multiple tools in a single turn. I see multiple XML syntaxes in your response.
@@ -71,10 +71,10 @@ NONE OF YOUR ACTIONS IN YOUR PREVIOUS TURN WAS RUN.
 You can call exactly 1 tool per turn. You have to call exactly 1 tool per turn, do you understand?
 I repeat, just call a single tool and finish your turn.
             "))],
-            ParseError::UnterminatedArg { tag, arg } => vec![StringOrImage::String(format!(
+            ParseError::UnterminatedArg { tag, arg } => vec![LLMToken::String(format!(
 "Argument `{arg}` in tool `{tag}` is not terminated properly. I can't find `</{arg}>`."
             ))],
-            ParseError::NotBash => vec![StringOrImage::String(String::from("
+            ParseError::NotBash => vec![LLMToken::String(String::from("
 Failed to run the command.
 
 You're not using bash. You're directly executing the binary with the arguments.
