@@ -1,8 +1,8 @@
 use crate::{
-    ApiProvider,
     Error,
     Logger,
     LogEntry,
+    Model,
     Request,
     StringOrImage,
     Thinking,
@@ -15,11 +15,9 @@ pub enum AskTo {
     Web,
 }
 
-pub async fn ask_question_to_web(q: &str, logger: &mut Logger) -> Result<String, Error> {
+pub async fn ask_question_to_web(q: &str, logger: &mut Logger, model: Model) -> Result<String, Error> {
     let mut request = Request {
-        // TODO: make it configurable
-        model: String::from("claude-sonnet-4-6"),
-        provider: ApiProvider::Anthropic,
+        model,
         system_prompt: String::from("Search web and answer the user question."),
         history: vec![],
         query: vec![StringOrImage::String(q.to_string())],

@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{Error, Model};
 use ragit_fs::{
     WriteMode,
     join,
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    pub model: String,
     pub sandbox_root: String,
     pub llm_context_max_len: u64,
     pub text_file_max_len: u64,
@@ -22,6 +23,13 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn model(&self) -> Result<Model, Error> {
+        match self.model.as_str() {
+            "sonnet" => Ok(Model::sonnet()),
+            _ => Err(Error::InvalidModelName(self.model.to_string())),
+        }
+    }
+
     pub fn load() -> Result<Self, Error> {
         let s = read_string(&join(".neukgu", "config.json")?)?;
         Ok(serde_json::from_str(&s)?)
@@ -47,6 +55,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            model: String::from("sonnet"),
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
             llm_context_max_len: 204_800,
             text_file_max_len: 32_768,

@@ -40,7 +40,7 @@ use prettify::{
     prettify_time,
     prettify_tokens,
 };
-pub use request::{ApiProvider, Request, StringOrImage, Thinking};
+pub use request::{Model, Request, StringOrImage, Thinking};
 pub use response::Response;
 pub use sandbox::{export_to_sandbox, import_from_sandbox};
 pub use tool::{

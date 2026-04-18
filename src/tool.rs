@@ -384,7 +384,7 @@ impl ToolCall {
                 }
             },
             ToolCall::Ask { id: _, to: AskTo::Web, question } => {
-                let answer = ask_question_to_web(question, &mut context.logger).await?;
+                let answer = ask_question_to_web(question, &mut context.logger, config.model()?).await?;
                 Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
             },
             ToolCall::Render { scroll, input, output } => {

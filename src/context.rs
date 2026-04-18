@@ -1,5 +1,4 @@
 use crate::{
-    ApiProvider,
     Config,
     Error,
     Logger,
@@ -174,9 +173,7 @@ impl Context {
         let (history, query) = self.fit_history_to_llm_context(config)?;
 
         Ok(Request {
-            // TODO: make it configurable
-            model: String::from("claude-sonnet-4-6"),
-            provider: ApiProvider::Anthropic,
+            model: config.model()?,
             system_prompt: self.system_prompt.to_string(),
             history,
             query,

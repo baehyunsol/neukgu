@@ -27,6 +27,8 @@ use iced::widget::text_editor::{Action as TextEditorAction, Content as TextEdito
 use regex::Regex;
 use std::sync::LazyLock;
 
+const HELP_MESSAGE: &str = "TODO: Write help message...";
+
 pub fn run(no_backend: bool) -> Result<(), Error> {
     if !no_backend {
         spawn_backend_process()?;
@@ -324,7 +326,10 @@ fn view(context: &GuiContext) -> Element<'_, Message> {
     }
 
     else if let Some(Popup::Help) = context.curr_popup {
-        todo!()
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(Scrollable::new(text!("{HELP_MESSAGE}")).into(), context).into(),
+        ]).into();
     }
 
     else if let Some(Popup::Interrupt) = context.curr_popup {

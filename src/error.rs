@@ -13,6 +13,7 @@ pub enum Error {
     InstructionAlreadyExists,
 
     FrontendNotAvailable,
+    InvalidModelName(String),
     CannotCalcDiff { path: String, turn_id: TurnId },
     HttpError { status_code: u16 },
     CliError {

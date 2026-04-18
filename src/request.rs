@@ -16,9 +16,22 @@ pub struct HttpRequest {
     pub body: Value,
 }
 
-pub struct Request {
-    pub model: String,
+pub struct Model {
+    pub name: String,
     pub provider: ApiProvider,
+}
+
+impl Model {
+    pub fn sonnet() -> Model {
+        Model {
+            name: String::from("claude-sonnet-4-6"),
+            provider: ApiProvider::Anthropic,
+        }
+    }
+}
+
+pub struct Request {
+    pub model: Model,
     pub system_prompt: String,
     pub history: Vec<Turn>,
     pub query: Vec<StringOrImage>,
@@ -48,7 +61,7 @@ impl Request {
         let mut error = None;
 
         for _ in 0..5 {
-            let http_request = match self.provider {
+            let http_request = match self.model.provider {
                 ApiProvider::Anthropic => self.to_anthropic_request()?,
             };
             let mut request = client
@@ -75,7 +88,7 @@ impl Request {
 
                             match status_code {
                                 200..=299 => {
-                                    let response = match self.provider {
+                                    let response = match self.model.provider {
                                         // It's un-recoverable, so we just unwrap.
                                         ApiProvider::Anthropic => Response::from_anthropic(&s).unwrap(),
                                     };
