@@ -5,7 +5,7 @@ Neukgu is an opinionated coding agent. Currently, it only works with Anthropic A
 It works like this:
 
 1. You create or initialize a working directory with `neukgu new` or `neukgu init`.
-2. You write the instructions to `instruction.md`.
+2. You write the instructions to `neukgu-instruction.md`.
 3. Run neukgu, and it will do the rest.
 
 In order to run this, you need 4 binaries installed: `git`, `python3`, `cargo` and `ripgrep`. Neukgu will try to find these in your PATH.
@@ -14,14 +14,14 @@ In order to run this, you need 4 binaries installed: `git`, `python3`, `cargo` a
 
 `neukgu new my-project` will create a new working directory. Like `cargo new`, you have to chdir to `my-project` after running this command.
 
-You have to manually fill `instruction.md` in `my-project/` after creation.
+You have to manually fill `neukgu-instruction.md` in `my-project/` after creation.
 
 ## 2. Initialize a working directory
 
 You can run `neukgu init` in an existing directory to turn it into a neukgu directory.
 
-It creates `instruction.md` if it's not already there. You have to manually fill the instruction file before running neukgu.
-If `instruction.md` is already there and it's used for another purpose (other than neukgu), you cannot run neukgu in the directory...
+It creates `neukgu-instruction.md` if it's not already there. You have to manually fill the instruction file before running neukgu.
+If `neukgu-instruction.md` is already there and it's used for another purpose (other than neukgu), you cannot run neukgu in the directory...
 
 ## 3. Headless mode
 

@@ -4,7 +4,9 @@ use super::{
     black,
     blue,
     button,
+    gray,
     green,
+    horizontal_bar,
     pink,
     red,
     set_bg,
@@ -28,7 +30,7 @@ use crate::{
 use iced::{Background, Color, ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
-use iced::widget::{Column, Id, MouseArea, Row, Sensor, Scrollable, Space, Stack, text};
+use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Sensor, Stack, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
@@ -51,13 +53,14 @@ pub struct IcedContext {
     pub loaded_image: Option<ImageId>,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
+    pub copy_buffer: Option<String>,
 
     // If it's set, it'll display "diff" button in the turn popup.
     pub text_diff: Option<String>,
 
     pub interrupt: Option<Interrupt>,
     pub user_response: Option<(u64, String)>,
-    pub interrupt_input_content: TextEditorContent,
+    pub text_editor_content: TextEditorContent,
 }
 
 impl IcedContext {
@@ -70,24 +73,29 @@ impl IcedContext {
                 let turn = Turn::load(&turn_id)?;
                 self.text_diff = self.fe_context.calc_diff(&turn)?;
                 self.loaded_turn = Some((index, turn));
+                // TODO: load self.copy_buffer
             },
             Popup::Interrupt => {
                 // There's nothing to load
             },
             Popup::Logs => {
                 self.loaded_log = Some(LogView::Logs(load_logs_tail()?));
+                // TODO: load self.copy_buffer
             },
             Popup::Log(id) => {
                 self.loaded_log = Some(LogView::Log(load_log(&id)?));
+                // TODO: load self.copy_buffer
             },
             Popup::Help => {
                 // There's nothing to load
+                // TODO: load self.copy_buffer
             },
             Popup::Image(id) => {
                 self.loaded_image = Some(id);
             },
             Popup::Diff => {
                 // It's already loaded in `self.text_diff`
+                // TODO: load self.copy_buffer
             },
         }
 
@@ -100,6 +108,8 @@ impl IcedContext {
         self.loaded_log = None;
         self.loaded_image = None;
         self.curr_popup = None;
+        self.copy_buffer = None;
+        self.text_editor_content = TextEditorContent::with_text("");
     }
 }
 
@@ -114,12 +124,13 @@ pub enum IcedMessage {
         prev: Option<Popup>,
     },
     BackPopup,
-    CopyPopup,
     ClosePopup,
+    CopyToClipboard,
     PauseNeukgu,
     ResumeNeukgu,
     InterruptNeukgu,
     EditText(TextEditorAction),
+    Error(String),
     None,
 }
 
@@ -141,8 +152,12 @@ pub enum LogView {
 }
 
 pub fn boot() -> IcedContext {
-    IcedContext {
-        fe_context: FeContext::load().unwrap(),
+    try_boot().unwrap()
+}
+
+pub fn try_boot() -> Result<IcedContext, Error> {
+    Ok(IcedContext {
+        fe_context: FeContext::load()?,
         window_size: Size::new(0.0, 0.0),
         turn_view_id: Id::unique(),
         logs_view_id: Id::unique(),
@@ -153,24 +168,31 @@ pub fn boot() -> IcedContext {
         loaded_image: None,
         curr_popup: None,
         prev_popup: None,
+        copy_buffer: None,
         text_diff: None,
         interrupt: None,
         user_response: None,
-        interrupt_input_content: TextEditorContent::with_text(""),
+        text_editor_content: TextEditorContent::with_text(""),
+    })
+}
+
+pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
+    match try_update(context, message) {
+        Ok(t) => t,
+        Err(e) => Task::done(IcedMessage::Error(format!("{e:?}"))),
     }
 }
 
-// TODO: too many unwraps here...
-pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
+fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick => {
-            context.fe_context.end_frame(context.interrupt.take(), context.user_response.take()).unwrap();
+            context.fe_context.end_frame(context.interrupt.take(), context.user_response.take())?;
 
             if let Some(LogView::Logs(_)) = &context.loaded_log {
-                context.loaded_log = Some(LogView::Logs(load_logs_tail().unwrap()));
+                context.loaded_log = Some(LogView::Logs(load_logs_tail()?));
             }
 
-            context.fe_context.start_frame().unwrap();
+            context.fe_context.start_frame()?;
         },
         IcedMessage::WindowResized(s) => {
             context.window_size = s;
@@ -190,22 +212,22 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 scrolls.push(snap_to(context.logs_view_id.clone(), RelativeOffset::END));
             }
 
-            context.open_popup(curr).unwrap();
+            context.open_popup(curr)?;
             context.prev_popup = prev;
-            return Task::batch(scrolls);
+            return Ok(Task::batch(scrolls));
         },
         IcedMessage::BackPopup => {
             if let Some(prev_popup) = &context.prev_popup {
                 let prev_popup = prev_popup.clone();
-                context.open_popup(prev_popup).unwrap();
+                context.open_popup(prev_popup)?;
                 context.prev_popup = None;
             }
         },
-        IcedMessage::CopyPopup => todo!(),
         IcedMessage::ClosePopup => {
             context.close_popup();
-            return scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled);
+            return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
         },
+        IcedMessage::CopyToClipboard => todo!(),
         IcedMessage::PauseNeukgu => {
             context.interrupt = Some(Interrupt::Pause);
         },
@@ -213,17 +235,18 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.interrupt = Some(Interrupt::Resume);
         },
         IcedMessage::InterruptNeukgu => {
-            context.interrupt = Some(Interrupt::Request { request_id: rand::random::<u64>(), request: context.interrupt_input_content.text() });
+            context.interrupt = Some(Interrupt::Request { request_id: rand::random::<u64>(), request: context.text_editor_content.text() });
             context.close_popup();
-            context.interrupt_input_content = TextEditorContent::with_text("");
+            context.text_editor_content = TextEditorContent::with_text("");
         },
         IcedMessage::EditText(a) => {
-            context.interrupt_input_content.perform(a);
+            context.text_editor_content.perform(a);
         },
+        IcedMessage::Error(e) => todo!(),
         IcedMessage::None => {},
     }
 
-    Task::none()
+    Ok(Task::none())
 }
 
 pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
@@ -241,21 +264,21 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     turns.push(text!("").width(Length::Fixed(800.0)).height(Length::Fixed(800.0)).into());
 
     let turns_stretched = Column::from_vec(turns)
-        .padding(12)
-        .spacing(12);
+        .padding(8)
+        .spacing(8);
 
     let mut turns_scrollable = Scrollable::new(turns_stretched).id(context.turn_view_id.clone());
 
     if context.curr_popup.is_none() {
         turns_scrollable = turns_scrollable.on_scroll(|v| IcedMessage::TurnViewScrolled(v.absolute_offset()));
     }
-    let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
 
+    let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
     let full_view = Column::from_vec(vec![
         Container::new(text!("{}", context.fe_context.top_bar().unwrap_or_else(|e| format!("{e:?}")))).padding(8).into(),
-        horizontal_bar(context),
+        horizontal_bar(context.window_size.width),
         render_buttons(context),
-        horizontal_bar(context),
+        horizontal_bar(context.window_size.width),
         turns_colored.into(),
     ]);
 
@@ -322,11 +345,11 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     else if let Some(Popup::Interrupt) = context.curr_popup {
-        let interrupt_edit = TextEditor::new(&context.interrupt_input_content)
+        let text_editor = TextEditor::new(&context.text_editor_content)
             .placeholder("Say something to neukgu!")
             .on_action(|action| IcedMessage::EditText(action));
         let interrupt_edit = Column::from_vec(vec![
-            interrupt_edit.into(),
+            text_editor.into(),
             button("Send", IcedMessage::InterruptNeukgu, green()).padding(20).into(),
         ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill);
 
@@ -339,7 +362,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     full_view_stacked
 }
 
-fn render_buttons<'a, 'b>(context: &'a IcedContext) -> Element<'b, IcedMessage> {
+fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
     if context.curr_popup.is_some() {
         return Container::new(text!("")).padding(8).into();
     }
@@ -357,15 +380,7 @@ fn render_buttons<'a, 'b>(context: &'a IcedContext) -> Element<'b, IcedMessage> 
     Row::from_vec(buttons).padding(8).spacing(8).into()
 }
 
-fn horizontal_bar<'a, 'b>(context: &'a IcedContext) -> Element<'b, IcedMessage> {
-    Container::new(Space::new())
-        .style(|_| set_bg(white()))
-        .width(Length::Fixed(context.window_size.width))
-        .height(Length::Fixed(8.0))
-        .into()
-}
-
-fn render_turn_preview<'a, 'b, 'c>(index: usize, p: &'a TurnPreview, context: &'b IcedContext) -> Element<'c, IcedMessage> {
+fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let truncation_color = match context.fe_context.truncation.get(&p.id).unwrap() {
         Truncation::Hidden => red(),
         Truncation::FullRender => green(),
@@ -395,11 +410,11 @@ fn render_turn_preview<'a, 'b, 'c>(index: usize, p: &'a TurnPreview, context: &'
     let mut with_color = Container::new(row).padding(8);
 
     if let Some(id) = &context.hovered_turn && &p.id == id {
-        with_color = with_color.style(|_| set_bg(Color::from_rgb(0.45, 0.45, 0.45)));
+        with_color = with_color.style(|_| set_bg(gray(0.45)));
     }
 
     else {
-        with_color = with_color.style(|_| set_bg(Color::from_rgb(0.15, 0.15, 0.15)));
+        with_color = with_color.style(|_| set_bg(gray(0.15)));
     }
 
     if context.curr_popup.is_none() {
@@ -421,11 +436,11 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
         text!("<|LLM|>").into(),
         Container::new(
             render_llm_tokens(vec![LLMToken::String(turn.raw_response.to_string())], context)
-        ).padding(8).style(|_| set_bg(Color::from_rgb(0.3, 0.3, 0.3))).into(),
+        ).padding(8).style(|_| set_bg(gray(0.3))).into(),
         text!("<|result|>").into(),
         Container::new(
             render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), context)
-        ).padding(8).style(|_| set_bg(Color::from_rgb(0.3, 0.3, 0.3))).into(),
+        ).padding(8).style(|_| set_bg(gray(0.3))).into(),
     ];
 
     if context.text_diff.is_some() {
@@ -492,7 +507,10 @@ fn popup<'a, 'b>(element: Element<'a, IcedMessage>, context: &'b IcedContext) ->
         buttons.push(button("Back", IcedMessage::BackPopup, blue()).into());
     }
 
-    buttons.push(button("Copy", IcedMessage::CopyPopup, blue()).into());
+    if context.copy_buffer.is_some() {
+        buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue()).into());
+    }
+
     buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
 
     Container::new(

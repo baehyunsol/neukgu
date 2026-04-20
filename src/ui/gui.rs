@@ -1,15 +1,21 @@
 use super::{FeContext, Truncation, spawn_backend_process};
 use crate::Error;
-use iced::{Background, Color, Font, Subscription, Theme};
+use iced::{Background, Color, Element, Font, Length, Subscription, Theme};
 use iced::border::{Border, Radius};
 use iced::keyboard::{self, Event as KeyboardEvent, Key, key::Named as NamedKey};
 use iced::time::{self, Duration};
+use iced::widget::{Container, Space};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::Style;
 
+mod error;
 mod launcher;
 mod working_dir;
 
+use error::{
+    IcedContext as ErrorContext,
+    IcedMessage as ErrorMessage,
+};
 use launcher::{
     IcedContext as LauncherContext,
     IcedMessage as LauncherMessage,
@@ -34,19 +40,30 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
                 _ => WorkingDirMessage::None,
             }),
         ]))
-        .run()
-        .unwrap();
+        .run()?;
+
+    Ok(())
+}
+
+pub fn launcher() -> Result<(), Error> {
+    iced::application(launcher::boot, launcher::update, launcher::view)
+        .theme(Theme::Dark)
+        .default_font(Font::MONOSPACE)
+        .run()?;
+
     Ok(())
 }
 
 pub enum IcedContext {
     Launcher(LauncherContext),
     WorkingDir(WorkingDirContext),
+    Error(ErrorContext),
 }
 
 pub enum IcedMessage {
     Launcher(LauncherMessage),
     WorkingDir(WorkingDirMessage),
+    Error(ErrorMessage),
 }
 
 fn button<'s, Message>(name: &'s str, message: Message, solid_color: Color) -> Button<'s, Message> {
@@ -72,6 +89,14 @@ fn button<'s, Message>(name: &'s str, message: Message, solid_color: Color) -> B
         .on_press(message)
 }
 
+fn horizontal_bar<'a, Message: 'a>(window_width: f32) -> Element<'a, Message> {
+    Container::new(Space::new())
+        .style(|_| set_bg(white()))
+        .width(Length::Fixed(window_width))
+        .height(Length::Fixed(8.0))
+        .into()
+}
+
 fn set_bg(color: Color) -> Style {
     Style {
         background: Some(Background::Color(color)),
@@ -85,6 +110,10 @@ fn white() -> Color {
 
 fn black() -> Color {
     Color::from_rgb(0.0, 0.0, 0.0)
+}
+
+fn gray(c: f32) -> Color {
+    Color::from_rgb(c, c, c)
 }
 
 fn red() -> Color {

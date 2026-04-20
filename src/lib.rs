@@ -177,9 +177,9 @@ pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(
         return Err(Error::IndexDirAlreadyExists);
     }
 
-    if !exists("instruction.md") {
+    if !exists("neukgu-instruction.md") {
         write_string(
-            "instruction.md",
+            "neukgu-instruction.md",
             &instruction.unwrap_or(String::new()),
             RagitFsWriteMode::AlwaysCreate,
         )?;
@@ -202,6 +202,18 @@ pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(
     write_string(".neukgu/logs/log", "", RagitFsWriteMode::AlwaysCreate)?;
     write_string(".neukgu/logs/tokens.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
     write_string(".neukgu/logs/files.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
+
+    write_string(
+        ".neukgu/be2fe.json",
+        &serde_json::to_string(&Be2Fe::default())?,
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
+
+    write_string(
+        ".neukgu/fe2be.json",
+        &serde_json::to_string(&Fe2Be::default())?,
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
 
     let mut config = Config::default();
 

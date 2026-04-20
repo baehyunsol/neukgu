@@ -9,7 +9,7 @@ pub enum Error {
     IndexDirNotFound,
     IndexDirAlreadyExists,
 
-    // CLI has `--instruction` arg, but `instruction.md` already exists.
+    // CLI has `--instruction` arg, but `neukgu-instruction.md` already exists.
     InstructionAlreadyExists,
 
     FrontendNotAvailable,
@@ -31,6 +31,9 @@ pub enum Error {
 
     /// see <https://docs.rs/ragit-fs/latest/ragit_fs/struct.FileError.html>
     FileError(FileError),
+
+    /// see <https://docs.rs/iced/latest/iced/enum.Error.html>
+    IcedError(iced::Error),
 
     /// see <https://docs.rs/image/latest/image/error/enum.ImageError.html>
     ImageError(image::ImageError),
@@ -75,6 +78,12 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
         Error::IoError(e)
+    }
+}
+
+impl From<iced::Error> for Error {
+    fn from(e: iced::Error) -> Error {
+        Error::IcedError(e)
     }
 }
 

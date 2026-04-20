@@ -35,19 +35,20 @@ pub enum ParseState {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ParseError {
-    NoTag,
-    InvalidTag(String),
-    MultipleTags,
-    WrongArg {
-        tag: String,
+    NoTool,
+    InvalidTool(String),
+    MultipleTools,
+    InvalidArg {
+        tool: String,
         arg: String,
+        valid_args: Vec<String>,
     },
     MissingArg {
-        tag: String,
+        tool: String,
         arg: String,
     },
     UnterminatedArg {
-        tag: String,
+        tool: String,
         arg: String,
     },
     InvalidWriteMode(String),
@@ -58,12 +59,18 @@ pub enum ParseError {
 impl ParseError {
     pub fn to_llm_tokens(&self) -> Vec<LLMToken> {
         match self {
-            ParseError::NoTag => vec![LLMToken::String(String::from("
+            ParseError::NoTool => vec![LLMToken::String(String::from("
 I can't find any XML-syntaxed tool calls in your response.
 Please call a tool.
 "))],
+            ParseError::InvalidTool(tool) => vec![LLMToken::String(format!(
+                "`{tool}` is not a valid tool. Available tools are {}.",
+                ToolKind::all().iter().map(
+                    |tool| format!("<{tool:?}>").to_ascii_lowercase()
+                ).collect::<Vec<_>>().join(", "),
+            ))],
             // Why the fuck is claude calling multiple tools in a single turn?
-            ParseError::MultipleTags => vec![LLMToken::String(String::from("
+            ParseError::MultipleTools => vec![LLMToken::String(String::from("
 Failed to call tools.
 
 You tried to call multiple tools in a single turn. I see multiple XML syntaxes in your response.
@@ -71,8 +78,18 @@ NONE OF YOUR ACTIONS IN YOUR PREVIOUS TURN WAS RUN.
 You can call exactly 1 tool per turn. You have to call exactly 1 tool per turn, do you understand?
 I repeat, just call a single tool and finish your turn.
             "))],
-            ParseError::UnterminatedArg { tag, arg } => vec![LLMToken::String(format!(
-"Argument `{arg}` in tool `{tag}` is not terminated properly. I can't find `</{arg}>`."
+            ParseError::InvalidArg { tool, arg, valid_args } => vec![LLMToken::String(format!(
+                "`<{arg}>` is not a valid argument for tool `{tool}`. Available arguments are {}.",
+                valid_args.iter().map(|arg| format!("<{arg}>")).collect::<Vec<_>>().join(", "),
+            ))],
+            ParseError::MissingArg { tool, arg } => vec![LLMToken::String(format!(
+                "Argument `{arg}` in tool `{tool}` is missing. I can't find `<{arg}>..</{arg}>`.",
+            ))],
+            ParseError::UnterminatedArg { tool, arg } => vec![LLMToken::String(format!(
+"Argument `{arg}` in tool `{tool}` is not terminated properly. I can't find `</{arg}>`.",
+            ))],
+            ParseError::InvalidWriteMode(mode) => vec![LLMToken::String(format!(
+                "`{mode}` is not a valid <mode>. Available modes are create, truncate and append.",
             ))],
             ParseError::NotBash => vec![LLMToken::String(String::from("
 Failed to run the command.
@@ -97,7 +114,9 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
 <command>python3 tests/your_e2e_test.py</command>
 </run>
 "))],
-            _ => panic!("TODO: {self:?}"),
+            ParseError::InvalidAskTo(to) => vec![LLMToken::String(format!(
+                "You can't ask to `{to}`. You can ask to either user or web.",
+            ))],
         }
     }
 }
@@ -184,11 +203,11 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
 
                     return match valid_tag_count {
                         0 => match first_tag_but_wrong_name {
-                            Some(wrong_tag) => Err(ParseError::InvalidTag(String::from_utf8_lossy(&wrong_tag).to_string())),
-                            None => Err(ParseError::NoTag),
+                            Some(wrong_tag) => Err(ParseError::InvalidTool(String::from_utf8_lossy(&wrong_tag).to_string())),
+                            None => Err(ParseError::NoTool),
                         },
                         1 => Ok(segments),
-                        _ => Err(ParseError::MultipleTags),
+                        _ => Err(ParseError::MultipleTools),
                     };
                 },
             },
@@ -223,9 +242,10 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
                         }
 
                         else {
-                            return Err(ParseError::WrongArg {
-                                tag: String::from_utf8_lossy(&curr_tag_name).to_string(),
+                            return Err(ParseError::InvalidArg {
+                                tool: String::from_utf8_lossy(&curr_tag_name).to_string(),
                                 arg: String::from_utf8_lossy(t).to_string(),
+                                valid_args: kind.valid_args(),
                             });
                         }
                     },
@@ -262,7 +282,7 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
 
                     else if cursor > input.len() {
                         return Err(ParseError::UnterminatedArg {
-                            tag: String::from_utf8_lossy(&curr_tag_name).to_string(),
+                            tool: String::from_utf8_lossy(&curr_tag_name).to_string(),
                             arg: String::from_utf8_lossy(&curr_arg_name).to_string(),
                         });
                     }
@@ -284,7 +304,7 @@ impl ToolCall {
                     Some(path) => path,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("read"),
+                            tool: String::from("read"),
                             arg: String::from("path"),
                         });
                     },
@@ -298,7 +318,7 @@ impl ToolCall {
                     Some(path) => path,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("write"),
+                            tool: String::from("write"),
                             arg: String::from("path"),
                         });
                     },
@@ -307,7 +327,7 @@ impl ToolCall {
                     Some(content) => content,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("write"),
+                            tool: String::from("write"),
                             arg: String::from("content"),
                         });
                     },
@@ -323,7 +343,7 @@ impl ToolCall {
                     },
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("write"),
+                            tool: String::from("write"),
                             arg: String::from("mode"),
                         });
                     },
@@ -353,7 +373,7 @@ impl ToolCall {
                     },
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("run"),
+                            tool: String::from("run"),
                             arg: String::from("command"),
                         });
                     },
@@ -374,7 +394,7 @@ impl ToolCall {
                     },
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("ask"),
+                            tool: String::from("ask"),
                             arg: String::from("to"),
                         });
                     },
@@ -383,7 +403,7 @@ impl ToolCall {
                     Some(question) => question.to_string(),
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("ask"),
+                            tool: String::from("ask"),
                             arg: String::from("question"),
                         });
                     },
@@ -396,7 +416,7 @@ impl ToolCall {
                     Some(input) => input,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("render"),
+                            tool: String::from("render"),
                             arg: String::from("input"),
                         });
                     },
@@ -405,7 +425,7 @@ impl ToolCall {
                     Some(output) => output,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tag: String::from("render"),
+                            tool: String::from("render"),
                             arg: String::from("output"),
                         });
                     },

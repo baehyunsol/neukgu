@@ -1,10 +1,5 @@
 use crate::{Be2Fe, Context, Error, Fe2Be, load_json};
-use ragit_fs::{
-    WriteMode,
-    exists,
-    join,
-    write_string,
-};
+use ragit_fs::{WriteMode, join, write_string};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -51,11 +46,7 @@ impl Context {
     pub fn mark_user_request_complete(&mut self) -> Result<(), Error> {
         if let Some((id, _)) = self.user_request.take() {
             let be2fe_at = join(".neukgu", "be2fe.json")?;
-            let mut be2fe = if exists(&be2fe_at) {
-                load_json::<Be2Fe>(&be2fe_at)?
-            } else {
-                Be2Fe::default()
-            };
+            let mut be2fe = load_json::<Be2Fe>(&be2fe_at)?;
             be2fe.completed_user_request = Some(id);
             self.completed_user_requests.insert(id);
 

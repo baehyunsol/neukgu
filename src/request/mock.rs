@@ -142,7 +142,7 @@ impl MockRequest {
 fn mock_requests() -> Vec<MockRequest> {
     vec![
         MockRequest::new(
-            "<read>\n<path>instruction.md</path>\n</read>",
+            "<read>\n<path>neukgu-instruction.md</path>\n</read>",
             None,
         ),
         MockRequest::new(

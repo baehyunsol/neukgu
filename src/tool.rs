@@ -752,15 +752,39 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
+    pub fn all() -> Vec<ToolKind> {
+        vec![
+            ToolKind::Read,
+            ToolKind::Write,
+            ToolKind::Run,
+            ToolKind::Ask,
+            ToolKind::Render,
+        ]
+    }
+
     pub fn check_arg_name(&self, arg: &[u8]) -> bool {
         match (self, arg) {
             (ToolKind::Read, b"path" | b"start" | b"end") => true,
+            (ToolKind::Read, _) => false,
             (ToolKind::Write, b"path" | b"mode" | b"content") => true,
+            (ToolKind::Write, _) => false,
             (ToolKind::Run, b"timeout" | b"command" | b"stdout" | b"stderr") => true,
+            (ToolKind::Run, _) => false,
             (ToolKind::Ask, b"to" | b"question") => true,
+            (ToolKind::Ask, _) => false,
             (ToolKind::Render, b"input" | b"output") => true,
-            _ => false,
+            (ToolKind::Render, _) => false,
         }
+    }
+
+    pub fn valid_args(&self) -> Vec<String> {
+        match self {
+            ToolKind::Read => vec!["path", "start", "end"],
+            ToolKind::Write => vec!["path", "mode", "content"],
+            ToolKind::Run => vec!["timeout", "command", "stdout", "stderr"],
+            ToolKind::Ask => vec!["to", "question"],
+            ToolKind::Render => vec!["input", "output"],
+        }.iter().map(|arg| arg.to_string()).collect()
     }
 }
 

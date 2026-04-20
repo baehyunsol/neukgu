@@ -199,7 +199,7 @@ impl Context {
     //    tool-call again. It has more information than `TurnResult::ParseError`, though.
     // 4. If there are too many turns, we have to omit less important turns. But how do we know which turn is important?
     //    - Recent turns are likely to be more relevant than old turns.
-    //    - The LLM is likely to gather important information in early turns (e.g. reading `instruction.md`).
+    //    - The LLM is likely to gather important information in early turns (e.g. reading `neukgu-instruction.md`).
     fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
         let mut truncated_context = false;
 
@@ -241,7 +241,7 @@ impl Context {
             // We have to omit some turns...
             // My guess here is that
             //    1. Recent turns are more important than old turns.
-            //    2. Very early turns are important, because `instruction.md` is very likely to be there.
+            //    2. Very early turns are important, because `neukgu-instruction.md` is very likely to be there.
             // So I fill the first quarter with the very first turns and the remaining 3 quarters with the recent turns.
             //
             // It doesn't include parse-error turns.

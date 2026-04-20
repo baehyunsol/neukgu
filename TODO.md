@@ -20,10 +20,6 @@
   - 앞 32KiB만 잘라서 context에 집어넣어도 원하는 바는 다 전달이 되잖아? 그렇게 하자
   - 근데 지금 구현으로는 Tool의 arg만 잘라낼 방법이 없음...
   - 지금 당장은 고민할 필요가 없음. 애초에 AI가 저렇게 긴 파일을 한번에 쓸 능력이 안되거든!
-18. more user friendliness
-  - Create a new project with instruction
-  - instruction을 받아서 (cli로 받든 gui로 받든), 새 working-dir 만들고, instruction.md도 만들기! 실행까지 바로 해버리기!
-  - `new`랑 `init`을 GUI로 할 수 있게 하자!
 19. multi-agent
   - 코드 짜는 agent 따로, test하는 agent 따로, doc 쓰는 agent 따로... 하면 더 좋으려나?
 20. instruction.md가 굳이 필요함?? 파일을 따로 쓰기 vs gui/cli에서 instruction을 직접 주기
@@ -56,3 +52,24 @@
   - 보니까 state랑 message를 enum으로 만든 다음에 각 variant마다 update/view를 각각 구현하고 각 variant를 합치는 하나의 거대한 update/view를 구현하더라... -> 구현은 별로 안 어려움!!
   - `neukgu init`, `neukgu new`를 위한 gui도 따로 만들고 init/new 한 다음에 바로 turn으로 이어지도록 설계하자!!
   - 이게 되려면 gui에서 instruction.md를 바로 수정할 수 있어야함!!
+  - ui 기획
+    - file browser
+      - ..
+      - neukgu [init]
+      - ragit  [launch]
+      - Sodigy [launch]
+    - 맨 위에 [create] 버튼도 있음
+      - 이거 눌러도 instruction.md 설정하는 창 나와야겠지? -> 이 창에 project name 설정도 같이 하게 만들자!!
+    - create이나 init 누르면 instruction.md 설정하는 창 나옴!!
+33. instruction.md -> neukgu-instruction.md
+  - 이러면 안 겹치겠지? ㅋㅋㅋ
+34. restore/reset session
+  - 현재 디렉토리에서 새로운 instruction을 실행하고 싶을 때
+    - `.neukgu/logs/log`, `.neukgu/context.json`을 새롭게 만들기
+      - 기존 것도 어딘가에 백업해두면 session을 복구할 수 있음!!
+    - `.neukgu/be2fe.json`, `.neukgu/fe2be.json`을 새롭게 만들기
+      - 이건 백업할 필요 X
+    - `neukgu-instruction.md`는 사용자한테 새로 입력받기
+      - 기존 instruction을 어딘가에 백업해두자
+    - 나머지는 그대로 놔두기!
+  - working_dir application에다가 "new instruction"이라는 버튼을 추가하자

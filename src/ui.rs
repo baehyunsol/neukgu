@@ -129,14 +129,6 @@ impl FeContext {
     }
 
     fn load_without_preview() -> Result<FeContext, Error> {
-        if !exists(&join(".neukgu", "fe2be.json")?) {
-            write_string(
-                &join(".neukgu", "fe2be.json")?,
-                &serde_json::to_string(&Fe2Be::default())?,
-                FsWriteMode::Atomic,
-            )?;
-        }
-
         let be_context: ContextJson = load_json(&join(".neukgu", "context.json")?)?;
         let log_lines = load_logs_tail()?;
 
@@ -246,24 +238,21 @@ impl FeContext {
     pub fn start_frame(&mut self) -> Result<(), Error> {
         self.update()?;
         let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let be2fe = load_json::<Be2Fe>(&be2fe_at)?;
 
-        if exists(&be2fe_at) {
-            let be2fe = load_json::<Be2Fe>(&be2fe_at)?;
+        if let Some(id) = be2fe.completed_user_request {
+            let fe2be_at = join(".neukgu", "fe2be.json")?;
+            let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
 
-            if let Some(id) = be2fe.completed_user_request {
-                let fe2be_at = join(".neukgu", "fe2be.json")?;
-                let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
-
-                if let Some((id_, _)) = fe2be.user_request && id_ == id {
-                    fe2be.user_request = None;
-                }
-
-                write_string(
-                    &fe2be_at,
-                    &serde_json::to_string(&fe2be)?,
-                    FsWriteMode::Atomic,
-                )?;
+            if let Some((id_, _)) = fe2be.user_request && id_ == id {
+                fe2be.user_request = None;
             }
+
+            write_string(
+                &fe2be_at,
+                &serde_json::to_string(&fe2be)?,
+                FsWriteMode::Atomic,
+            )?;
         }
 
         Ok(())
@@ -438,14 +427,6 @@ impl Context {
     pub fn wait_for_fe(&self) -> Result<(), Error> {
         let fe2be_at = join(".neukgu", "fe2be.json")?;
         let mut is_fe_alive = false;
-
-        // The frontend will update `fe2be.json` at least once per 5 seconds.
-        for _ in 0..5 {
-            if !exists(&fe2be_at) {
-                sleep(Duration::from_millis(3_000));
-                continue;
-            }
-        }
 
         for _ in 0..5 {
             let fe2be: Fe2Be = load_json(&fe2be_at)?;
