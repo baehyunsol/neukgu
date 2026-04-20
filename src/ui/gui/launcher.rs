@@ -314,7 +314,7 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
     popup(
         Column::from_vec(vec![
             text_editor.into(),
-            button("Init", IcedMessage::Init { path: context.cwd.clone() }, green()).padding(20).into(),
+            button("Init", IcedMessage::Init { path: path.to_string() }, green()).padding(20).into(),
         ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill).into(),
         context,
     )
@@ -334,7 +334,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         Column::from_vec(vec![
             short_text_editor.into(),
             long_text_editor.into(),
-            button("Create", IcedMessage::Create { path: context.cwd.clone() }, green()).padding(20).into(),
+            button("Create", IcedMessage::Create { path: path.to_string() }, green()).padding(20).into(),
         ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill).into(),
         context,
     )

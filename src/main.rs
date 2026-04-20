@@ -131,8 +131,8 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 .parse(&args, 2)?;
 
             let no_backend = parsed_args.get_flag(0).is_some();
-            // gui::run(no_backend)
-            gui::launcher()
+            gui::run(no_backend)
+            // gui::launcher()
         },
         Some("help") => todo!(),
         _ => todo!(),

@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{Error, hash_bytes};
 use ragit_fs::{
     WriteMode,
     exists,
@@ -48,17 +48,4 @@ pub fn normalize_and_get_id(bytes: &[u8]) -> Result<ImageId, Error> {
     )?;
 
     Ok(image_id)
-}
-
-pub fn hash_bytes(s: &[u8]) -> u128 {
-    let mut r = 0;
-
-    for (i, b) in s.iter().enumerate() {
-        let c = (((r >> 24) & 0x00ff_ffff) << 24) | ((i & 0xfff) << 12) as u128 | *b as u128;
-        let cc = c * c + c + 1;
-        r += cc;
-        r &= 0xffff_ffff_ffff_ffff_ffff_ffff;
-    }
-
-    r
 }

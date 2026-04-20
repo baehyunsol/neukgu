@@ -40,7 +40,7 @@ use std::fs::TryLockError;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub mod tui;
 pub mod gui;
@@ -94,6 +94,7 @@ pub struct FeContext {
     pub history: Vec<TurnSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub config: Config,
+    pub initialized_at: Instant,
 
     // If it experienced an API error (status code not 200..300) in
     // the current turn, the status code is recorded here.
@@ -204,6 +205,7 @@ impl FeContext {
             last_api_error,
             last_backend_error,
             config: Config::load()?,
+            initialized_at: Instant::now(),
             truncation,
             previews: HashMap::new(),
         })
@@ -229,6 +231,7 @@ impl FeContext {
     fn update(&mut self) -> Result<(), Error> {
         *self = FeContext {
             previews: self.previews.clone(),
+            initialized_at: self.initialized_at.clone(),
             ..FeContext::load_without_preview()?
         };
         self.fetch_previews()?;
@@ -317,6 +320,8 @@ impl FeContext {
                 "paused"
             } else if self.is_be_busy().unwrap_or(false) {
                 "healthy"
+            } else if self.is_waking_up() {
+                "waking up"
             } else {
                 "not responding"
             },
@@ -331,12 +336,18 @@ impl FeContext {
     pub fn curr_status(&self) -> String {
         if self.is_paused() {
             format!("Paused")
-        } else if !self.is_be_busy().unwrap_or(false) {
-            format!("Neukgu is not responding")
-        } else if let Some(curr_tool_call) = &self.curr_tool_call {
-            format!("{} (processing)", curr_tool_call.preview())
+        } else if self.is_be_busy().unwrap_or(false) {
+            if let Some(curr_tool_call) = &self.curr_tool_call {
+                format!("{} (processing)", curr_tool_call.preview())
+            } else {
+                format!("Neukgu is thinking...")
+            }
         } else {
-            format!("Neukgu is thinking...")
+            if self.is_waking_up() {
+                format!("Waking up neukgu...")
+            } else {
+                format!("Neukgu is not responding")
+            }
         }
     }
 
@@ -420,6 +431,12 @@ impl FeContext {
     fn is_be_busy(&self) -> Result<bool, Error> {
         let lock_file = std::fs::File::create(".neukgu/.lock").map_err(|e| FileError::from_std(e, ".neukgu/.lock"))?;
         Ok(matches!(lock_file.try_lock(), Err(TryLockError::WouldBlock)))
+    }
+
+    // It takes about 0.5~1 second for backend to start.
+    // I don't want to print "Neukgu is not responding" at that moment...
+    fn is_waking_up(&self) -> bool {
+        Instant::now().duration_since(self.initialized_at.clone()).as_millis() < 3000
     }
 }
 

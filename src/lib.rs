@@ -19,6 +19,7 @@ mod image;
 mod interrupt;
 mod log;
 mod parse;
+mod pdf;
 mod prettify;
 mod request;
 mod response;
@@ -35,6 +36,7 @@ pub use image::{ImageId, normalize_and_get_id};
 pub use interrupt::Interrupt;
 use log::{FileContent, Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
+use pdf::{PdfId, render_and_get_id};
 use prettify::{
     prettify_bytes,
     prettify_time,
@@ -197,6 +199,7 @@ pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(
 
     create_dir(".neukgu/")?;
     create_dir(".neukgu/images")?;
+    create_dir(".neukgu/pdfs")?;
     create_dir(".neukgu/turns")?;
     create_dir(".neukgu/logs")?;
     write_string(".neukgu/logs/log", "", RagitFsWriteMode::AlwaysCreate)?;
@@ -258,4 +261,17 @@ pub fn load_json<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
     }
 
     Err(curr_error.unwrap())
+}
+
+fn hash_bytes(s: &[u8]) -> u128 {
+    let mut r = 0;
+
+    for (i, b) in s.iter().enumerate() {
+        let c = (((r >> 24) & 0x00ff_ffff) << 24) | ((i & 0xfff) << 12) as u128 | *b as u128;
+        let cc = c * c + c + 1;
+        r += cc;
+        r &= 0xffff_ffff_ffff_ffff_ffff_ffff;
+    }
+
+    r
 }

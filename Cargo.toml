@@ -9,6 +9,7 @@ async-std = "1.13.2"
 base64 = "0.22.1"
 chrono = "0.4.44"
 flate2 = "1.1.9"
+hayro = "0.6.0"
 headless_chrome = "1.0.21"
 iced = { version = "0.14.0", features = ["image", "tokio"] }
 image = "0.25.10"

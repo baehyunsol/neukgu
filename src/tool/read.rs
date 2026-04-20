@@ -1,5 +1,6 @@
 use super::{Path, normalize_path};
-use crate::{Context, ImageId, normalize_and_get_id};
+use crate::{Context, ImageId, PdfId, normalize_and_get_id, render_and_get_id};
+use hayro::hayro_syntax::Pdf;
 use ragit_fs::{FileError, basename, is_dir, read_bytes, read_dir};
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum RangeType {
     Line,
     FileEntry,
+    PdfPage,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -14,6 +16,7 @@ pub enum TypedFile {
     Text(String),
     Image(ImageId),
     Dir(Vec<FileEntry>),
+    Pdf(PdfId),
     Etc,
 }
 
@@ -24,6 +27,14 @@ pub enum FileEntry {
         bytes: u64,
         chars: u64,
         lines: u64,
+    },
+    PdfFile {
+        name: String,
+        pages: u64,
+    },
+    ImageFile {
+        name: String,
+        size: (u32, u32),
     },
     EtcFile {
         name: String,
@@ -57,17 +68,23 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> 
             else {
                 let bytes = read_bytes(&e)?;
 
-                match String::from_utf8(bytes.clone()) {
+                let entry = match String::from_utf8(bytes.clone()) {
                     Ok(s) => {
                         let chars = s.chars().count() as u64;
                         let lines = s.lines().count() as u64;
                         let bytes = bytes.len() as u64;
-                        entries.push(FileEntry::TextFile { name, bytes, chars, lines });
+                        FileEntry::TextFile { name, bytes, chars, lines }
                     },
-                    Err(_) => {
-                        entries.push(FileEntry::EtcFile { name, bytes: bytes.len() as u64 });
+                    Err(_) => match image::load_from_memory(&bytes) {
+                        Ok(buffer) => FileEntry::ImageFile { name, size: (buffer.width(), buffer.height()) },
+                        Err(_) => match Pdf::new(bytes.clone()) {
+                            Ok(pdf) => FileEntry::PdfFile { name, pages: pdf.pages().len() as u64 },
+                            Err(_) => FileEntry::EtcFile { name, bytes: bytes.len() as u64 },
+                        },
                     },
-                }
+                };
+
+                entries.push(entry);
             }
         }
 
@@ -90,9 +107,12 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> 
             Ok(s) => Ok(TypedFile::Text(s)),
             Err(_) => match normalize_and_get_id(&bytes) {
                 Ok(id) => Ok(TypedFile::Image(id)),
-                Err(e) => {
-                    eprintln!("{e:?}");
-                    todo!()  // maybe pdf?
+                Err(_) => match render_and_get_id(&bytes) {
+                    Ok(id) => Ok(TypedFile::Pdf(id)),
+                    Err(e) => {
+                        eprintln!("{e:?}");
+                        Ok(TypedFile::Etc)
+                    },
                 },
             },
         }

@@ -7,8 +7,8 @@ use crate::{
     LogEntry,
     export_to_sandbox,
     from_browser_error,
+    image,
     import_from_sandbox,
-    normalize_and_get_id,
     prettify_bytes,
     prettify_time,
     subprocess,
@@ -126,7 +126,7 @@ impl ToolCall {
                         }
 
                         else if let Some(end) = end && start_i + config.text_file_max_lines < *end {
-                            Ok(Err(ToolCallError::TooManyLinesToRead {
+                            Ok(Err(ToolCallError::TooManyTextLinesToRead {
                                 path: joined_path,
                                 length: *end - start_i + 1,
                                 limit: config.text_file_max_lines,
@@ -164,10 +164,47 @@ impl ToolCall {
                             }
                         }
                     },
+                    TypedFile::Pdf(pdf) => {
+                        let pages = pdf.get_pages()?;
+
+                        if pages.len() as u64 > config.pdf_max_pages && (start.is_none() || start_i < 2) && end.is_none() {
+                            Ok(Err(ToolCallError::TooManyPdfPagesToRead {
+                                path: joined_path,
+                                pages: pages.len() as u64,
+                                limit: config.pdf_max_pages,
+                                given_range: (*start, *end),
+                            }))
+                        }
+
+                        else if let Some(end) = end && start_i + config.pdf_max_pages < *end {
+                            Ok(Err(ToolCallError::TooManyPdfPagesToRead {
+                                path: joined_path,
+                                pages: *end - start_i + 1,
+                                limit: config.pdf_max_pages,
+                                given_range: (*start, Some(*end)),
+                            }))
+                        }
+
+                        else {
+                            match pages.get((start_i.max(1) as usize - 1)..(end_i as usize).min(pages.len())) {
+                                Some(sliced_pages) if sliced_pages.len() > 0 || pages.is_empty() => Ok(Ok(ToolCallSuccess::ReadPdf {
+                                    path: joined_path,
+                                    pages: sliced_pages.to_vec(),
+                                    total_pages: pages.len() as u64,
+                                    range: (*start, *end),
+                                })),
+                                _ => Ok(Err(ToolCallError::InvalidRange {
+                                    r#type: RangeType::PdfPage,
+                                    length: pages.len() as u64,
+                                    given: (*start, *end),
+                                })),
+                            }
+                        }
+                    },
                     TypedFile::Image(id) => Ok(Ok(ToolCallSuccess::ReadImage { path: joined_path, id })),
                     TypedFile::Dir(entries) => {
-                        if entries.len() as u64 > config.dir_max_entries && start.is_none() && end.is_none() {
-                            Ok(Err(ToolCallError::TooManyEntriesToRead {
+                        if entries.len() as u64 > config.dir_max_entries && (start.is_none() || start_i < 2) && end.is_none() {
+                            Ok(Err(ToolCallError::TooManyDirEntriesToRead {
                                 path: joined_path,
                                 entries: entries.len() as u64,
                                 limit: config.dir_max_entries,
@@ -176,9 +213,9 @@ impl ToolCall {
                         }
 
                         else if let Some(end) = end && start_i + config.dir_max_entries < *end {
-                            Ok(Err(ToolCallError::TooManyEntriesToRead {
+                            Ok(Err(ToolCallError::TooManyDirEntriesToRead {
                                 path: joined_path,
-                                entries: entries.len() as u64,
+                                entries: *end - start_i + 1,
                                 limit: config.dir_max_entries,
                                 given_range: (*start, Some(*end)),
                             }))
@@ -424,7 +461,7 @@ impl ToolCall {
                             // the VIBE ends here
 
                             let png_data = read_bytes(&joined_output)?;
-                            let image_id = normalize_and_get_id(&png_data)?;
+                            let image_id = image::normalize_and_get_id(&png_data)?;
                             return Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id }));
                         }
                     }
@@ -445,7 +482,7 @@ impl ToolCall {
 
                 // TODO: maybe we have to wait a few seconds until it loads?
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
-                let image_id = normalize_and_get_id(&png_data)?;
+                let image_id = image::normalize_and_get_id(&png_data)?;
                 write_bytes(&joined_output, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
                 Ok(Ok(ToolCallSuccess::Render { input: url, output_path: joined_output, output_image: image_id }))
             },
@@ -503,6 +540,12 @@ pub enum ToolCallSuccess {
         total_lines: u64,
         range: (Option<u64>, Option<u64>),
     },
+    ReadPdf {
+        path: String,
+        pages: Vec<ImageId>,
+        total_pages: u64,
+        range: (Option<u64>, Option<u64>),
+    },
     ReadImage {
         path: String,
         id: ImageId,
@@ -552,6 +595,9 @@ impl ToolCallSuccess {
                     vec![LLMToken::String(content.to_string())]
                 }
             },
+            ToolCallSuccess::ReadPdf { pages, .. } => pages.iter().map(
+                |id| LLMToken::Image(*id)
+            ).collect(),
             ToolCallSuccess::ReadImage { id, .. } => vec![LLMToken::Image(*id)],
             ToolCallSuccess::ReadDir { path, entries, total_entries, range } => {
                 let entries_count = match range {
@@ -563,6 +609,8 @@ impl ToolCallSuccess {
                 let entries = entries.iter().map(
                     |entry| match entry {
                         FileEntry::TextFile { name, bytes, lines, .. } => format!("{name}\ttext\t{}\t{lines} lines", prettify_bytes(*bytes)),
+                        FileEntry::PdfFile { name, pages } => format!("{name}\tpdf\t{pages} pages"),
+                        FileEntry::ImageFile { name, size: (w, h) } => format!("{name}\timage\t{w}x{h}"),
                         FileEntry::EtcFile { name, bytes } => format!("{name}\t{}", prettify_bytes(*bytes)),
                         FileEntry::Dir { name } => format!("{name}/\tdirectory"),
                     }
@@ -637,12 +685,18 @@ pub enum ToolCallError {
         length: u64,
         limit: u64,
     },
-    TooManyLinesToRead {
+    TooManyTextLinesToRead {
         path: String,
         length: u64,
         limit: u64,
     },
-    TooManyEntriesToRead {
+    TooManyPdfPagesToRead {
+        path: String,
+        pages: u64,
+        limit: u64,
+        given_range: (Option<u64>, Option<u64>),
+    },
+    TooManyDirEntriesToRead {
         path: String,
         entries: u64,
         limit: u64,
@@ -701,10 +755,10 @@ impl ToolCallError {
                     prettify_bytes(*limit),
                 )),
             ],
-            ToolCallError::TooManyEntriesToRead { path, entries, limit: _, given_range: (None, None) } => vec![
+            ToolCallError::TooManyDirEntriesToRead { path, entries, limit: _, given_range: (None, None) } => vec![
                 LLMToken::String(format!("`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.")),
             ],
-            ToolCallError::TooManyEntriesToRead { limit, .. } => vec![
+            ToolCallError::TooManyDirEntriesToRead { limit, .. } => vec![
                 LLMToken::String(format!("You can read at most `{limit}` entries at once. Please give me a smaller range.")),
             ],
             ToolCallError::TooManyReadWithoutWrite => vec![

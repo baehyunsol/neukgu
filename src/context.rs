@@ -151,7 +151,12 @@ impl Context {
                 recent_5_turns.iter().all(
                     |turn| matches!(
                         turn.turn_result,
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::ReadText { .. } | ToolCallSuccess::ReadImage { .. } | ToolCallSuccess::ReadDir { .. }),
+                        TurnResult::ToolCallSuccess(
+                            ToolCallSuccess::ReadText { .. } |
+                            ToolCallSuccess::ReadPdf { .. } |
+                            ToolCallSuccess::ReadImage { .. } |
+                            ToolCallSuccess::ReadDir { .. }
+                        ),
                     )
                 )
             }

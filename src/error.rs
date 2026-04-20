@@ -38,6 +38,9 @@ pub enum Error {
     /// see <https://docs.rs/image/latest/image/error/enum.ImageError.html>
     ImageError(image::ImageError),
 
+    /// see <https://docs.rs/hayro-syntax/0.6.0/hayro_syntax/enum.LoadPdfError.html>
+    LoadPdfError(hayro::hayro_syntax::LoadPdfError),
+
     /// see <https://docs.rs/png/latest/png/enum.EncodingError.html>
     PngEncodingError(png::EncodingError),
 
@@ -90,6 +93,12 @@ impl From<iced::Error> for Error {
 impl From<image::ImageError> for Error {
     fn from(e: image::ImageError) -> Error {
         Error::ImageError(e)
+    }
+}
+
+impl From<hayro::hayro_syntax::LoadPdfError> for Error {
+    fn from(e: hayro::hayro_syntax::LoadPdfError) -> Error {
+        Error::LoadPdfError(e)
     }
 }
 
