@@ -192,6 +192,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.loaded_log = Some(LogView::Logs(load_logs_tail()?));
             }
 
+            if context.fe_context.ask_to_user.is_some() {
+                if context.curr_popup.is_some() {
+                    context.close_popup();
+                }
+            }
+
             context.fe_context.start_frame()?;
         },
         IcedMessage::WindowResized(s) => {
@@ -288,7 +294,14 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view_resizable).into();
 
-    if let Some((index, turn)) = &context.loaded_turn {
+    if context.fe_context.ask_to_user.is_some() {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_ask_to_user_popup(context),
+        ]).into()
+    }
+
+    else if let Some((index, turn)) = &context.loaded_turn {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_turn(*index, turn, context),
@@ -363,7 +376,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 }
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    if context.curr_popup.is_some() {
+    if context.curr_popup.is_some() || context.fe_context.ask_to_user.is_some() {
         return Container::new(text!("")).padding(8).into();
     }
 
@@ -417,7 +430,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         with_color = with_color.style(|_| set_bg(gray(0.15)));
     }
 
-    if context.curr_popup.is_none() {
+    if context.curr_popup.is_none() && context.fe_context.ask_to_user.is_none() {
         MouseArea::new(with_color)
             .on_enter(IcedMessage::HoverOnTurn(Some(p.id.clone())))
             .on_exit(IcedMessage::HoverOnTurn(None))
@@ -500,6 +513,23 @@ fn render_llm_tokens(llm_tokens: Vec<LLMToken>, context: &IcedContext) -> Elemen
     ).collect()).width(Length::Fill).into()
 }
 
+fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    popup(
+        Column::from_vec(vec![
+            text!("{}", context.fe_context.ask_to_user.as_ref().unwrap().1).into(),
+            TextEditor::new(&context.text_editor_content)
+                .placeholder("Answer neukgu's question")
+                .on_action(|action| IcedMessage::EditText(action))
+                .into(),
+            Row::from_vec(vec![
+                button("Answer", IcedMessage::None, green()).into(),
+                button("Dismiss", IcedMessage::None, red()).into(),
+            ]).spacing(20).into(),
+        ]).padding(20).spacing(20).into(),
+        context,
+    )
+}
+
 fn popup<'a, 'b>(element: Element<'a, IcedMessage>, context: &'b IcedContext) -> Element<'a, IcedMessage> {
     let mut buttons: Vec<Element<IcedMessage>> = vec![];
 
@@ -511,7 +541,9 @@ fn popup<'a, 'b>(element: Element<'a, IcedMessage>, context: &'b IcedContext) ->
         buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue()).into());
     }
 
-    buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
+    if context.curr_popup.is_some() {
+        buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
+    }
 
     Container::new(
         Container::new(Column::from_vec(vec![

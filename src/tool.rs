@@ -1,7 +1,10 @@
+use async_std::task::sleep;
 use crate::{
+    Be2Fe,
     Config,
     Context,
     Error,
+    Fe2Be,
     ImageId,
     LLMToken,
     LogEntry,
@@ -9,6 +12,7 @@ use crate::{
     from_browser_error,
     image,
     import_from_sandbox,
+    load_json,
     prettify_bytes,
     prettify_time,
     subprocess,
@@ -17,10 +21,12 @@ use headless_chrome::Browser;
 use headless_chrome::browser::LaunchOptions as BrowserLaunchOptions;
 use headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption;
 use ragit_fs::{
+    WriteMode as FsWriteMode,
     basename,
     create_dir_all,
     exists,
     is_dir,
+    join,
     parent,
     read_bytes,
     read_dir,
@@ -30,7 +36,7 @@ use ragit_fs::{
     write_string,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 mod ask;
 mod read;
@@ -417,7 +423,49 @@ impl ToolCall {
                 }
 
                 else {
-                    todo!()
+                    let be2fe_at = join(".neukgu", "be2fe.json")?;
+                    let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
+                    let question_id = rand::random::<u64>();
+                    be2fe.ask_to_user = Some((
+                        question_id,
+                        question.to_string(),
+                    ));
+                    write_string(
+                        &be2fe_at,
+                        &serde_json::to_string_pretty(&be2fe)?,
+                        FsWriteMode::Atomic,
+                    )?;
+
+                    let tool_call_result = 'block: {
+                        match context.wait_for_fe() {
+                            Ok(()) => {},
+                            Err(Error::FrontendNotAvailable) => {
+                                break 'block Ok(Err(ToolCallError::UserNotResponding));
+                            },
+                            Err(e) => {
+                                break 'block Err(e);
+                            },
+                        }
+
+                        for _ in 0..config.user_response_timeout {
+                            sleep(Duration::from_millis(1000)).await;
+                            let fe2be: Fe2Be = load_json(&join(".neukgu", "fe2be.json")?)?;
+
+                            if let Some((id, response)) = &fe2be.user_response && *id == question_id {
+                                break 'block Ok(Ok(ToolCallSuccess::Ask { to: AskTo::User, answer: response.to_string() }));
+                            }
+                        }
+
+                        Ok(Err(ToolCallError::UserNotResponding))
+                    };
+
+                    be2fe.ask_to_user = None;
+                    write_string(
+                        &be2fe_at,
+                        &serde_json::to_string_pretty(&be2fe)?,
+                        FsWriteMode::Atomic,
+                    )?;
+                    tool_call_result
                 }
             },
             ToolCall::Ask { id: _, to: AskTo::Web, question } => {
@@ -740,6 +788,7 @@ pub enum ToolCallError {
     },
 
     // ask errors
+    UserNotResponding,
 }
 
 impl ToolCallError {
@@ -789,6 +838,11 @@ impl ToolCallError {
                     } else {
                         ""
                     },
+                )),
+            ],
+            ToolCallError::UserNotResponding => vec![
+                LLMToken::String(format!(
+                    "User is not responding.",
                 )),
             ],
             _ => panic!("TODO: {self:?}"),

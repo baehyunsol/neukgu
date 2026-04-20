@@ -51,3 +51,8 @@
       - 기존 instruction을 어딘가에 백업해두자
     - 나머지는 그대로 놔두기!
   - working_dir application에다가 "new instruction"이라는 버튼을 추가하자
+35. llm-q : user-a
+  - 지금 이거 구현이 너무 구림... 좀 더 깔끔하게 정리를 해보자!!
+  - flow (backend): parse-tool-call -> write the question to be2fe -> wait (keeps checking fe2be)
+  - flow (frontend): check be2fe -> update fe_context -> wait for the answer -> update fe_context -> update fe2be
+  - possible outcomes: no fe, has fe but timeout, user rejected to answer, user answered

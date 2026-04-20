@@ -17,10 +17,11 @@ pub struct Config {
     pub pdf_max_pages: u64,
     pub dir_max_entries: u64,
     pub stdout_max_len: u64,
-    pub default_command_timeout: u64,
+    pub default_command_timeout: u64,  // seconds
+    pub user_response_timeout: u64,  // seconds
 
     // I'm worried if AI mistakens millisec and sec.
-    pub command_max_timeout: u64,
+    pub command_max_timeout: u64,  // seconds
 }
 
 impl Config {
@@ -66,6 +67,7 @@ impl Default for Config {
             dir_max_entries: 256,
             stdout_max_len: 5120,
             default_command_timeout: 600,
+            user_response_timeout: 200,
             command_max_timeout: 3 * 3600,
         }
     }

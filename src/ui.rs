@@ -26,7 +26,6 @@ use crate::{
 use ragit_fs::{
     FileError,
     WriteMode as FsWriteMode,
-    exists,
     join,
     join3,
     write_string,
@@ -35,7 +34,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use similar::Algorithm as DiffAlgorithm;
 use similar::udiff::unified_diff;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::TryLockError;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
@@ -48,12 +47,14 @@ pub mod gui;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Be2Fe {
     pub completed_user_request: Option<u64>,
+    pub ask_to_user: Option<(u64, String)>,
 }
 
 impl Default for Be2Fe {
     fn default() -> Be2Fe {
         Be2Fe {
             completed_user_request: None,
+            ask_to_user: None,
         }
     }
 }
@@ -61,7 +62,13 @@ impl Default for Be2Fe {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fe2Be {
     pub pause: bool,
+
+    // These are completely different concepts.
+    // LLMs can ask user a question with `<ask>`.
+    // The user can ask llm a question with interrupts.
     pub user_request: Option<(u64, String)>,
+    pub user_response: Option<(u64, String)>,
+
     pub updated_at: i64,
 }
 
@@ -70,6 +77,7 @@ impl Default for Fe2Be {
         Fe2Be {
             pause: false,
             user_request: None,
+            user_response: None,
             updated_at: -1,
         }
     }
@@ -94,6 +102,8 @@ pub struct FeContext {
     pub history: Vec<TurnSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub config: Config,
+    pub ask_to_user: Option<(u64, String)>,
+    pub answered_questions: HashSet<u64>,
     pub initialized_at: Instant,
 
     // If it experienced an API error (status code not 200..300) in
@@ -205,6 +215,8 @@ impl FeContext {
             last_api_error,
             last_backend_error,
             config: Config::load()?,
+            ask_to_user: None,
+            answered_questions: HashSet::new(),
             initialized_at: Instant::now(),
             truncation,
             previews: HashMap::new(),
@@ -240,24 +252,26 @@ impl FeContext {
 
     pub fn start_frame(&mut self) -> Result<(), Error> {
         self.update()?;
+        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
         let be2fe_at = join(".neukgu", "be2fe.json")?;
         let be2fe = load_json::<Be2Fe>(&be2fe_at)?;
 
         if let Some(id) = be2fe.completed_user_request {
-            let fe2be_at = join(".neukgu", "fe2be.json")?;
-            let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
-
             if let Some((id_, _)) = fe2be.user_request && id_ == id {
                 fe2be.user_request = None;
             }
-
-            write_string(
-                &fe2be_at,
-                &serde_json::to_string(&fe2be)?,
-                FsWriteMode::Atomic,
-            )?;
         }
 
+        if let Some((id, question)) = &be2fe.ask_to_user && !self.answered_questions.contains(id) {
+            self.ask_to_user = Some((*id, question.to_string()));
+        }
+
+        write_string(
+            &fe2be_at,
+            &serde_json::to_string(&fe2be)?,
+            FsWriteMode::Atomic,
+        )?;
         Ok(())
     }
 
@@ -280,8 +294,17 @@ impl FeContext {
             None => {},
         }
 
-        if let Some(user_response) = user_response {
-            todo!()
+        if let Some((id_, user_response)) = user_response {
+            let Some((id, _)) = &self.ask_to_user else { unreachable!() };
+            assert_eq!(*id, id_);
+            fe2be.user_response = Some((*id, user_response));
+            self.answered_questions.insert(*id);
+            self.ask_to_user = None;
+        }
+
+        // timeout has reached
+        else {
+            self.ask_to_user = None;
         }
 
         fe2be.updated_at = Local::now().timestamp();
@@ -468,16 +491,9 @@ impl Context {
 
     pub fn is_fe_alive(&self) -> Result<bool, Error> {
         let fe2be_at = join(".neukgu", "fe2be.json")?;
-
-        if exists(&fe2be_at) {
-            let fe2be: Fe2Be = load_json(&fe2be_at)?;
-            let curr_timestamp = Local::now().timestamp();
-            Ok(fe2be.updated_at + 10 >= curr_timestamp)
-        }
-
-        else {
-            Ok(false)
-        }
+        let fe2be: Fe2Be = load_json(&fe2be_at)?;
+        let curr_timestamp = Local::now().timestamp();
+        Ok(fe2be.updated_at + 10 >= curr_timestamp)
     }
 }
 
