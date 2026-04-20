@@ -154,14 +154,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             init_working_dir(Some(instruction), false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
-        IcedMessage::Launch { path } => todo!(),
+        IcedMessage::Launch { .. } => unreachable!(),
         IcedMessage::EditLongText(a) => {
             context.long_text_editor_content.perform(a);
         },
         IcedMessage::EditShortText(a) => {
             context.short_text_editor_content.perform(a);
         },
-        IcedMessage::Error(e) => todo!(),
+        IcedMessage::Error(_) => unreachable!(),
     }
 
     Ok(Task::none())

@@ -125,14 +125,10 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             tui::run(no_backend)
         },
         Some("gui") => {
-            let parsed_args = ArgParser::new()
+            let _parsed_args = ArgParser::new()
                 .args(ArgType::String, ArgCount::None)
-                .optional_flag(&["--no-backend"])
                 .parse(&args, 2)?;
-
-            let no_backend = parsed_args.get_flag(0).is_some();
-            gui::run(no_backend)
-            // gui::launcher()
+            gui::run()
         },
         Some("help") => todo!(),
         _ => todo!(),

@@ -10,6 +10,7 @@ use super::{
     pink,
     red,
     set_bg,
+    spawn_backend_process,
     white,
     yellow,
 };
@@ -131,7 +132,6 @@ pub enum IcedMessage {
     InterruptNeukgu,
     EditText(TextEditorAction),
     Error(String),
-    None,
 }
 
 #[derive(Clone, Debug)]
@@ -151,11 +151,15 @@ pub enum LogView {
     Log(String),
 }
 
-pub fn boot() -> IcedContext {
-    try_boot().unwrap()
+pub fn boot(no_backend: bool) -> IcedContext {
+    try_boot(no_backend).unwrap()
 }
 
-pub fn try_boot() -> Result<IcedContext, Error> {
+pub fn try_boot(no_backend: bool) -> Result<IcedContext, Error> {
+    if !no_backend {
+        spawn_backend_process()?;
+    }
+
     Ok(IcedContext {
         fe_context: FeContext::load()?,
         window_size: Size::new(0.0, 0.0),
@@ -248,8 +252,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditText(a) => {
             context.text_editor_content.perform(a);
         },
-        IcedMessage::Error(e) => todo!(),
-        IcedMessage::None => {},
+        IcedMessage::Error(_) => unreachable!(),
     }
 
     Ok(Task::none())
@@ -522,8 +525,8 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 .on_action(|action| IcedMessage::EditText(action))
                 .into(),
             Row::from_vec(vec![
-                button("Answer", IcedMessage::None, green()).into(),
-                button("Dismiss", IcedMessage::None, red()).into(),
+                button("Answer", todo!(), green()).into(),
+                button("Dismiss", todo!(), red()).into(),
             ]).spacing(20).into(),
         ]).padding(20).spacing(20).into(),
         context,

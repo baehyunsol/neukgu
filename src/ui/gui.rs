@@ -1,6 +1,6 @@
 use super::{FeContext, Truncation, spawn_backend_process};
 use crate::Error;
-use iced::{Background, Color, Element, Font, Length, Subscription, Theme};
+use iced::{Background, Color, Element, Font, Length, Subscription, Task, Theme};
 use iced::border::{Border, Radius};
 use iced::keyboard::{self, Event as KeyboardEvent, Key, key::Named as NamedKey};
 use iced::time::{self, Duration};
@@ -25,19 +25,15 @@ use working_dir::{
     IcedMessage as WorkingDirMessage,
 };
 
-pub fn run(no_backend: bool) -> Result<(), Error> {
-    if !no_backend {
-        spawn_backend_process()?;
-    }
-
-    iced::application(working_dir::boot, working_dir::update, working_dir::view)
+pub fn run() -> Result<(), Error> {
+    iced::application(boot, update, view)
         .theme(Theme::Dark)
         .default_font(Font::MONOSPACE)
         .subscription(|_| Subscription::batch([
-            time::every(Duration::from_millis(1_000)).map(|_| WorkingDirMessage::Tick),
+            time::every(Duration::from_millis(1_000)).map(|_| IcedMessage::Tick),
             keyboard::listen().map(|key| match key {
-                KeyboardEvent::KeyPressed { key: Key::Named(NamedKey::Escape), .. } => WorkingDirMessage::ClosePopup,
-                _ => WorkingDirMessage::None,
+                KeyboardEvent::KeyPressed { key: Key::Named(NamedKey::Escape), .. } => IcedMessage::PressedEscKey,
+                _ => IcedMessage::None,
             }),
         ]))
         .run()?;
@@ -45,15 +41,8 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn launcher() -> Result<(), Error> {
-    iced::application(launcher::boot, launcher::update, launcher::view)
-        .theme(Theme::Dark)
-        .default_font(Font::MONOSPACE)
-        .run()?;
-
-    Ok(())
-}
-
+// Context::Launcher doesn't care about the current_dir of the process, but Context::WorkingDir does.
+// So, you have to set_current_dir before booting Context::WorkingDir.
 pub enum IcedContext {
     Launcher(LauncherContext),
     WorkingDir(WorkingDirContext),
@@ -64,6 +53,34 @@ pub enum IcedMessage {
     Launcher(LauncherMessage),
     WorkingDir(WorkingDirMessage),
     Error(ErrorMessage),
+    Tick,
+    PressedEscKey,
+    None,
+}
+
+fn boot() -> IcedContext {
+    todo!()
+}
+
+fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
+    match (context, message) {
+        (_, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => todo!(),
+        (IcedContext::Launcher(_), IcedMessage::Launcher(LauncherMessage::Launch { path })) => todo!(),
+        (IcedContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
+        (IcedContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
+        (IcedContext::WorkingDir(c), IcedMessage::PressedEscKey) => working_dir::update(c, WorkingDirMessage::ClosePopup).map(|t| IcedMessage::WorkingDir(t)),
+        (IcedContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
+        (_, IcedMessage::None) => Task::none(),
+        _ => todo!(),
+    }
+}
+
+fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    match context {
+        IcedContext::Launcher(c) => launcher::view(c).map(|m| IcedMessage::Launcher(m)),
+        IcedContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
+        IcedContext::Error(e) => todo!(),
+    }
 }
 
 fn button<'s, Message>(name: &'s str, message: Message, solid_color: Color) -> Button<'s, Message> {
