@@ -1,4 +1,4 @@
-use super::{FeContext, Truncation, spawn_backend_process};
+use super::{FeContext, Truncation, init_binary_path, spawn_backend_process};
 use crate::Error;
 use iced::{Background, Color, Element, Font, Length, Subscription, Task, Theme};
 use iced::border::{Border, Radius};
@@ -7,6 +7,7 @@ use iced::time::{self, Duration};
 use iced::widget::{Container, Space};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::Style;
+use ragit_fs::set_current_dir;
 
 mod error;
 mod launcher;
@@ -26,6 +27,7 @@ use working_dir::{
 };
 
 pub fn run() -> Result<(), Error> {
+    init_binary_path();
     iced::application(boot, update, view)
         .theme(Theme::Dark)
         .default_font(Font::MONOSPACE)
@@ -59,18 +61,55 @@ pub enum IcedMessage {
 }
 
 fn boot() -> IcedContext {
-    todo!()
+    match launcher::try_boot() {
+        Ok(c) => IcedContext::Launcher(c),
+        Err(e) => IcedContext::Error(error::boot(format!("{e:?}"))),
+    }
 }
 
 fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match (context, message) {
-        (_, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => todo!(),
-        (IcedContext::Launcher(_), IcedMessage::Launcher(LauncherMessage::Launch { path })) => todo!(),
+        (context, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
+            *context = IcedContext::Error(error::boot(e));
+            Task::none()
+        },
+        (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
+            if let Err(e) = set_current_dir(&path) {
+                *context = IcedContext::Error(error::boot(format!("{e:?}")));
+            }
+
+            else {
+                // TODO: make `no_backend` configurable
+                match working_dir::try_boot(false) {
+                    Ok(c) => {
+                        *context = IcedContext::WorkingDir(c);
+                    },
+                    Err(e) => {
+                        *context = IcedContext::Error(error::boot(format!("{e:?}")));
+                    },
+                }
+            }
+
+            Task::none()
+        },
         (IcedContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
         (IcedContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
         (IcedContext::WorkingDir(c), IcedMessage::PressedEscKey) => working_dir::update(c, WorkingDirMessage::ClosePopup).map(|t| IcedMessage::WorkingDir(t)),
         (IcedContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
-        (_, IcedMessage::None) => Task::none(),
+        (context, IcedMessage::Error(ErrorMessage::Okay)) => {
+            match launcher::try_boot() {
+                Ok(c) => {
+                    *context = IcedContext::Launcher(c);
+                },
+                Err(e) => {
+                    *context = IcedContext::Error(error::boot(format!("{e:?}")));
+                },
+            }
+
+            Task::none()
+        },
+        (IcedContext::Error(c), IcedMessage::Error(m)) => error::update(c, m).map(|t| IcedMessage::Error(t)),
+        (_, IcedMessage::Tick | IcedMessage::PressedEscKey | IcedMessage::None) => Task::none(),
         _ => todo!(),
     }
 }
@@ -79,7 +118,7 @@ fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     match context {
         IcedContext::Launcher(c) => launcher::view(c).map(|m| IcedMessage::Launcher(m)),
         IcedContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
-        IcedContext::Error(e) => todo!(),
+        IcedContext::Error(e) => error::view(e).map(|m| IcedMessage::Error(m)),
     }
 }
 

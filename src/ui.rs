@@ -26,6 +26,8 @@ use crate::{
 use ragit_fs::{
     FileError,
     WriteMode as FsWriteMode,
+    current_dir,
+    into_abs_path,
     join,
     join3,
     write_string,
@@ -497,9 +499,16 @@ impl Context {
     }
 }
 
+static BINARY_PATH: LazyLock<String> = LazyLock::new(|| into_abs_path(&std::env::args().next().unwrap()).unwrap());
+
+fn init_binary_path() {
+    LazyLock::force(&BINARY_PATH);
+}
+
 fn spawn_backend_process() -> Result<(), Error> {
-    Command::new(std::env::args().next().unwrap())
+    Command::new(BINARY_PATH.to_string())
         .args(["headless", "--attach-fe"])
+        .current_dir(&current_dir()?)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()?;

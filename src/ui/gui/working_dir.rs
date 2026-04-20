@@ -151,10 +151,6 @@ pub enum LogView {
     Log(String),
 }
 
-pub fn boot(no_backend: bool) -> IcedContext {
-    try_boot(no_backend).unwrap()
-}
-
 pub fn try_boot(no_backend: bool) -> Result<IcedContext, Error> {
     if !no_backend {
         spawn_backend_process()?;

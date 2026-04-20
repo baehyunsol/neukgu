@@ -1,10 +1,12 @@
-use super::{FeContext, Truncation, spawn_backend_process};
+use super::{FeContext, Truncation, init_binary_path, spawn_backend_process};
 use crate::{Error, TurnResultSummary, prettify_time};
 use std::thread::sleep;
 use std::time::Duration;
 
 // TODO: don't refresh the terminal if there's no update
 pub fn run(no_backend: bool) -> Result<(), Error> {
+    init_binary_path();
+
     if !no_backend {
         spawn_backend_process()?;
     }

@@ -125,9 +125,10 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             tui::run(no_backend)
         },
         Some("gui") => {
-            let _parsed_args = ArgParser::new()
+            ArgParser::new()
                 .args(ArgType::String, ArgCount::None)
                 .parse(&args, 2)?;
+
             gui::run()
         },
         Some("help") => todo!(),

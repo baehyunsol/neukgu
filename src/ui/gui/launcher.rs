@@ -81,10 +81,6 @@ pub enum Popup {
     Help,
 }
 
-pub fn boot() -> IcedContext {
-    try_boot().unwrap()
-}
-
 pub fn try_boot() -> Result<IcedContext, Error> {
     let current_dir = current_dir()?;
 
@@ -167,7 +163,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
     Ok(Task::none())
 }
 
-pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
+pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut entries: Vec<Element<IcedMessage>> = context.entries.iter().map(
         |entry| render_entry(entry, context)
     ).collect();
