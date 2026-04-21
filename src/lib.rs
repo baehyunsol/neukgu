@@ -110,7 +110,11 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
         context.remove_done_mark()?;
     }
 
+    // TODO: When it's marked done, it still create and remove sandbox-backup everytime,
+    //       which is a gigantic overhead. I temporily alleviated it with longer sleep,
+    //       but I need a better solution.
     if context.is_marked_done()? {
+        sleep(Duration::from_millis(1_000));  // prevent busy-loop
         return Ok(());
     }
 

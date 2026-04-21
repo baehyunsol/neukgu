@@ -64,6 +64,7 @@
     - 늑구 질문 무시한 다음에 잘 진행되는지 확인
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, tui로 실행해서
     - 늑구 질문 잘 넘어가는지 확인
+  - 뭐가 됐든 한참 기다리고 tmp/가 크기 때문에 안 터지는지 확인하기
 42. long text input -> 길어지면 아래 버튼이 안 보임. scroll bar가 필요!!
 43. web-search-tool -> 왜 이렇게 느린 거임??
 44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!
