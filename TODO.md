@@ -25,7 +25,6 @@
 23. `` FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`) ``
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
-25. working-dir gui에 빨랑 copy-to-clipboard 구현하기...
 26. symlink가 있을 경우, import/export sandbox가 먹통이 됨 ㅠㅠ
   - dst를 그대로 살릴 수도 있고, dst에 적당한 보정을 할 수도 있음
   - dst가 working-dir의 내부일 수도 있고, 외부일 수도 있음
@@ -58,8 +57,6 @@
   - fe가 read-only면 상관이 없는데 fe가 be한테 정보를 줄 수가 있어서 문제 (e.g. user2llm, llm2user, pause, ...)
   - read-only fe를 만들까?
     - 아니면, fe가 여럿인지 아닌지를 자동으로 감지해서 interrupt를 어떻게 걸지 결정해도 되고... ㅋㅋㅋ
-40. 다 끝나면 `logs/done` 만들라고 하기
-  - logs/done
 41. testbench
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문에 정상적으로 대답한 다음에 잘 진행되는지 확인
@@ -72,3 +69,5 @@
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, tui로 실행해서
     - 늑구 질문 잘 넘어가는지 확인
 42. long text input -> 길어지면 아래 버튼이 안 보임. scroll bar가 필요!!
+43. web-search-tool -> 왜 이렇게 느린 거임??
+44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!

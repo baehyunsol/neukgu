@@ -27,6 +27,7 @@ use crate::{
     load_log,
     load_logs_tail,
     prettify_time,
+    stringify_llm_tokens,
 };
 use iced::{Background, Color, ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -80,32 +81,46 @@ impl IcedContext {
             Popup::Turn((index, turn_id)) => {
                 let turn = Turn::load(&turn_id, &self.fe_context.working_dir)?;
                 self.text_diff = self.fe_context.calc_diff(&turn)?;
+                self.copy_buffer = Some(format!(
+"# {index}. {}
+
+<|LLM|>
+
+{}
+
+<|result|>
+
+{}",
+                    turn.preview().preview_title,
+                    turn.raw_response,
+                    stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
+                ));
                 self.loaded_turn = Some((index, turn));
-                // TODO: load self.copy_buffer
             },
-            Popup::Interrupt => {
-                // There's nothing to load
-            },
+            // There's nothing to load
+            Popup::Interrupt => {},
             Popup::Logs => {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
-                self.loaded_log = Some(LogView::Logs(load_logs_tail(&log_dir)?));
-                // TODO: load self.copy_buffer
+                let logs = load_logs_tail(&log_dir)?;
+                self.copy_buffer = Some(logs.join("\n"));
+                self.loaded_log = Some(LogView::Logs(logs));
             },
             Popup::Log(id) => {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
-                self.loaded_log = Some(LogView::Log(load_log(&id, &log_dir)?));
-                // TODO: load self.copy_buffer
+                let log = load_log(&id, &log_dir)?;
+                self.copy_buffer = Some(log.to_string());
+                self.loaded_log = Some(LogView::Log(log));
             },
             Popup::Help => {
                 // There's nothing to load
-                // TODO: load self.copy_buffer
+                self.copy_buffer = Some(HELP_MESSAGE.to_string());
             },
             Popup::Image(id) => {
                 self.loaded_image = Some(id);
             },
+            // It's already loaded in `self.text_diff`
             Popup::Diff => {
-                // It's already loaded in `self.text_diff`
-                // TODO: load self.copy_buffer
+                self.copy_buffer = self.text_diff.clone();
             },
         }
 
@@ -266,7 +281,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
             return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
         },
-        IcedMessage::CopyToClipboard => todo!(),
+        IcedMessage::CopyToClipboard => {
+            return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
+        },
         IcedMessage::PauseNeukgu => {
             context.pause = Some(true);
         },
@@ -576,16 +593,16 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
 fn popup<'a, 'b>(element: Element<'a, IcedMessage>, context: &'b IcedContext) -> Element<'a, IcedMessage> {
     let mut buttons: Vec<Element<IcedMessage>> = vec![];
 
+    if context.curr_popup.is_some() {
+        buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
+    }
+
     if context.prev_popup.is_some() {
         buttons.push(button("Back", IcedMessage::BackPopup, blue()).into());
     }
 
     if context.copy_buffer.is_some() {
         buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue()).into());
-    }
-
-    if context.curr_popup.is_some() {
-        buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
     }
 
     Container::new(

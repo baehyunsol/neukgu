@@ -43,7 +43,7 @@ use prettify::{
     prettify_time,
     prettify_tokens,
 };
-pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens};
+pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
 pub use response::Response;
 pub use sandbox::{export_to_sandbox, import_from_sandbox};
 pub use tool::{

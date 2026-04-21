@@ -166,3 +166,20 @@ pub fn count_bytes_of_llm_tokens(tokens: &[LLMToken], bytes_per_image: u64) -> u
         }
     ).sum()
 }
+
+pub fn stringify_llm_tokens(tokens: &[LLMToken]) -> String {
+    let mut ss = Vec::with_capacity(tokens.len());
+
+    for token in tokens.iter() {
+        match token {
+            LLMToken::String(s) => {
+                ss.push(s.to_string());
+            },
+            LLMToken::Image(id) => {
+                ss.push(format!("Image {{{:016x}}}", id.0));
+            },
+        }
+    }
+
+    ss.join("\n")
+}
