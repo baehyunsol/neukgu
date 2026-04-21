@@ -1,5 +1,5 @@
 use super::{black, button, gray, green, horizontal_bar, pink, red, set_bg, white};
-use crate::{Error, init_working_dir};
+use crate::{Error, init_working_dir, validate_project_name};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
@@ -17,7 +17,17 @@ use ragit_fs::{
     read_dir,
 };
 
-const HELP_MESSAGE: &str = "TODO: Write help message...";
+const HELP_MESSAGE: &str = r#"
+There are multiple ways to work with neukgu.
+
+1. Create a new project and make neukgu work in the new directory.
+   In order to do this, click the "Create new" button.
+
+2. You already have a working directory, and you want neukgu to work
+   in the existing directory.
+   In order to do this, go to the directory and click the "Init here" button.
+   If neukgu is already working in the directory, you'll see a "Launch" button.
+"#;
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
@@ -133,6 +143,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::Create { path } => {
             let project_name = context.short_text_editor_content.text();
+            validate_project_name(&project_name)?;
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
             create_dir(&project_path)?;

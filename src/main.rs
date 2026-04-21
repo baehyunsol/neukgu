@@ -6,9 +6,46 @@ use neukgu::{
     init_working_dir,
     step,
     tui,
+    validate_project_name,
 };
 use ragit_cli::{ArgCount, ArgParser, ArgType};
 use ragit_fs::{create_dir, create_dir_all, exists, join};
+
+const HELP_MESSAGE: &str = "
+neukgu: an opinionated AI agent
+
+Commands
+
+neukgu new <project_name> [--instruction=<instruction>]
+    creates a new project and initialize a neukgu directory
+
+    If you don't give the instruction, you have to manually initialize the
+    `neukgu-instruction.md` file.
+
+neukgu init [--instruction=<instruction>]
+    initializes a neukgu directory in the current directory
+
+    If you don't give the instruction, you have to manually initialize the
+    `neukgu-instruction.md` file.
+
+neukgu headless [--working-dir=<path=.>] [--attach-fe]
+    runs neukgu in the current directory
+
+    It must already be initialized.
+    You don't need this command unless you're building something on top of neukgu.
+    This is mostly used by frontend, with --attach-fe flag.
+
+neukgu tui [--no-backend]
+    runs neukgu tui
+
+    You can see neukgu working, but you can't interact with it.
+
+neukgu gui
+    runs neukgu gui
+
+    If you're not sure, just run this command.
+    GUI has all the features.
+";
 
 fn main() {
     let args = std::env::args().collect();
@@ -58,6 +95,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
             let mock_api = parsed_args.get_flag(0).is_some();
 
+            validate_project_name(&project_name)?;
             create_dir(&project_name)?;
             init_working_dir(instruction, &project_name, mock_api)?;
             Ok(())
@@ -82,7 +120,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 .optional_flag(&["--attach-fe"])
                 .parse(&args, 2)?;
 
-            let working_dir = parsed_args.arg_flags.get("--working-dor").map(|s| s.to_string()).unwrap_or(String::from("."));
+            let working_dir = parsed_args.arg_flags.get("--working-dir").map(|s| s.to_string()).unwrap_or(String::from("."));
 
             // If this flag is set, the backend loop runs only while the frontend is alive.
             let attach_fe = parsed_args.get_flag(0).is_some();
@@ -133,7 +171,13 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             gui::run()
         },
-        Some("help") => todo!(),
-        _ => todo!(),
+        Some("help") => {
+            println!("{HELP_MESSAGE}");
+            Ok(())
+        },
+        _ => {
+            println!("{HELP_MESSAGE}");
+            std::process::exit(1)
+        },
     }
 }

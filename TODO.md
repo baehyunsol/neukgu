@@ -43,10 +43,6 @@
       - 기존 instruction을 어딘가에 백업해두자
     - 나머지는 그대로 놔두기!
   - working_dir application에다가 "new instruction"이라는 버튼을 추가하자
-36. rollback
-  - 특정 turn을 context에서 숨기기 vs 특정 시점으로 돌아가기
-    - 둘이 뭐가 다르냐면, write-tool을 숨기면 write한 파일은 그대로 남지만, write-tool을 rollback 하면 write한 파일의 내용도 과거로 돌아감!!
-    - 구현은 전자가 압도적으로 쉬움...
 38. multi-session neukgu?
   - tab을 여러개 띄워두고 동시에 여러 작업을 시키면... 편하겠지?
   - 근데 또 window manager가 할 수 있는 걸 굳이 내가 구현해야하나 싶기도 하고
@@ -71,3 +67,9 @@
 42. long text input -> 길어지면 아래 버튼이 안 보임. scroll bar가 필요!!
 43. web-search-tool -> 왜 이렇게 느린 거임??
 44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!
+45. context engineering
+  - 특정 turn을 고르면 그 turn은 context에 절대 안 들어가게 할 수 있음 (hide)
+    - 만약에 그 turn이 write였으면 revert도 되면 좋겠음... 구현하기 빡세겠지?
+  - 특정 turn을 고르면 그 turn은 무조건 context에 들어가게 할 수 있음 (pin)
+46. 폰트를 hard-code 해버리자! 그런 다음에 한글하고 알파벳하고 폭이 얼마나 차이 나는지 계산해서 ui 그릴 때 반영하자!
+47. 글자 크기 일괄로 줄이기/늘이기

@@ -16,6 +16,7 @@ pub enum Error {
     InvalidModelName(String),
     CannotCalcDiff { path: String, turn_id: TurnId },
     MockApiExpectationFailure { expect: String },
+    NotAllowedCharInProjectName { name: String, ch: char },
 
     HttpError { status_code: u16 },
     CliError {

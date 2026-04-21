@@ -164,6 +164,23 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     Ok(())
 }
 
+pub fn validate_project_name(name: &str) -> Result<(), Error> {
+    for ch in name.chars() {
+        match ch {
+            '0'..='9' |
+            'a'..='z' |
+            'A'..='Z' |
+            '가'..='힣' |
+            ' ' | '_' | '-' => {},
+            _ => {
+                return Err(Error::NotAllowedCharInProjectName { name: name.to_string(), ch });
+            },
+        }
+    }
+
+    Ok(())
+}
+
 pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api: bool) -> Result<(), Error> {
     if exists(&join(working_dir, ".neukgu/")?) {
         return Err(Error::IndexDirAlreadyExists);

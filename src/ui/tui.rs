@@ -31,7 +31,7 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
             };
 
             curr_buffer.push(format!(
-                "{i:>3}. {truncation}[{}] {}{}\n{}(LLM: {}, TOOL: {})",
+                "{truncation}{i:>3}. [{}] {}{}\n{}(LLM: {}, TOOL: {})",
                 preview.timestamp,
                 preview.preview_title,
                 match preview.result {

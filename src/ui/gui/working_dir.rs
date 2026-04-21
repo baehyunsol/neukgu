@@ -42,7 +42,27 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-const HELP_MESSAGE: &str = "TODO: Write help message...";
+const HELP_MESSAGE: &str = "
+This is a neukgu's working directory.
+
+Neukgu reads files, writes files and runs programs inside the directory in order to
+accomplish the job you gave to neukgu.
+
+## Interactions
+
+There are 2 ways to interact with neukgu.
+
+1. Pause / Resume neukgu.
+2. Interrupt: you can give extra instructions while neukgu is working.
+
+## Context engineering
+
+Below the buttons, you can see a long list of turns. That is the entire trajectory of
+neukgu's operations.
+
+You can see a green/red/blue marker on the left of each turn. That has something to do
+with context engineering.
+";
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
@@ -468,8 +488,8 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
     }.into();
 
     let row = Row::from_vec(vec![
-        text!("{index:>3}. ").into(),
         truncation.into(),
+        text!("{index:>3}. ").into(),
         text!("[{}]", p.timestamp).into(),
         Column::from_vec(vec![
             Row::from_vec(vec![

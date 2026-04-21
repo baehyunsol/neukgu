@@ -361,7 +361,13 @@ impl Context {
     }
 
     pub fn remove_done_mark(&self) -> Result<(), Error> {
-        Ok(remove_file(&join3(&self.working_dir, "logs", "done")?)?)
+        let done_mark = join3(&self.working_dir, "logs", "done")?;
+
+        if exists(&done_mark) {
+            remove_file(&done_mark)?;
+        }
+
+        Ok(())
     }
 }
 
