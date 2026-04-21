@@ -19,11 +19,14 @@ use crate::{
     request,
     validate_parse_result,
 };
-use ragit_fs::{WriteMode, exists, join, read_string, remove_file, write_string};
+use ragit_fs::{WriteMode, exists, join3, read_string, remove_file, write_string};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 pub struct Context {
+    // You'll find the index dir at `<working_dir>/.neukgu/`
+    pub working_dir: String,
+
     pub history: Vec<TurnSummary>,
 
     // If we have this, that means we already have LLM's response,
@@ -47,16 +50,17 @@ pub struct ContextJson {
 }
 
 impl Context {
-    pub fn new(config: &Config) -> Result<Self, Error> {
+    pub fn new(config: &Config, working_dir: &str) -> Result<Self, Error> {
         let system_prompt = tera::Tera::one_off(
             include_str!("../system.pdl"),
             &config.system_prompt_context(),
             true,
         )?;
         let available_binaries = load_available_binaries()?;
-        let logger = Logger::new();
+        let logger = Logger::new(&join3(working_dir, ".neukgu", "logs")?);
 
         Ok(Context {
+            working_dir: working_dir.to_string(),
             history: vec![],
             curr_raw_response: None,
             turns: HashMap::new(),
@@ -67,17 +71,18 @@ impl Context {
         })
     }
 
-    pub fn load(config: &Config) -> Result<Self, Error> {
-        let s = read_string(&join(".neukgu", "context.json")?)?;
+    pub fn load(config: &Config, working_dir: &str) -> Result<Self, Error> {
+        let s = read_string(&join3(working_dir, ".neukgu", "context.json")?)?;
         let context_json: ContextJson = serde_json::from_str(&s)?;
 
         Ok(Context {
+            working_dir: working_dir.to_string(),
             history: context_json.history.iter().map(
                 |h| h.get_turn_summary()
             ).collect(),
             curr_raw_response: context_json.curr_raw_response.clone(),
             completed_user_interrupts: context_json.completed_user_interrupts.clone(),
-            ..Context::new(config)?
+            ..Context::new(config, working_dir)?
         })
     }
 
@@ -91,7 +96,7 @@ impl Context {
         };
 
         Ok(write_string(
-            &join(".neukgu", "context.json")?,
+            &join3(&self.working_dir, ".neukgu", "context.json")?,
             &serde_json::to_string_pretty(&context_json)?,
             WriteMode::Atomic,
         )?)
@@ -121,7 +126,7 @@ impl Context {
             config,
         );
         let new_turn_summary = new_turn.summary(config);
-        new_turn.store()?;
+        new_turn.store(&self.working_dir)?;
         self.history.push(new_turn_summary.clone());
 
         if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, .. }) = &new_turn.turn_result {
@@ -165,7 +170,7 @@ impl Context {
             return Ok(turn.clone());
         }
 
-        let turn = Turn::load(id)?;
+        let turn = Turn::load(id, &self.working_dir)?;
         self.turns.insert(id.clone(), turn.clone());
         Ok(turn.clone())
     }
@@ -352,11 +357,11 @@ impl Context {
     }
 
     pub fn is_marked_done(&self) -> Result<bool, Error> {
-        Ok(exists(&join("logs", "done")?))
+        Ok(exists(&join3(&self.working_dir, "logs", "done")?))
     }
 
     pub fn remove_done_mark(&self) -> Result<(), Error> {
-        Ok(remove_file(&join("logs", "done")?)?)
+        Ok(remove_file(&join3(&self.working_dir, "logs", "done")?)?)
     }
 }
 

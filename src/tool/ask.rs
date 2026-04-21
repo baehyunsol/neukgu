@@ -15,7 +15,7 @@ pub enum AskTo {
     Web,
 }
 
-pub async fn ask_question_to_web(q: &str, logger: &mut Logger, model: Model) -> Result<String, Error> {
+pub async fn ask_question_to_web(q: &str, working_dir: &str, logger: &mut Logger, model: Model) -> Result<String, Error> {
     let mut request = Request {
         model,
         system_prompt: String::from("Search web and answer the user question."),
@@ -26,7 +26,7 @@ pub async fn ask_question_to_web(q: &str, logger: &mut Logger, model: Model) -> 
     };
 
     logger.log(LogEntry::AskQuestionToWebBegin(q.to_string()))?;
-    let response = request.request(logger).await?;
+    let response = request.request(working_dir, logger).await?;
     logger.log(LogEntry::AskQuestionToWebEnd)?;
     Ok(response.response.to_string())
 }

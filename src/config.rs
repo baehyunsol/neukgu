@@ -1,7 +1,7 @@
 use crate::{Error, Model};
 use ragit_fs::{
     WriteMode,
-    join,
+    join3,
     read_string,
     write_string,
 };
@@ -33,14 +33,14 @@ impl Config {
         }
     }
 
-    pub fn load() -> Result<Self, Error> {
-        let s = read_string(&join(".neukgu", "config.json")?)?;
+    pub fn load(working_dir: &str) -> Result<Self, Error> {
+        let s = read_string(&join3(working_dir, ".neukgu", "config.json")?)?;
         Ok(serde_json::from_str(&s)?)
     }
 
-    pub fn store(&self) -> Result<(), Error> {
+    pub fn store(&self, working_dir: &str) -> Result<(), Error> {
         Ok(write_string(
-            &join(".neukgu", "config.json")?,
+            &join3(working_dir, ".neukgu", "config.json")?,
             &serde_json::to_string_pretty(self)?,
             WriteMode::Atomic,
         )?)

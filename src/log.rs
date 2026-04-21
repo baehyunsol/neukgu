@@ -13,7 +13,7 @@ use flate2::read::{GzDecoder, GzEncoder};
 use ragit_fs::{
     WriteMode,
     file_size,
-    join3,
+    join,
     read_bytes,
     read_bytes_offset,
     read_string,
@@ -37,7 +37,10 @@ impl LogId {
     }
 }
 
-pub struct Logger;
+pub struct Logger {
+    // `<working_dir>/.neukgu/logs/`
+    pub log_dir: String,
+}
 
 pub enum LogEntry {
     InitLogger,
@@ -58,8 +61,8 @@ pub enum LogEntry {
 }
 
 impl Logger {
-    pub fn new() -> Self {
-        let result = Logger;
+    pub fn new(log_dir: &str) -> Self {
+        let result = Logger { log_dir: log_dir.to_string() };
         result.log(LogEntry::InitLogger).unwrap();
         result
     }
@@ -88,7 +91,7 @@ impl Logger {
         };
 
         write_string(
-            &join3(".neukgu", "logs", "log")?,
+            &join(&self.log_dir, "log")?,
             &format!(
                 "[{}] {title}\n",
                 now.to_rfc3339_opts(SecondsFormat::Millis, false),
@@ -102,7 +105,7 @@ impl Logger {
             gz.read_to_end(&mut compressed)?;
 
             write_bytes(
-                &join3(".neukgu", "logs", &log_id.0)?,
+                &join(&self.log_dir, &log_id.0)?,
                 &compressed,
                 WriteMode::AlwaysCreate,
             )?;
@@ -115,7 +118,7 @@ impl Logger {
     }
 
     pub fn log_api_usage(&self, input: u64, output: u64) -> Result<(), Error> {
-        let usage_at = join3(".neukgu", "logs", "tokens.json")?;
+        let usage_at = join(&self.log_dir, "tokens.json")?;
         let now = Local::now().timestamp().max(0) as u64 / 3600;
         let mut usage: TokenUsage = load_json(&usage_at)?;
 
@@ -143,7 +146,7 @@ impl Logger {
     //    1. make sure that no files are modified while neukgu is sleeping
     //    2. calc diff of writes
     pub fn log_file_content(&self, path: &str, turn_id: &TurnId) -> Result<(), Error> {
-        let map_at = join3(".neukgu", "logs", "files.json")?;
+        let map_at = join(&self.log_dir, "files.json")?;
         let mut map: FileContent = load_json(&map_at)?;
 
         // `path` is always normalized, so we can use it as a key
@@ -187,8 +190,8 @@ impl TokenUsage {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FileContent(pub HashMap<String, Vec<TurnId>>);
 
-pub fn load_log(id: &LogId) -> Result<String, Error> {
-    let path = join3(".neukgu", "logs", &id.0)?;
+pub fn load_log(id: &LogId, log_dir: &str) -> Result<String, Error> {
+    let path = join(log_dir, &id.0)?;
     let bytes = read_bytes(&path)?;
     let mut decompressed = vec![];
     let mut gz = GzDecoder::new(&bytes[..]);
@@ -196,8 +199,8 @@ pub fn load_log(id: &LogId) -> Result<String, Error> {
     Ok(String::from_utf8(decompressed)?)
 }
 
-pub fn load_logs_tail() -> Result<Vec<String>, Error> {
-    let path = join3(".neukgu", "logs", "log")?;
+pub fn load_logs_tail(log_dir: &str) -> Result<Vec<String>, Error> {
+    let path = join(log_dir, "log")?;
     let file_size = file_size(&path)?;
 
     if file_size > 8192 {

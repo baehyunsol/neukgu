@@ -26,8 +26,9 @@ use ragit_fs::{
     FileError,
     WriteMode as FsWriteMode,
     exists,
-    join,
+    into_abs_path,
     join3,
+    join4,
     write_string,
 };
 use regex::Regex;
@@ -135,6 +136,7 @@ impl Default for Fe2Be {
 // The ui is supposed to call `end_frame` at least once per 5 seconds.
 #[derive(Clone, Debug)]
 pub struct FeContext {
+    pub working_dir: String,
     pub history: Vec<TurnSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub config: Config,
@@ -168,9 +170,9 @@ pub static BACKEND_ERROR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.
 
 impl FeContext {
     pub fn sync_with_be(&self) -> Result<(), Error> {
-        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let be2fe_at = join3(&self.working_dir, ".neukgu", "be2fe.json")?;
         let be2fe: Be2Fe = load_json(&be2fe_at)?;
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
         fe2be.updated_at = Local::now().timestamp();
 
@@ -190,15 +192,16 @@ impl FeContext {
         Ok(())
     }
 
-    pub fn load() -> Result<FeContext, Error> {
-        let mut context = FeContext::load_without_preview()?;
+    pub fn load(working_dir: &str) -> Result<FeContext, Error> {
+        let mut context = FeContext::load_without_preview(working_dir)?;
         context.fetch_previews()?;
         Ok(context)
     }
 
-    fn load_without_preview() -> Result<FeContext, Error> {
-        let be_context: ContextJson = load_json(&join(".neukgu", "context.json")?)?;
-        let log_lines = load_logs_tail()?;
+    fn load_without_preview(working_dir: &str) -> Result<FeContext, Error> {
+        let log_dir = join3(working_dir, ".neukgu", "logs")?;
+        let be_context: ContextJson = load_json(&join3(working_dir, ".neukgu", "context.json")?)?;
+        let log_lines = load_logs_tail(&log_dir)?;
 
         let history: Vec<TurnSummary> = be_context.history.iter().map(
             |t| t.get_turn_summary()
@@ -222,19 +225,19 @@ impl FeContext {
 
             else if in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
-                let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id)?)?;
+                let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id, &log_dir)?)?;
                 curr_tool_call = Some(tool_call);
             }
 
             else if truncated_context.is_none() && let Some(cap) = TRUNCATED_CONTEXT_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
-                let c: Vec<ChosenTurn> = serde_json::from_str(&load_log(&log_id)?)?;
+                let c: Vec<ChosenTurn> = serde_json::from_str(&load_log(&log_id, &log_dir)?)?;
                 truncated_context = Some(c);
             }
 
             else if in_session && last_backend_error.is_none() && let Some(cap) = BACKEND_ERROR_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
-                let e = load_log(&log_id)?;
+                let e = load_log(&log_id, &log_dir)?;
                 last_backend_error = Some(e);
             }
 
@@ -267,11 +270,12 @@ impl FeContext {
         };
 
         Ok(FeContext {
+            working_dir: working_dir.to_string(),
             history,
             curr_tool_call,
             last_api_error,
             last_backend_error,
-            config: Config::load()?,
+            config: Config::load(working_dir)?,
             initialized_at: Instant::now(),
             truncation,
             previews: HashMap::new(),
@@ -283,7 +287,7 @@ impl FeContext {
 
         for turn in self.history.iter() {
             if !self.previews.contains_key(&turn.id) {
-                let turn = Turn::load(&turn.id)?;
+                let turn = Turn::load(&turn.id, &self.working_dir)?;
                 new_previews.insert(
                     turn.id.clone(),
                     turn.preview(),
@@ -299,7 +303,7 @@ impl FeContext {
         *self = FeContext {
             previews: self.previews.clone(),
             initialized_at: self.initialized_at.clone(),
-            ..FeContext::load_without_preview()?
+            ..FeContext::load_without_preview(&self.working_dir)?
         };
         self.fetch_previews()?;
         Ok(())
@@ -318,7 +322,7 @@ impl FeContext {
         user_interrupt: Option<(u64, String)>,
         user_response: Option<(u64, UserResponse)>,
     ) -> Result<(), Error> {
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
 
         if let Some(pause) = pause {
@@ -368,11 +372,11 @@ impl FeContext {
     }
 
     pub fn is_paused(&self) -> Result<bool, Error> {
-        Ok(load_json::<Be2Fe>(&join(".neukgu", "be2fe.json")?)?.pause)
+        Ok(load_json::<Be2Fe>(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?.pause)
     }
 
     pub fn top_bar(&self) -> Result<String, Error> {
-        let token_usage: TokenUsage = load_json(&join3(".neukgu", "logs", "tokens.json")?)?;
+        let token_usage: TokenUsage = load_json(&join4(&self.working_dir, ".neukgu", "logs", "tokens.json")?)?;
         let (total_input, total_output) = token_usage.total();
         let (recent_input, recent_output) = token_usage.recent();
 
@@ -431,7 +435,7 @@ impl FeContext {
 
     pub fn calc_diff(&self, turn: &Turn) -> Result<Option<String>, Error> {
         if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, content, mode: ToolWriteMode::Truncate, .. }) = &turn.turn_result {
-            let file_content_map: FileContent = load_json(&join3(".neukgu", "logs", "files.json")?)?;
+            let file_content_map: FileContent = load_json(&join4(&self.working_dir, ".neukgu", "logs", "files.json")?)?;
 
             match file_content_map.0.get(path) {
                 Some(turn_ids) => {
@@ -440,7 +444,7 @@ impl FeContext {
                     for (i, turn_id) in turn_ids.iter().enumerate() {
                         if turn_id == &turn.id {
                             if i > 0 {
-                                let prev_turn = Turn::load(&turn_ids[i - 1])?;
+                                let prev_turn = Turn::load(&turn_ids[i - 1], &self.working_dir)?;
 
                                 match &prev_turn.turn_result {
                                     TurnResult::ToolCallSuccess(ToolCallSuccess::ReadText { content, .. } | ToolCallSuccess::Write { content, .. }) => {
@@ -497,7 +501,8 @@ impl FeContext {
     // So, if it returns true, the be is definitely alive.
     // If it returns false, the be is dead or sleeping.
     fn is_be_busy(&self) -> Result<bool, Error> {
-        let lock_file = std::fs::File::create(".neukgu/.lock").map_err(|e| FileError::from_std(e, ".neukgu/.lock"))?;
+        let lock_file_at = join3(&self.working_dir, ".neukgu", ".lock")?;
+        let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
         Ok(matches!(lock_file.try_lock(), Err(TryLockError::WouldBlock)))
     }
 
@@ -508,7 +513,7 @@ impl FeContext {
     }
 
     pub fn get_llm_request(&self) -> Result<Option<(u64, String)>, Error> {
-        let fe2be: Fe2Be = load_json(&join(".neukgu", "fe2be.json")?)?;
+        let fe2be: Fe2Be = load_json(&join3(&self.working_dir, ".neukgu", "fe2be.json")?)?;
 
         for Message { id, kind } in fe2be.from_be.values() {
             if let MessageKind::LLM2User { question, answer: None } = kind {
@@ -520,7 +525,7 @@ impl FeContext {
     }
 
     pub fn is_marked_done(&self) -> Result<bool, Error> {
-        Ok(exists(&join("logs", "done")?))
+        Ok(exists(&join3(&self.working_dir, "logs", "done")?))
     }
 }
 
@@ -530,9 +535,9 @@ impl Context {
             return Ok(());
         }
 
-        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let be2fe_at = join3(&self.working_dir, ".neukgu", "be2fe.json")?;
         let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let fe2be: Fe2Be = load_json(&fe2be_at)?;
         be2fe.pause = fe2be.pause;
 
@@ -562,7 +567,7 @@ impl Context {
     }
 
     pub fn wait_for_fe(&self) -> Result<(), Error> {
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let mut is_fe_alive = false;
 
         for _ in 0..5 {
@@ -587,18 +592,18 @@ impl Context {
     }
 
     pub fn is_fe_alive(&self) -> Result<bool, Error> {
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let fe2be: Fe2Be = load_json(&fe2be_at)?;
         let curr_timestamp = Local::now().timestamp();
         Ok(fe2be.updated_at + 5 >= curr_timestamp)
     }
 
     pub fn is_paused(&self) -> Result<bool, Error> {
-        Ok(load_json::<Be2Fe>(&join(".neukgu", "be2fe.json")?)?.pause)
+        Ok(load_json::<Be2Fe>(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?.pause)
     }
 
     pub fn ask_to_user(&self, id: u64, question: String) -> Result<(), Error> {
-        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let be2fe_at = join3(&self.working_dir, ".neukgu", "be2fe.json")?;
         let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
         be2fe.to_fe.insert(
             id,
@@ -620,7 +625,7 @@ impl Context {
     }
 
     pub fn answer_to_llm(&self, id: u64, question: String, response: UserResponse) -> Result<(), Error> {
-        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let be2fe_at = join3(&self.working_dir, ".neukgu", "be2fe.json")?;
         let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
         be2fe.to_fe.insert(
             id,
@@ -646,7 +651,7 @@ impl Context {
             return Ok(None);
         }
 
-        let be2fe: Be2Fe = load_json(&join(".neukgu", "be2fe.json")?)?;
+        let be2fe: Be2Fe = load_json(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?;
 
         for message in be2fe.from_fe.values() {
             if let Message { id, kind: MessageKind::User2LLM { question, .. }} = message {
@@ -660,7 +665,7 @@ impl Context {
     }
 
     pub fn check_user_response(&self, id_: u64) -> Result<Option<UserResponse>, Error> {
-        let be2fe: Be2Fe = load_json(&join(".neukgu", "be2fe.json")?)?;
+        let be2fe: Be2Fe = load_json(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?;
 
         for message in be2fe.from_fe.values() {
             if let Message { id, kind: MessageKind::LLM2User { answer: Some(answer), ..} } = message && *id == id_ {
@@ -672,10 +677,11 @@ impl Context {
     }
 }
 
-fn spawn_backend_process(current_dir: &str) -> Result<(), Error> {
-    Command::new(std::env::args().next().unwrap())
+fn spawn_backend_process(working_dir: &str) -> Result<(), Error> {
+    let bin_path = into_abs_path(&std::env::args().next().unwrap())?;
+    Command::new(&bin_path)
         .args(["headless", "--attach-fe"])
-        .current_dir(current_dir)
+        .current_dir(working_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()?;

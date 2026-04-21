@@ -67,13 +67,13 @@ pub struct Turn {
 }
 
 impl Request {
-    pub async fn request(&mut self, logger: &mut Logger) -> Result<Response, Error> {
+    pub async fn request(&mut self, working_dir: &str, logger: &mut Logger) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let mut error = None;
 
         for _ in 0..5 {
             let http_request = match self.model.provider {
-                ApiProvider::Anthropic => self.to_anthropic_request()?,
+                ApiProvider::Anthropic => self.to_anthropic_request(working_dir)?,
                 ApiProvider::Mock => self.to_mock_request()?,
             };
             let mut request = client
@@ -90,7 +90,7 @@ impl Request {
 
             // It has to generate all the logs that *real* API calls generate.
             if let ApiProvider::Mock = self.model.provider {
-                let response = self.send_mock_request().await?;
+                let response = self.send_mock_request(working_dir).await?;
                 logger.log(LogEntry::GotResponse(200))?;
                 logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
                 logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;

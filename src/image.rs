@@ -2,7 +2,7 @@ use crate::{Error, hash_bytes};
 use ragit_fs::{
     WriteMode,
     exists,
-    join3,
+    join4,
     write_bytes,
 };
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,9 @@ use std::io::Cursor;
 pub struct ImageId(pub u64);
 
 impl ImageId {
-    pub fn path(&self) -> Result<String, Error> {
-        Ok(join3(
+    pub fn path(&self, working_dir: &str) -> Result<String, Error> {
+        Ok(join4(
+            working_dir,
             ".neukgu",
             "images",
             &format!("{:016x}.png", self.0),
@@ -22,10 +23,10 @@ impl ImageId {
     }
 }
 
-pub fn normalize_and_get_id(bytes: &[u8]) -> Result<ImageId, Error> {
+pub fn normalize_and_get_id(bytes: &[u8], working_dir: &str) -> Result<ImageId, Error> {
     let hash = (hash_bytes(bytes) & 0xffff_ffff_ffff_ffff) as u64;
     let image_id = ImageId(hash);
-    let image_path = image_id.path()?;
+    let image_path = image_id.path(working_dir)?;
 
     if exists(&image_path) {
         return Ok(image_id);

@@ -16,14 +16,14 @@ use ragit_fs::{
     remove_dir_all,
 };
 
-pub fn export_to_sandbox(sandbox_root: &str) -> Result<String, FileError> {
+pub fn export_to_sandbox(sandbox_root: &str, working_dir: &str) -> Result<String, FileError> {
     let sandbox_at = create_sandbox(sandbox_root)?;
-    copy_recursive(".", &sandbox_at, true, true)?;
+    copy_recursive(working_dir, &sandbox_at, true, true)?;
     Ok(sandbox_at)
 }
 
-pub fn import_from_sandbox(sandbox_at: &str, copy_index_dir: bool) -> Result<(), FileError> {
-    copy_recursive(sandbox_at, ".", true, copy_index_dir)
+pub fn import_from_sandbox(sandbox_at: &str, working_dir: &str, copy_index_dir: bool) -> Result<(), FileError> {
+    copy_recursive(sandbox_at, working_dir, true, copy_index_dir)
 }
 
 fn create_sandbox(sandbox_root: &str) -> Result<String, FileError> {

@@ -44,28 +44,15 @@
       - 기존 instruction을 어딘가에 백업해두자
     - 나머지는 그대로 놔두기!
   - working_dir application에다가 "new instruction"이라는 버튼을 추가하자
-35. llm-q : user-a
-  - 지금 이거 구현이 너무 구림... 좀 더 깔끔하게 정리를 해보자!!
-  - flow (backend): parse-tool-call -> write the question to be2fe -> wait (keeps checking fe2be)
-  - flow (frontend): check be2fe -> update fe_context -> wait for the answer -> update fe_context -> update fe2be
-  - possible outcomes: no fe, has fe but timeout, user rejected to answer, user answered
-  - 이거 하는 김에 fe <-> be 통신을 전반적으로 깔끔하게 바꾸자... 이거 말고도 interaction할 일이 많잖아!!
-  - 전반적인 flow
-    - user가 fe에 특정 input을 입력 -> fe_state가 변화 -> fe2be.json이 변화 -> be가 fe2be.json을 읽음 -> 특정 action을 함 -> be가 be2fe.json을 수정 -> fe가 be2fe.json을 읽음 -> fe2be.json이 변화 -> fe_state가 변화 -> fe에 반영...
-    - 일단, 자료구조를 2개로 나누자 1: flag 형식의 정보 (e.g. pause: bool), 2: queue 형식의 정보 (user-to-llm, llm-to-user)
-      - be2fe queue랑 fe2be queue를 만들고, 동일한 enum을 사용하게 하자!!
-    - be는 주기적으로 fe2be를 읽어서 자신의 상태를 업데이트. fe는 주기적으로 be2fe를 읽어서 자신의 상태를 업데이트
-      - 
 36. rollback
   - 특정 turn을 context에서 숨기기 vs 특정 시점으로 돌아가기
     - 둘이 뭐가 다르냐면, write-tool을 숨기면 write한 파일은 그대로 남지만, write-tool을 rollback 하면 write한 파일의 내용도 과거로 돌아감!!
     - 구현은 전자가 압도적으로 쉬움...
-37. set_current_dir 하지 말자... 그냥 root_dir을 줘야함 ㅠㅠ 안 그러면 session 관리가 너무 힘듦!!
-  - 그대신 subprocess 띄울 때는 해당 path로 보내고 띄워야함
 38. multi-session neukgu?
   - tab을 여러개 띄워두고 동시에 여러 작업을 시키면... 편하겠지?
   - 근데 또 window manager가 할 수 있는 걸 굳이 내가 구현해야하나 싶기도 하고
   - tab이 여러개일 때 각 tab의 상황을 동시에 보여주는 상황판이 있으면 더 편할 수도?
+    - `FeContext::curr_status()`만 한번에 보여줘도 괜찮을 듯!
   - 여러 tab을 관리하는 agent??
 39. 한 be에 여러 fe 붙이기?
   - fe가 read-only면 상관이 없는데 fe가 be한테 정보를 줄 수가 있어서 문제 (e.g. user2llm, llm2user, pause, ...)
@@ -79,7 +66,9 @@
     - 끝까지 가서 잘 끝나는지 보고, 끝난 다음에 interrupt 하면 계속 진행되는지 확인
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문 거절한 다음에 잘 진행되는지 확인
+    - 끝나기 전에 아무때나 interrupt 해보고 잘 진행되는지 확인
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, gui로 실행해서
     - 늑구 질문 무시한 다음에 잘 진행되는지 확인
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, tui로 실행해서
     - 늑구 질문 잘 넘어가는지 확인
+42. long text input -> 길어지면 아래 버튼이 안 보임. scroll bar가 필요!!

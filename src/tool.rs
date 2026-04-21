@@ -23,6 +23,7 @@ use ragit_fs::{
     create_dir_all,
     exists,
     is_dir,
+    join,
     parent,
     read_bytes,
     read_dir,
@@ -105,12 +106,15 @@ impl ToolCall {
                     None => path.join("/"),
                 };
 
+                // If `join` fails, `check_read_permission` will catch this!
+                let real_path = join(&context.working_dir, &joined_path).unwrap_or(joined_path.clone());
+
                 // If the AI tries to read `../../Documents/`, that's a permission error whether or not the path exists.
                 if !check_read_permission(path) {
                     return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_path }));
                 }
 
-                if !exists(&joined_path) {
+                if !exists(&real_path) {
                     return Ok(Err(ToolCallError::NoSuchFile { path: joined_path }));
                 }
 
@@ -167,7 +171,7 @@ impl ToolCall {
                         }
                     },
                     TypedFile::Pdf(pdf) => {
-                        let pages = pdf.get_pages()?;
+                        let pages = pdf.get_pages(&context.working_dir)?;
 
                         if pages.len() as u64 > config.pdf_max_pages && (start.is_none() || start_i < 2) && end.is_none() {
                             Ok(Err(ToolCallError::TooManyPdfPagesToRead {
@@ -249,6 +253,9 @@ impl ToolCall {
                     None => path.join("/"),
                 };
 
+                // If `join` fails, `check_write_permission` will catch this!
+                let real_path = join(&context.working_dir, &joined_path).unwrap_or(joined_path.clone());
+
                 if content.len() as u64 > config.text_file_max_len {
                     return Ok(Err(ToolCallError::TextTooLongToWrite {
                         path: joined_path,
@@ -257,8 +264,8 @@ impl ToolCall {
                     }));
                 }
 
-                match (*mode, exists(&joined_path)) {
-                    (mode @ (WriteMode::Truncate | WriteMode::Append), _) if is_dir(&joined_path) => {
+                match (*mode, exists(&real_path)) {
+                    (mode @ (WriteMode::Truncate | WriteMode::Append), _) if is_dir(&real_path) => {
                         return Ok(Err(ToolCallError::IsDir { path: joined_path, mode }));
                     },
                     (WriteMode::Create, false) |
@@ -273,7 +280,7 @@ impl ToolCall {
                     },
                 }
 
-                let parent_path = parent(&joined_path)?;
+                let parent_path = parent(&real_path)?;
 
                 if *mode == WriteMode::Create && !exists(&parent_path) {
                     create_dir_all(&parent_path)?;
@@ -287,7 +294,7 @@ impl ToolCall {
                 let char_count = content.chars().count() as u64;
                 let line_count = content.lines().count() as u64;
                 write_string(
-                    &joined_path,
+                    &real_path,
                     content,
                     (*mode).into(),
                 )?;
@@ -318,7 +325,7 @@ impl ToolCall {
                 let binary = command[0].to_string();
                 let mut available_binaries = vec![];
 
-                for bin in read_dir("bins", false)?.iter() {
+                for bin in read_dir(&join(&context.working_dir, "bins")?, false)?.iter() {
                     available_binaries.push(basename(bin)?);
                 }
 
@@ -346,7 +353,8 @@ impl ToolCall {
                     }));
                 }
 
-                let sandbox_at = export_to_sandbox(&config.sandbox_root)?;
+                // TODO: if something fails, the sandbox won't be removed properly
+                let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
                 let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
                 let started_at = Instant::now();
                 let result = subprocess::run(
@@ -356,7 +364,7 @@ impl ToolCall {
                     timeout,
                 )?;
                 let elapsed_ms = Instant::now().duration_since(started_at).as_millis() as u64;
-                import_from_sandbox(&sandbox_at, false /* copy_index_dir */)?;
+                import_from_sandbox(&sandbox_at, &context.working_dir, false /* copy_index_dir */)?;
                 remove_dir_all(&sandbox_at)?;
 
                 let timeout_value = timeout;
@@ -367,7 +375,7 @@ impl ToolCall {
                 let stdout = match stdout_dst {
                     Some(path) => {
                         write_bytes(
-                            &path.join("/"),
+                            &join(&context.working_dir, &path.join("/"))?,
                             &stdout,
                             ragit_fs::WriteMode::CreateOrTruncate,
                         )?;
@@ -378,7 +386,7 @@ impl ToolCall {
                 let stderr = match stderr_dst {
                     Some(path) => {
                         write_bytes(
-                            &path.join("/"),
+                            &join(&context.working_dir, &path.join("/"))?,
                             &stderr,
                             if stdout_dst == stderr_dst {
                                 ragit_fs::WriteMode::AlwaysAppend
@@ -449,7 +457,7 @@ impl ToolCall {
                 Ok(tool_call_result)
             },
             ToolCall::Ask { id: _, to: AskTo::Web, question } => {
-                let answer = ask_question_to_web(question, &mut context.logger, config.model()?).await?;
+                let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.model()?).await?;
                 Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
             },
             ToolCall::Render { scroll, input, output } => {
@@ -460,6 +468,9 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_output }));
                 }
 
+                let real_output_path = join(&context.working_dir, &joined_output)?;
+                let real_input_path = join(&context.working_dir, &joined_input)?;
+
                 let url = {
                     let path = WebOrFile::from(input);
 
@@ -468,12 +479,12 @@ impl ToolCall {
                             return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_input }));
                         }
 
-                        if !exists(&joined_input) {
+                        if !exists(&real_input_path) {
                             return Ok(Err(ToolCallError::NoSuchFile { path: joined_input }));
                         }
 
                         if joined_input.to_ascii_lowercase().ends_with(".svg") {
-                            let svg_data = read_string(&joined_input)?;
+                            let svg_data = read_string(&real_input_path)?;
 
                             // VIBE NOTE: gemini 3.1 wrote this code (svg to png)
                             let opt = resvg::usvg::Options::default();
@@ -485,16 +496,16 @@ impl ToolCall {
                                 resvg::usvg::Transform::identity(),
                                 &mut pixmap.as_mut(),
                             );
-                            pixmap.save_png(&joined_output)?;
+                            pixmap.save_png(&real_output_path)?;
                             // the VIBE ends here
 
-                            let png_data = read_bytes(&joined_output)?;
-                            let image_id = image::normalize_and_get_id(&png_data)?;
+                            let png_data = read_bytes(&real_output_path)?;
+                            let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
                             return Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id }));
                         }
                     }
 
-                    path.to_url()?
+                    path.to_url(&context.working_dir)?
                 };
 
                 // TODO: It occasionally panics on MacOS, when it launches the browser multiple times in a session.
@@ -511,8 +522,8 @@ impl ToolCall {
 
                 // TODO: maybe we have to wait a few seconds until it loads?
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
-                let image_id = image::normalize_and_get_id(&png_data)?;
-                write_bytes(&joined_output, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
+                let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
+                write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
                 Ok(Ok(ToolCallSuccess::Render { input: url, output_path: joined_output, output_image: image_id }))
             },
         }
@@ -903,6 +914,11 @@ fn normalize_path(path: &Path) -> Option<Path> {
     // `a/b/` and `a/b` are the same.
     if let Some("") = result.last().map(|s| s.as_str()) {
         result.pop().unwrap();
+    }
+
+    // `/a/b` (abs_path) is not allowed
+    if result.iter().any(|s| s == "") {
+        return None;
     }
 
     Some(result)

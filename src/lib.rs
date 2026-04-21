@@ -3,6 +3,9 @@ use ragit_fs::{
     WriteMode as RagitFsWriteMode,
     create_dir,
     exists,
+    join,
+    join3,
+    join4,
     read_string,
     remove_dir_all,
     write_string,
@@ -71,7 +74,8 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
         return Ok(());
     }
 
-    let lock_file = std::fs::File::create(".neukgu/.lock").map_err(|e| FileError::from_std(e, ".neukgu/.lock"))?;
+    let lock_file_at = join3(&context.working_dir, ".neukgu", ".lock")?;
+    let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
 
     match lock_file.try_lock() {
         Ok(()) => {},
@@ -83,14 +87,14 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
         },
     }
 
-    let backup_dir = export_to_sandbox(&config.sandbox_root)?;
+    let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
 
     match step_inner(context, config).await {
         Ok(()) => {
             remove_dir_all(&backup_dir)?;
         },
         Err(e) => {
-            import_from_sandbox(&backup_dir, true /* copy index dir */)?;
+            import_from_sandbox(&backup_dir, &context.working_dir, true /* copy index dir */)?;
             context.logger.log(LogEntry::BackendError(format!("{e:?}")))?;
             return Err(e);
         },
@@ -115,7 +119,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
         None => {
             let llm_call_started_at = Instant::now();
             let mut request = context.to_request(config)?;
-            let response = request.request(&mut context.logger).await?.response.to_string();
+            let response = request.request(&context.working_dir, &mut context.logger).await?.response.to_string();
             let llm_elapsed_ms = Instant::now().duration_since(llm_call_started_at).as_millis() as u64;
             context.start_turn(response.clone(), llm_elapsed_ms);
             response
@@ -160,14 +164,14 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     Ok(())
 }
 
-pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(), Error> {
-    if exists(".neukgu/") {
+pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api: bool) -> Result<(), Error> {
+    if exists(&join(working_dir, ".neukgu/")?) {
         return Err(Error::IndexDirAlreadyExists);
     }
 
-    if !exists("neukgu-instruction.md") {
+    if !exists(&join(working_dir, "neukgu-instruction.md")?) {
         write_string(
-            "neukgu-instruction.md",
+            &join(working_dir, "neukgu-instruction.md")?,
             &instruction.unwrap_or(String::new()),
             RagitFsWriteMode::AlwaysCreate,
         )?;
@@ -178,28 +182,42 @@ pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(
     }
 
     for d in ["logs", "bins"] {
-        if !exists(d) {
-            create_dir(d)?;
+        let dd = join(working_dir, d)?;
+
+        if !exists(&dd) {
+            create_dir(&dd)?;
         }
     }
 
-    create_dir(".neukgu/")?;
-    create_dir(".neukgu/images")?;
-    create_dir(".neukgu/pdfs")?;
-    create_dir(".neukgu/turns")?;
-    create_dir(".neukgu/logs")?;
-    write_string(".neukgu/logs/log", "", RagitFsWriteMode::AlwaysCreate)?;
-    write_string(".neukgu/logs/tokens.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
-    write_string(".neukgu/logs/files.json", "{}", RagitFsWriteMode::AlwaysCreate)?;
+    create_dir(&join(working_dir, ".neukgu")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "images")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "pdfs")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "turns")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "logs")?)?;
+    write_string(
+        &join4(working_dir, ".neukgu", "logs", "log")?,
+        "",
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
+    write_string(
+        &join4(working_dir, ".neukgu", "logs", "tokens.json")?,
+        "{}",
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
+    write_string(
+        &join4(working_dir, ".neukgu", "logs", "files.json")?,
+        "{}",
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
 
     write_string(
-        ".neukgu/be2fe.json",
+        &join3(working_dir, ".neukgu", "be2fe.json")?,
         &serde_json::to_string(&Be2Fe::default())?,
         RagitFsWriteMode::AlwaysCreate,
     )?;
 
     write_string(
-        ".neukgu/fe2be.json",
+        &join3(working_dir, ".neukgu", "fe2be.json")?,
         &serde_json::to_string(&Fe2Be::default())?,
         RagitFsWriteMode::AlwaysCreate,
     )?;
@@ -210,9 +228,9 @@ pub fn init_working_dir(instruction: Option<String>, mock_api: bool) -> Result<(
         config.model = String::from("mock");
     }
 
-    config.store()?;
+    config.store(working_dir)?;
 
-    let context = Context::new(&config)?;
+    let context = Context::new(&config, working_dir)?;
     context.store()?;
 
     Ok(())

@@ -1,6 +1,6 @@
 use super::{Path, normalize_path};
 use crate::Error;
-use ragit_fs::{current_dir, join};
+use ragit_fs::join;
 
 #[derive(Clone, Debug)]
 pub enum WebOrFile {
@@ -9,13 +9,13 @@ pub enum WebOrFile {
 }
 
 impl WebOrFile {
-    pub fn to_url(&self) -> Result<String, Error> {
+    pub fn to_url(&self, working_dir: &str) -> Result<String, Error> {
         match self {
             WebOrFile::Web(s) => Ok(s.to_string()),
             WebOrFile::File(p) => {
                 // read_permission is already checked, so it's safe to unwrap this
                 let p = normalize_path(p).unwrap().join("/");
-                let p = join(&current_dir()?, &p)?;
+                let p = join(working_dir, &p)?;
                 Ok(format!("file://{p}"))
             },
         }

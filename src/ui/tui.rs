@@ -1,18 +1,17 @@
 use super::{FeContext, Truncation, spawn_backend_process};
 use crate::{Error, TurnResultSummary, prettify_time};
-use ragit_fs::current_dir;
 use std::thread::sleep;
 use std::time::Duration;
 
-pub fn run(no_backend: bool) -> Result<(), Error> {
+pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
     if !no_backend {
-        spawn_backend_process(&current_dir()?)?;
+        spawn_backend_process(working_dir)?;
     }
 
     // Backend might dump error messages to stderr. So we wait here.
     sleep(Duration::from_millis(2000));
 
-    let mut context = FeContext::load()?;
+    let mut context = FeContext::load(working_dir)?;
     let mut has_to_erase_terminal = false;
     let mut prev_buffer = vec![];
     let mut curr_buffer = vec![];

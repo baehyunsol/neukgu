@@ -36,6 +36,7 @@ use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
 use iced::widget::text_editor::{Action as TextEditorAction, Content as TextEditorContent, TextEditor};
+use ragit_fs::join3;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -77,7 +78,7 @@ impl IcedContext {
 
         match popup {
             Popup::Turn((index, turn_id)) => {
-                let turn = Turn::load(&turn_id)?;
+                let turn = Turn::load(&turn_id, &self.fe_context.working_dir)?;
                 self.text_diff = self.fe_context.calc_diff(&turn)?;
                 self.loaded_turn = Some((index, turn));
                 // TODO: load self.copy_buffer
@@ -86,11 +87,13 @@ impl IcedContext {
                 // There's nothing to load
             },
             Popup::Logs => {
-                self.loaded_log = Some(LogView::Logs(load_logs_tail()?));
+                let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
+                self.loaded_log = Some(LogView::Logs(load_logs_tail(&log_dir)?));
                 // TODO: load self.copy_buffer
             },
             Popup::Log(id) => {
-                self.loaded_log = Some(LogView::Log(load_log(&id)?));
+                let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
+                self.loaded_log = Some(LogView::Log(load_log(&id, &log_dir)?));
                 // TODO: load self.copy_buffer
             },
             Popup::Help => {
@@ -159,13 +162,12 @@ pub enum LogView {
     Log(String),
 }
 
-pub fn try_boot(no_backend: bool, current_dir: &str) -> Result<IcedContext, Error> {
+pub fn try_boot(no_backend: bool, working_dir: &str) -> Result<IcedContext, Error> {
     if !no_backend {
-        spawn_backend_process(current_dir)?;
+        spawn_backend_process(working_dir)?;
     }
 
-    let fe_context = FeContext::load()?;
-
+    let fe_context = FeContext::load(working_dir)?;
     Ok(IcedContext {
         fe_context: fe_context.clone(),
         window_size: Size::new(0.0, 0.0),
@@ -207,7 +209,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             )?;
 
             if let Some(LogView::Logs(_)) = &context.loaded_log {
-                context.loaded_log = Some(LogView::Logs(load_logs_tail()?));
+                let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
+                context.loaded_log = Some(LogView::Logs(load_logs_tail(&log_dir)?));
             }
 
             let llm_request = context.fe_context.get_llm_request()?;
@@ -359,7 +362,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     else if let Some(loaded_image) = context.loaded_image {
         let image_view: Element<_> = popup(
-            ImageViewer::new(ImageHandle::from_path(loaded_image.path().unwrap())).content_fit(ContentFit::Contain).into(),
+            ImageViewer::new(ImageHandle::from_path(loaded_image.path(&context.fe_context.working_dir).unwrap())).content_fit(ContentFit::Contain).into(),
             context,
         ).into();
 
@@ -539,7 +542,7 @@ fn render_llm_tokens(llm_tokens: Vec<LLMToken>, context: &IcedContext) -> Elemen
         |token| match token {
             LLMToken::String(s) => text!("{s}").width(Length::Fill).into(),
             LLMToken::Image(id) => MouseArea::new(
-                Image::new(ImageHandle::from_path(id.path().unwrap()))
+                Image::new(ImageHandle::from_path(id.path(&context.fe_context.working_dir).unwrap()))
                     .width(Length::Fixed(300.0))
                     .height(Length::Fixed(300.0))
                     .content_fit(ContentFit::Contain),

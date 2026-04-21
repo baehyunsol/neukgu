@@ -14,7 +14,7 @@ use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
 use ragit_fs::{
     WriteMode,
-    join3,
+    join4,
     read_bytes,
     write_bytes,
 };
@@ -86,8 +86,8 @@ impl Turn {
         turn
     }
 
-    pub fn load(id: &TurnId) -> Result<Turn, Error> {
-        let path = join3(".neukgu", "turns", &format!("{}.json", id.0))?;
+    pub fn load(id: &TurnId, working_dir: &str) -> Result<Turn, Error> {
+        let path = join4(working_dir, ".neukgu", "turns", &format!("{}.json", id.0))?;
         let json = read_bytes(&path)?;
         let mut decompressed = vec![];
         let mut gz = GzDecoder::new(&json[..]);
@@ -95,14 +95,14 @@ impl Turn {
         Ok(serde_json::from_slice(&decompressed)?)
     }
 
-    pub fn store(&self) -> Result<(), Error> {
+    pub fn store(&self, working_dir: &str) -> Result<(), Error> {
         let json = serde_json::to_vec(self)?;
         let mut compressed = vec![];
         let mut gz = GzEncoder::new(&json[..], Compression::new(2));
         gz.read_to_end(&mut compressed)?;
 
         Ok(write_bytes(
-            &join3(".neukgu", "turns", &format!("{}.json", self.id.0))?,
+            &join4(working_dir, ".neukgu", "turns", &format!("{}.json", self.id.0))?,
             &compressed,
             WriteMode::Atomic,
         )?)

@@ -15,7 +15,6 @@ use ragit_fs::{
     join,
     normalize as normalize_path,
     read_dir,
-    set_current_dir,
 };
 
 const HELP_MESSAGE: &str = "TODO: Write help message...";
@@ -136,18 +135,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let project_name = context.short_text_editor_content.text();
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
-
-            set_current_dir(&path)?;
-            create_dir(&project_name)?;
-            set_current_dir(&project_path)?;
-            init_working_dir(Some(instruction), false)?;
+            create_dir(&project_path)?;
+            init_working_dir(Some(instruction), &project_path, false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
-
-            set_current_dir(&path)?;
-            init_working_dir(Some(instruction), false)?;
+            init_working_dir(Some(instruction), &path, false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),
@@ -209,7 +203,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     } else if let Some(Popup::Help) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(Scrollable::new(text!("{HELP_MESSAGE}")).into(), context).into(),
+            popup(Scrollable::new(text!("{HELP_MESSAGE}")).into()).into(),
         ]).into();
     }
 
@@ -312,7 +306,6 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
             text_editor.into(),
             button("Init", IcedMessage::Init { path: path.to_string() }, green()).padding(20).into(),
         ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill).into(),
-        context,
     )
 }
 
@@ -332,7 +325,6 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
             long_text_editor.into(),
             button("Create", IcedMessage::Create { path: path.to_string() }, green()).padding(20).into(),
         ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill).into(),
-        context,
     )
 }
 
@@ -375,18 +367,8 @@ fn check_neukgu_index(path: &str) -> Result<bool, Error> {
     })
 }
 
-fn popup<'a, 'b>(element: Element<'a, IcedMessage>, context: &'b IcedContext) -> Element<'a, IcedMessage> {
+fn popup<'m>(element: Element<'m, IcedMessage>) -> Element<'m, IcedMessage> {
     let mut buttons: Vec<Element<IcedMessage>> = vec![];
-
-    // TODO: any buttons else?
-    // if context.prev_popup.is_some() {
-    //     buttons.push(button("Back", IcedMessage::BackPopup, blue()).into());
-    // }
-
-    // if context.copy_buffer.is_some() {
-    //     buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue()).into());
-    // }
-
     buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
 
     Container::new(

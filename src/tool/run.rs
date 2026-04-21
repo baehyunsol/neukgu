@@ -1,8 +1,5 @@
 use crate::{Context, Error, subprocess};
-use ragit_fs::{
-    exists,
-    join3,
-};
+use ragit_fs::{exists, join3};
 use regex::Regex;
 
 impl Context {

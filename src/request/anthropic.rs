@@ -20,7 +20,7 @@ pub struct AnthropicRequest {
 }
 
 impl Request {
-    pub fn to_anthropic_request(&self) -> Result<HttpRequest, Error> {
+    pub fn to_anthropic_request(&self, working_dir: &str) -> Result<HttpRequest, Error> {
         let mut headers: HashMap<&str, &str> = HashMap::new();
         let api_key = match std::env::var("ANTHROPIC_API_KEY") {
             Ok(k) => k.to_string(),
@@ -41,7 +41,7 @@ impl Request {
         for h in self.history.iter() {
             messages.push(json!({
                 "role": "user",
-                "content": contents_to_json(&h.query)?,
+                "content": contents_to_json(&h.query, working_dir)?,
             }));
             messages.push(json!({
                 "role": "assistant",
@@ -51,7 +51,7 @@ impl Request {
 
         messages.push(json!({
             "role": "user",
-            "content": contents_to_json(&self.query)?,
+            "content": contents_to_json(&self.query, working_dir)?,
         }));
 
         let tools = if self.enable_web_search {
@@ -104,7 +104,7 @@ impl Request {
     }
 }
 
-fn contents_to_json(contents: &[LLMToken]) -> Result<Value, Error> {
+fn contents_to_json(contents: &[LLMToken], working_dir: &str) -> Result<Value, Error> {
     let mut result = Vec::with_capacity(contents.len());
 
     for part in contents.iter() {
@@ -114,7 +114,7 @@ fn contents_to_json(contents: &[LLMToken]) -> Result<Value, Error> {
                 "text": s,
             }),
             LLMToken::Image(id) => {
-                let bytes = read_bytes(&id.path()?)?;
+                let bytes = read_bytes(&id.path(working_dir)?)?;
                 let image_base64 = encode_base64(&bytes);
 
                 json!({

@@ -7,7 +7,6 @@ use iced::time::{self, Duration};
 use iced::widget::{Container, Space};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::Style;
-use ragit_fs::set_current_dir;
 
 mod error;
 mod launcher;
@@ -42,8 +41,6 @@ pub fn run() -> Result<(), Error> {
     Ok(())
 }
 
-// Context::Launcher doesn't care about the current_dir of the process, but Context::WorkingDir does.
-// So, you have to set_current_dir before booting Context::WorkingDir.
 pub enum IcedContext {
     Launcher(LauncherContext),
     WorkingDir(WorkingDirContext),
@@ -73,20 +70,14 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
             Task::none()
         },
         (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
-            if let Err(e) = set_current_dir(&path) {
-                *context = IcedContext::Error(error::boot(format!("{e:?}")));
-            }
-
-            else {
-                // TODO: make `no_backend` configurable
-                match working_dir::try_boot(false, &path) {
-                    Ok(c) => {
-                        *context = IcedContext::WorkingDir(c);
-                    },
-                    Err(e) => {
-                        *context = IcedContext::Error(error::boot(format!("{e:?}")));
-                    },
-                }
+            // TODO: make `no_backend` configurable
+            match working_dir::try_boot(false, &path) {
+                Ok(c) => {
+                    *context = IcedContext::WorkingDir(c);
+                },
+                Err(e) => {
+                    *context = IcedContext::Error(error::boot(format!("{e:?}")));
+                },
             }
 
             Task::none()
@@ -188,5 +179,5 @@ fn yellow() -> Color {
 }
 
 fn pink() -> Color {
-    Color::from_rgb(0.5, 0.2, 0.2)
+    Color::from_rgb(0.9, 0.6, 0.7)
 }

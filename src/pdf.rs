@@ -5,7 +5,7 @@ use hayro::vello_cpu::color::palette::css::WHITE;
 use ragit_fs::{
     WriteMode,
     exists,
-    join3,
+    join4,
     write_string,
 };
 use serde::{Deserialize, Serialize};
@@ -14,29 +14,30 @@ use serde::{Deserialize, Serialize};
 pub struct PdfId(pub u64);
 
 impl PdfId {
-    pub fn pages_path(&self) -> Result<String, Error> {
-        Ok(join3(
+    pub fn pages_path(&self, working_dir: &str) -> Result<String, Error> {
+        Ok(join4(
+            working_dir,
             ".neukgu",
             "pdfs",
             &format!("{:016x}.json", self.0),
         )?)
     }
 
-    pub fn get_pages(&self) -> Result<Vec<ImageId>, Error> {
-        Ok(load_json(&self.pages_path()?)?)
+    pub fn get_pages(&self, working_dir: &str) -> Result<Vec<ImageId>, Error> {
+        Ok(load_json(&self.pages_path(working_dir)?)?)
     }
 
-    pub fn count_pages(&self) -> u64 {
-        self.0 & 0xffff
-    }
+    // pub fn count_pages(&self) -> u64 {
+    //     self.0 & 0xffff
+    // }
 }
 
-pub fn render_and_get_id(bytes: &[u8]) -> Result<PdfId, Error> {
+pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error> {
     let pdf = Pdf::new(bytes.to_vec())?;
     let id = ((hash_bytes(bytes) & 0xffff_ffff_ffff) << 16) as u64 | pdf.pages().len() as u64;
     let id = PdfId(id);
 
-    if exists(&id.pages_path()?) {
+    if exists(&id.pages_path(working_dir)?) {
         return Ok(id);
     }
 
@@ -57,12 +58,12 @@ pub fn render_and_get_id(bytes: &[u8]) -> Result<PdfId, Error> {
             },
         );
         let png_bytes = pixmap.into_png()?;
-        let image_id = normalize_and_get_id(&png_bytes)?;
+        let image_id = normalize_and_get_id(&png_bytes, working_dir)?;
         pages.push(image_id);
     }
 
     write_string(
-        &id.pages_path()?,
+        &id.pages_path(working_dir)?,
         &serde_json::to_string_pretty(&pages)?,
         WriteMode::Atomic,
     )?;

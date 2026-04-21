@@ -1,7 +1,7 @@
 use super::{Path, normalize_path};
 use crate::{Context, ImageId, PdfId, normalize_and_get_id, render_and_get_id};
 use hayro::hayro_syntax::Pdf;
-use ragit_fs::{FileError, basename, is_dir, read_bytes, read_dir};
+use ragit_fs::{FileError, basename, is_dir, join, read_bytes, read_dir};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -47,11 +47,13 @@ pub enum FileEntry {
 
 // It already checked that the path exists.
 pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> {
-    if is_dir(path) {
+    let real_path = join(&context.working_dir, path)?;
+
+    if is_dir(&real_path) {
         let mut entries = vec![];
         let mut basenames = vec![];
 
-        for e in read_dir(path, true)? {
+        for e in read_dir(&real_path, true)? {
             let name = basename(&e)?;
 
             // hidden
@@ -101,18 +103,15 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> 
     }
 
     else {
-        let bytes = read_bytes(path)?;
+        let bytes = read_bytes(&real_path)?;
 
         match String::from_utf8(bytes.clone()) {
             Ok(s) => Ok(TypedFile::Text(s)),
-            Err(_) => match normalize_and_get_id(&bytes) {
+            Err(_) => match normalize_and_get_id(&bytes, &context.working_dir) {
                 Ok(id) => Ok(TypedFile::Image(id)),
-                Err(_) => match render_and_get_id(&bytes) {
+                Err(_) => match render_and_get_id(&bytes, &context.working_dir) {
                     Ok(id) => Ok(TypedFile::Pdf(id)),
-                    Err(e) => {
-                        eprintln!("{e:?}");
-                        Ok(TypedFile::Etc)
-                    },
+                    Err(_) => Ok(TypedFile::Etc),
                 },
             },
         }

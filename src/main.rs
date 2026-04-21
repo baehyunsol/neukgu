@@ -8,7 +8,7 @@ use neukgu::{
     tui,
 };
 use ragit_cli::{ArgCount, ArgParser, ArgType};
-use ragit_fs::{create_dir, create_dir_all, exists, set_current_dir};
+use ragit_fs::{create_dir, create_dir_all, exists, join};
 
 fn main() {
     let args = std::env::args().collect();
@@ -59,8 +59,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             let mock_api = parsed_args.get_flag(0).is_some();
 
             create_dir(&project_name)?;
-            set_current_dir(&project_name)?;
-            init_working_dir(instruction, mock_api)?;
+            init_working_dir(instruction, &project_name, mock_api)?;
             Ok(())
         },
         Some("init") => {
@@ -73,24 +72,27 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
             let mock_api = parsed_args.get_flag(0).is_some();
 
-            init_working_dir(instruction, mock_api)?;
+            init_working_dir(instruction, ".", mock_api)?;
             Ok(())
         },
         Some("headless") => {
             let parsed_args = ArgParser::new()
                 .args(ArgType::String, ArgCount::None)
+                .optional_arg_flag("--working-dir", ArgType::String)
                 .optional_flag(&["--attach-fe"])
                 .parse(&args, 2)?;
+
+            let working_dir = parsed_args.arg_flags.get("--working-dor").map(|s| s.to_string()).unwrap_or(String::from("."));
 
             // If this flag is set, the backend loop runs only while the frontend is alive.
             let attach_fe = parsed_args.get_flag(0).is_some();
 
-            if !exists(".neukgu/") {
+            if !exists(&join(&working_dir, ".neukgu/")?) {
                 return Err(Error::IndexDirNotFound);
             }
 
-            let config = Config::load()?;
-            let mut context = Context::load(&config)?;
+            let config = Config::load(&working_dir)?;
+            let mut context = Context::load(&config, &working_dir)?;
 
             if !exists(&config.sandbox_root) {
                 create_dir_all(&config.sandbox_root)?;
@@ -122,7 +124,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 .parse(&args, 2)?;
 
             let no_backend = parsed_args.get_flag(0).is_some();
-            tui::run(no_backend)
+            tui::run(no_backend, ".")
         },
         Some("gui") => {
             ArgParser::new()

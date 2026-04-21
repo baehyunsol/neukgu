@@ -1,7 +1,7 @@
 use super::{HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
 use async_std::task::sleep;
 use crate::{Error, Response, load_json};
-use ragit_fs::{WriteMode, exists, join, write_string};
+use ragit_fs::{WriteMode, exists, join3, write_string};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -19,12 +19,12 @@ impl Request {
         })
     }
 
-    pub async fn send_mock_request(&self) -> Result<Response, Error> {
+    pub async fn send_mock_request(&self, working_dir: &str) -> Result<Response, Error> {
         sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
-        let mut state = MockState::load()?;
+        let mut state = MockState::load(working_dir)?;
         state.check_prev_turn_output(&self.query)?;
         let response = state.get_next_turn();
-        state.store()?;
+        state.store(working_dir)?;
 
         Ok(Response {
             response,
@@ -56,8 +56,8 @@ impl MockState {
         }
     }
 
-    pub fn load() -> Result<MockState, Error> {
-        let mock_path = join(".neukgu", "mock.json")?;
+    pub fn load(working_dir: &str) -> Result<MockState, Error> {
+        let mock_path = join3(working_dir, ".neukgu", "mock.json")?;
 
         if exists(&mock_path) {
             load_json(&mock_path)
@@ -68,9 +68,9 @@ impl MockState {
         }
     }
 
-    pub fn store(&self) -> Result<(), Error> {
+    pub fn store(&self, working_dir: &str) -> Result<(), Error> {
         Ok(write_string(
-            &join(".neukgu", "mock.json")?,
+            &join3(working_dir, ".neukgu", "mock.json")?,
             &serde_json::to_string_pretty(self)?,
             WriteMode::Atomic,
         )?)
