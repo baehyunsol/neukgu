@@ -411,7 +411,7 @@ impl ToolCall {
                 Ok(ToolCall::Ask { id: rand::random::<u64>(), to, question })
             },
             ToolKind::Render => {
-                let scroll = parse_int_arg(args, "scroll");
+                let script = parse_string_arg(args, "script");
                 let input = match parse_path_arg(args, "input") {
                     Some(input) => input,
                     None => {
@@ -430,7 +430,7 @@ impl ToolCall {
                         });
                     },
                 };
-                Ok(ToolCall::Render { scroll, input, output })
+                Ok(ToolCall::Render { script, input, output })
             },
         }
     }

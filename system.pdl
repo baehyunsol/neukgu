@@ -131,10 +131,13 @@ It spawns a chrome browser, opens the input file, captures a screenshot of the b
 <output>output.png</output>
 </render>
 
-If you're rendering an html file, you can scroll down the page with `<scroll>` tag. The below example scrolls down 500 pixels and captures a screenshot.
+If you're rendering an html file, you can execute an arbitrary javascript code before capturing a screenshot.
+It'll execute the code, capture the screenshot, and will give you the returned value of the javascipt.
+
+It's very useful! Let's say you want to scroll 500 pixels down before taking a screenshot. You can do something like this:
 
 <render>
-<scroll>500</scroll>
+<script>window.scrollBy(0, 500)</script>
 <input>doc.html</input>
 <output>doc-500.png</output>
 </render>

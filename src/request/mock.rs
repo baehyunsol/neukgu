@@ -174,6 +174,22 @@ fn mock_requests() -> Vec<MockRequest> {
             "<run>\n<command>cargo run --manifest-path new_crate/Cargo.toml</command>\n</run>",
             Some("<exit_code>101</exit_code>"),
         ),
+
+        // browser test
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>hello.html</path>\n<content>\n<h1>Hello, World!</h1><ul><li>Hello</li><li>World</li></ul>\n</content>\n</write>",
+            None,
+        ),
+        MockRequest::new(
+            "<render><input>hello.html</input><output>hello.png</output><script>31627 * 31627</script></render>",
+            Some("1000267129"),
+        ),
+        MockRequest::new(
+            "<render><input>hello.html</input><output>hello-2.png</output></render>",
+            None,
+        ),
+        // browser test end
+
         MockRequest::new(
             "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content></content>\n</write>",
             None,

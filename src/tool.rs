@@ -84,9 +84,9 @@ pub enum ToolCall {
         question: String,
     },
     Render {
-        scroll: Option<i64>,
         input: Path,
         output: Path,
+        script: Option<String>,
     },
 }
 
@@ -460,7 +460,8 @@ impl ToolCall {
                 let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.model()?).await?;
                 Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
             },
-            ToolCall::Render { scroll, input, output } => {
+            // TODO: error if `script` is set and `input` is not an html
+            ToolCall::Render { script, input, output } => {
                 let joined_output = output.join("/");
                 let joined_input = input.join("/");
 
@@ -501,7 +502,7 @@ impl ToolCall {
 
                             let png_data = read_bytes(&real_output_path)?;
                             let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
-                            return Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id }));
+                            return Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id, script_output: None }));
                         }
                     }
 
@@ -514,17 +515,20 @@ impl ToolCall {
                     ..BrowserLaunchOptions::default()
                 }).map_err(from_browser_error)?;
                 let tab = browser.new_tab().map_err(from_browser_error)?;
+                let mut script_output = None;
                 tab.navigate_to(&url).map_err(from_browser_error)?;
 
-                if let Some(scroll) = scroll {
-                    tab.evaluate(&format!("window.scrollBy(0, {scroll})"), false).map_err(from_browser_error)?;
+                // TODO: timeout?
+                // TODO: test with larger objects (maybe truncate the result?)
+                if let Some(script) = script {
+                    script_output = Some(format!("{:?}", tab.evaluate(script, false).map_err(from_browser_error)?));
                 }
 
                 // TODO: maybe we have to wait a few seconds until it loads?
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
                 let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
                 write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
-                Ok(Ok(ToolCallSuccess::Render { input: url, output_path: joined_output, output_image: image_id }))
+                Ok(Ok(ToolCallSuccess::Render { input: url, output_path: joined_output, output_image: image_id, script_output }))
             },
         }
     }
@@ -562,11 +566,11 @@ impl ToolCall {
                 "Ask to {}",
                 format!("{to:?}").to_ascii_lowercase(),
             ),
-            ToolCall::Render { scroll, input, output } => format!(
+            ToolCall::Render { script, input, output } => format!(
                 "Render `{}` to `{}`{}",
                 input.join("/"),
                 output.join("/"),
-                if let Some(scroll) = scroll { format!(" (scroll {scroll})") } else { String::new() },
+                if let Some(script) = script { format!(" (script: {script})") } else { String::new() },
             ),
         }
     }
@@ -619,6 +623,7 @@ pub enum ToolCallSuccess {
         input: String,
         output_path: String,
         output_image: ImageId,
+        script_output: Option<String>,
     },
 }
 
@@ -695,8 +700,12 @@ impl ToolCallSuccess {
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Ask { answer, .. } => vec![LLMToken::String(answer.to_string())],
-            ToolCallSuccess::Render { input, output_path, output_image } => vec![
-                LLMToken::String(format!("Successfully opened `{input}` with chrome, captured a screenshot, and saved it to `{output_path}`.")),
+            ToolCallSuccess::Render { input, output_path, output_image, script_output } => vec![
+                LLMToken::String(format!(
+                    "Successfully opened `{input}`{}, captured a screenshot, and saved it to `{output_path}`.{}",
+                    if input.ends_with(".svg") { "" } else { " with chrome" },
+                    if let Some(script_output) = script_output { format!("\nscript output: {script_output}") } else { String::new() },
+                )),
                 LLMToken::Image(*output_image),
             ],
         }
@@ -878,7 +887,7 @@ impl ToolKind {
             (ToolKind::Run, _) => false,
             (ToolKind::Ask, b"to" | b"question") => true,
             (ToolKind::Ask, _) => false,
-            (ToolKind::Render, b"input" | b"output") => true,
+            (ToolKind::Render, b"input" | b"output" | b"script") => true,
             (ToolKind::Render, _) => false,
         }
     }
@@ -889,7 +898,7 @@ impl ToolKind {
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Run => vec!["timeout", "command", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
-            ToolKind::Render => vec!["input", "output"],
+            ToolKind::Render => vec!["input", "output", "script"],
         }.iter().map(|arg| arg.to_string()).collect()
     }
 }
