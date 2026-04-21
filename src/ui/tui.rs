@@ -21,7 +21,7 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
         curr_buffer = vec![];
         context.start_frame()?;
 
-        curr_buffer.push(format!("{}", context.top_bar()?));
+        curr_buffer.push(format!("{}", context.top_bar()));
 
         for (i, preview) in context.iter_previews().into_iter().enumerate() {
             let truncation = match context.truncation.get(&preview.id).unwrap() {

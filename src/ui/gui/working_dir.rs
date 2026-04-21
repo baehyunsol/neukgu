@@ -142,6 +142,9 @@ impl IcedContext {
             Popup::Diff => {
                 self.copy_buffer = self.text_diff.clone();
             },
+            Popup::TokenUsage(s) => {
+                self.copy_buffer = Some(s.to_string());
+            },
         }
 
         Ok(())
@@ -189,6 +192,7 @@ pub enum Popup {
     Help,
     Image(ImageId),
     Diff,
+    TokenUsage(String),
 }
 
 #[derive(Clone, Debug)]
@@ -246,6 +250,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             if let Some(LogView::Logs(_)) = &context.loaded_log {
                 let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
                 context.loaded_log = Some(LogView::Logs(load_logs_tail(&log_dir)?));
+            }
+
+            if let Some(Popup::TokenUsage(_)) = &context.curr_popup {
+                context.curr_popup = Some(Popup::TokenUsage(context.fe_context.get_token_usage().unwrap_or_else(|e| format!("{e:?}"))));
             }
 
             let llm_request = context.fe_context.get_llm_request()?;
@@ -361,7 +369,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
     let full_view = Column::from_vec(vec![
-        Container::new(text!("{}", context.fe_context.top_bar().unwrap_or_else(|e| format!("{e:?}")))).padding(8).into(),
+        Container::new(text!("{}", context.fe_context.top_bar())).padding(8).into(),
         horizontal_bar(context.window_size.width),
         render_buttons(context),
         horizontal_bar(context.window_size.width),
@@ -452,6 +460,13 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::TokenUsage(s)) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(Scrollable::new(text!("{s}")).into(), context).into(),
+        ]).into();
+    }
+
     full_view_stacked
 }
 
@@ -468,6 +483,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 
     buttons.push(button("Interrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue()).into());
     buttons.push(button("See logs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, blue()).into());
+    buttons.push(button("Token usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage(context.fe_context.get_token_usage().unwrap_or_else(|e| format!("{e:?}"))), prev: None }, blue()).into());
     buttons.push(button("Help", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink()).into());
 
     Row::from_vec(buttons).padding(8).spacing(8).into()

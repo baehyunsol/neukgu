@@ -64,10 +64,15 @@
     - 늑구 질문 무시한 다음에 잘 진행되는지 확인
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, tui로 실행해서
     - 늑구 질문 잘 넘어가는지 확인
-  - 뭐가 됐든 한참 기다리고 tmp/가 크기 때문에 안 터지는지 확인하기
+  - 추가
+    - 뭐가 됐든 한참 기다리고 tmp/가 크기 때문에 안 터지는지 확인하기
+    - 한 세션에서 브라우저 여러번 띄우면 문제 생기는 거같은데?? -> 이거는 테스트하기 쉬움!!
 42. long text input -> 길어지면 아래 버튼이 안 보임. scroll bar가 필요!!
 43. web-search-tool -> 왜 이렇게 느린 거임??
 44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!
+  - perplexity한테 물어보니까
+  - 1, `working-dir/.venv/bin/python`을 실행하면 venv와 동일한 효과가 난다
+  - 2, `.venv/`의 absolute path가 이곳저곳에 hard-code 돼 있기 때문에 sandbox로 갖고 가면 문제가 생길 거다
 45. context engineering
   - 특정 turn을 고르면 그 turn은 context에 절대 안 들어가게 할 수 있음 (hide)
     - 만약에 그 turn이 write였으면 revert도 되면 좋겠음... 구현하기 빡세겠지?

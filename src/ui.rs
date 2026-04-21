@@ -375,13 +375,9 @@ impl FeContext {
         Ok(load_json::<Be2Fe>(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?.pause)
     }
 
-    pub fn top_bar(&self) -> Result<String, Error> {
-        let token_usage: TokenUsage = load_json(&join4(&self.working_dir, ".neukgu", "logs", "tokens.json")?)?;
-        let (total_input, total_output) = token_usage.total();
-        let (recent_input, recent_output) = token_usage.recent();
-
-        Ok(format!(
-            "llm context: {} / {}, neukgu: {}\ntotal input tokens: {}, total output tokens: {}, last 6hrs input tokens: {}, last 6hrs output tokens: {}",
+    pub fn top_bar(&self) -> String {
+        format!(
+            "llm context: {} / {}, neukgu: {}",
             prettify_bytes(self.get_total_llm_bytes()),
             prettify_bytes(self.config.llm_context_max_len),
             if self.is_paused().unwrap_or(false) || self.is_marked_done().unwrap_or(false) {
@@ -393,9 +389,20 @@ impl FeContext {
             } else {
                 "not responding"
             },
+        )
+    }
+
+    pub fn get_token_usage(&self) -> Result<String, Error> {
+        let token_usage: TokenUsage = load_json(&join4(&self.working_dir, ".neukgu", "logs", "tokens.json")?)?;
+        let (total_cached_input, total_input, total_output) = token_usage.total();
+        let (recent_cached_input, recent_input, recent_output) = token_usage.recent();
+        Ok(format!(
+            "total cached input: {}\nrecent 6 hours cached input: {}\ntotal non-cached input: {}\nrecent 6 hours non-cached input: {}\ntotal output: {}\nrecent 6 hours output: {}\n",
+            prettify_tokens(total_cached_input),
+            prettify_tokens(recent_cached_input),
             prettify_tokens(total_input),
-            prettify_tokens(total_output),
             prettify_tokens(recent_input),
+            prettify_tokens(total_output),
             prettify_tokens(recent_output),
         ))
     }

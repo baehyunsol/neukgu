@@ -54,7 +54,8 @@ impl Response {
             response,
             thinking,
             web_search_results,
-            input_tokens: raw_response.usage.input_tokens + raw_response.usage.cache_read_input_tokens,
+            cached_input_tokens: raw_response.usage.cache_read_input_tokens,
+            input_tokens: raw_response.usage.input_tokens,
             output_tokens: raw_response.usage.output_tokens,
         })
     }

@@ -117,7 +117,7 @@ impl Logger {
         Ok(())
     }
 
-    pub fn log_api_usage(&self, input: u64, output: u64) -> Result<(), Error> {
+    pub fn log_api_usage(&self, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {
         let usage_at = join(&self.log_dir, "tokens.json")?;
         let now = Local::now().timestamp().max(0) as u64 / 3600;
         let mut usage: TokenUsage = load_json(&usage_at)?;
@@ -125,11 +125,12 @@ impl Logger {
         match usage.0.entry(now) {
             Entry::Occupied(mut e) => {
                 let e = e.get_mut();
-                e.0 += input;
-                e.1 += output;
+                e.0 += cached_input;
+                e.1 += input;
+                e.2 += output;
             },
             Entry::Vacant(e) => {
-                e.insert((input, output));
+                e.insert((cached_input, input, output));
             },
         }
 
@@ -169,19 +170,19 @@ impl Logger {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TokenUsage(HashMap<u64  /* timestamp */, (u64 /* input */, u64 /* output */)>);
+pub struct TokenUsage(HashMap<u64  /* timestamp */, (u64 /* cached_input */, u64 /* input */, u64 /* output */)>);
 
 impl TokenUsage {
-    pub fn total(&self) -> (u64, u64) {
-        self.0.values().fold((0, 0), |(i, o), (ii, oo)| (i + *ii, o + *oo))
+    pub fn total(&self) -> (u64, u64, u64) {
+        self.0.values().fold((0, 0, 0), |(ci, i, o), (cii, ii, oo)| (ci + *cii, i + *ii, o + *oo))
     }
 
-    pub fn recent(&self) -> (u64, u64) {
+    pub fn recent(&self) -> (u64, u64, u64) {
         let now = Local::now().timestamp().max(0) as u64 / 3600;
         let recent_6 = (now.max(5) - 5)..(now + 1);
         recent_6.map(
-            |k| self.0.get(&k).cloned().unwrap_or((0, 0))
-        ).fold((0, 0), |(i, o), (ii, oo)| (i + ii, o + oo))
+            |k| self.0.get(&k).cloned().unwrap_or((0, 0, 0))
+        ).fold((0, 0, 0), |(ci, i, o), (cii, ii, oo)| (ci + cii, i + ii, o + oo))
     }
 }
 

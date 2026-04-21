@@ -94,7 +94,7 @@ impl Request {
                 logger.log(LogEntry::GotResponse(200))?;
                 logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
                 logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;
-                logger.log_api_usage(response.input_tokens, response.output_tokens)?;
+                logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                 return Ok(response);
             }
 
@@ -114,7 +114,7 @@ impl Request {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
                                         ApiProvider::Mock => unreachable!(),
                                     };
-                                    logger.log_api_usage(response.input_tokens, response.output_tokens)?;
+                                    logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                                     return Ok(response);
                                 },
                                 429 => {
