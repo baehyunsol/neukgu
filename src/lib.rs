@@ -16,7 +16,6 @@ mod config;
 mod context;
 mod error;
 mod image;
-mod interrupt;
 mod log;
 mod parse;
 mod pdf;
@@ -33,7 +32,6 @@ pub use config::Config;
 pub use context::{ChosenTurn, Context, ContextJson};
 pub use error::{Error, from_browser_error};
 pub use image::{ImageId, normalize_and_get_id};
-pub use interrupt::Interrupt;
 use log::{FileContent, Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
 use pdf::{PdfId, render_and_get_id};
@@ -63,10 +61,12 @@ pub use turn::{
     TurnSummary,
     get_turn_id,
 };
-pub use ui::{Be2Fe, Fe2Be, gui, tui};
+pub use ui::{Be2Fe, Fe2Be, UserResponse, gui, tui};
 
 pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
-    if let Some(Interrupt::Pause) = context.check_user_interrupt()? {
+    context.sync_with_fe()?;
+
+    if context.is_paused()? {
         sleep(Duration::from_millis(100));  // prevent busy-loop
         return Ok(());
     }
@@ -85,7 +85,7 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
 
     let backup_dir = export_to_sandbox(&config.sandbox_root)?;
 
-    match step_inner(context, config, false).await {
+    match step_inner(context, config).await {
         Ok(()) => {
             remove_dir_all(&backup_dir)?;
         },
@@ -99,12 +99,14 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
-async fn step_inner(
-    context: &mut Context,
-    config: &Config,
-    is_fake_turn: bool,
-) -> Result<(), Error> {
-    if let Some(Interrupt::Pause) = context.check_user_interrupt()? {
+async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error> {
+    if let Some((id, interrupt)) = context.check_user_interrupt()? {
+        context.process_user_interrupt(id, interrupt, config)?;
+        context.store()?;
+        context.remove_done_mark()?;
+    }
+
+    if context.is_marked_done()? {
         return Ok(());
     }
 
@@ -120,12 +122,11 @@ async fn step_inner(
         },
     };
 
-    if !is_fake_turn {
-        context.store()?;
+    context.store()?;
+    context.sync_with_fe()?;
 
-        if let Some(Interrupt::Pause) = context.check_user_interrupt()? {
-            return Ok(());
-        }
+    if context.is_paused()? {
+        return Ok(());
     }
 
     let tool_call_started_at = Instant::now();
@@ -151,26 +152,11 @@ async fn step_inner(
         turn_result,
         Instant::now().duration_since(tool_call_started_at).as_millis() as u64,
         config,
-        is_fake_turn,
+        false,
     )?;
 
-    let mut has_processed_user_request = false;
-
-    if !is_fake_turn && let Some(Interrupt::Request { request_id, request }) = context.check_user_interrupt()? {
-        context.add_user_request_turn(request_id, request);
-        Box::pin(step_inner(context, config, true)).await?;
-        has_processed_user_request = true;
-    }
-
-    if !is_fake_turn {
-        context.store()?;
-    }
-
-    if has_processed_user_request {
-        context.mark_user_request_complete()?;
-        context.store()?;
-    }
-
+    context.sync_with_fe()?;
+    context.store()?;
     Ok(())
 }
 

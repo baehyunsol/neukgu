@@ -1,4 +1,5 @@
 use crate::{
+    AskTo,
     Config,
     Error,
     LLMToken,
@@ -16,8 +17,9 @@ use crate::{
     get_first_tool_call,
     load_available_binaries,
     request,
+    validate_parse_result,
 };
-use ragit_fs::{WriteMode, join, read_string, write_string};
+use ragit_fs::{WriteMode, exists, join, read_string, remove_file, write_string};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -28,8 +30,7 @@ pub struct Context {
     // so we just have to run tool-call (or throw a parse error).
     pub curr_raw_response: Option<(String, u64)>,
 
-    pub user_request: Option<(u64, String)>,
-    pub completed_user_requests: HashSet<u64>,
+    pub completed_user_interrupts: HashSet<u64>,
 
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
@@ -42,8 +43,7 @@ pub struct Context {
 pub struct ContextJson {
     pub history: Vec<TurnId>,
     pub curr_raw_response: Option<(String, u64)>,
-    pub user_request: Option<(u64, String)>,
-    pub completed_user_requests: HashSet<u64>,
+    pub completed_user_interrupts: HashSet<u64>,
 }
 
 impl Context {
@@ -59,9 +59,8 @@ impl Context {
         Ok(Context {
             history: vec![],
             curr_raw_response: None,
-            user_request: None,
-            completed_user_requests: HashSet::new(),
             turns: HashMap::new(),
+            completed_user_interrupts: HashSet::new(),
             system_prompt,
             available_binaries,
             logger,
@@ -77,8 +76,7 @@ impl Context {
                 |h| h.get_turn_summary()
             ).collect(),
             curr_raw_response: context_json.curr_raw_response.clone(),
-            user_request: context_json.user_request.clone(),
-            completed_user_requests: context_json.completed_user_requests.clone(),
+            completed_user_interrupts: context_json.completed_user_interrupts.clone(),
             ..Context::new(config)?
         })
     }
@@ -89,8 +87,7 @@ impl Context {
                 |h| h.id.clone()
             ).collect(),
             curr_raw_response: self.curr_raw_response.clone(),
-            user_request: self.user_request.clone(),
-            completed_user_requests: self.completed_user_requests.clone(),
+            completed_user_interrupts: self.completed_user_interrupts.clone(),
         };
 
         Ok(write_string(
@@ -111,7 +108,7 @@ impl Context {
         turn_result: TurnResult,
         tool_elapsed_ms: u64,
         config: &Config,
-        is_fake_turn: bool,
+        is_user_interrupt: bool,
     ) -> Result<(), Error> {
         let (raw_response, llm_elapsed_ms) = self.curr_raw_response.take().unwrap();
         let new_turn = Turn::new(
@@ -120,7 +117,7 @@ impl Context {
             turn_result,
             llm_elapsed_ms,
             tool_elapsed_ms,
-            is_fake_turn,
+            is_user_interrupt,
             config,
         );
         let new_turn_summary = new_turn.summary(config);
@@ -328,6 +325,38 @@ impl Context {
 
         let query = llm_turns.pop().unwrap().query;
         Ok((llm_turns, query))
+    }
+
+    pub fn process_user_interrupt(&mut self, id: u64, interrupt: String, config: &Config) -> Result<(), Error> {
+        let q = "
+<ask>
+<to>user</to>
+<question>Do you have any feedbacks?</question>
+</ask>
+";
+        // Let's make sure that the schema is correct.
+        self.curr_raw_response = Some((q.to_string(), 0));
+        let parse_result = crate::parse::parse(q.as_bytes()).unwrap();
+        let _tool_call = validate_parse_result(&parse_result).unwrap();
+
+        let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: interrupt });
+        self.finish_turn(
+            Some(parse_result),
+            turn_result,
+            0,
+            config,
+            true,
+        )?;
+        self.completed_user_interrupts.insert(id);
+        Ok(())
+    }
+
+    pub fn is_marked_done(&self) -> Result<bool, Error> {
+        Ok(exists(&join("logs", "done")?))
+    }
+
+    pub fn remove_done_mark(&self) -> Result<(), Error> {
+        Ok(remove_file(&join("logs", "done")?)?)
     }
 }
 

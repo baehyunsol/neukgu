@@ -1,14 +1,12 @@
-use super::{FeContext, Truncation, init_binary_path, spawn_backend_process};
+use super::{FeContext, Truncation, spawn_backend_process};
 use crate::{Error, TurnResultSummary, prettify_time};
+use ragit_fs::current_dir;
 use std::thread::sleep;
 use std::time::Duration;
 
-// TODO: don't refresh the terminal if there's no update
 pub fn run(no_backend: bool) -> Result<(), Error> {
-    init_binary_path();
-
     if !no_backend {
-        spawn_backend_process()?;
+        spawn_backend_process(&current_dir()?)?;
     }
 
     // Backend might dump error messages to stderr. So we wait here.
@@ -42,7 +40,7 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
                     TurnResultSummary::ToolCallError => " \x1b[103m(tool-call-error)\x1b[0m",
                     TurnResultSummary::ToolCallSuccess => "",
                 },
-                " ".repeat(35),
+                " ".repeat(40),
                 prettify_time(preview.llm_elapsed_ms),
                 prettify_time(preview.tool_elapsed_ms),
             ));
@@ -65,7 +63,7 @@ pub fn run(no_backend: bool) -> Result<(), Error> {
 
         sleep(Duration::from_millis(3000));
         // TODO: user interaction
-        context.end_frame(None, None)?;
+        context.end_frame(None, None, None)?;
         has_to_erase_terminal = true;
     }
 }

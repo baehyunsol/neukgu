@@ -17,13 +17,13 @@ use super::{
 use crate::{
     Error,
     ImageId,
-    Interrupt,
     LLMToken,
     LogId,
     Turn,
     TurnId,
     TurnPreview,
     TurnResultSummary,
+    UserResponse,
     load_log,
     load_logs_tail,
     prettify_time,
@@ -37,6 +37,7 @@ use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
 use iced::widget::text_editor::{Action as TextEditorAction, Content as TextEditorContent, TextEditor};
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 const HELP_MESSAGE: &str = "TODO: Write help message...";
@@ -55,13 +56,18 @@ pub struct IcedContext {
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
+    pub text_editor_content: TextEditorContent,
 
     // If it's set, it'll display "diff" button in the turn popup.
     pub text_diff: Option<String>,
 
-    pub interrupt: Option<Interrupt>,
-    pub user_response: Option<(u64, String)>,
-    pub text_editor_content: TextEditorContent,
+    // user interaction
+    pub is_paused: bool,
+    pub pause: Option<bool>,
+    pub user_interrupt: Option<(u64, String)>,
+    pub llm_request: Option<(u64, String)>,
+    pub processed_llm_requests: HashSet<u64>,
+    pub user_response: Option<(u64, UserResponse)>,
 }
 
 impl IcedContext {
@@ -130,6 +136,8 @@ pub enum IcedMessage {
     PauseNeukgu,
     ResumeNeukgu,
     InterruptNeukgu,
+    AnswerLLMRequest,
+    DismissLLMRequest,
     EditText(TextEditorAction),
     Error(String),
 }
@@ -151,13 +159,15 @@ pub enum LogView {
     Log(String),
 }
 
-pub fn try_boot(no_backend: bool) -> Result<IcedContext, Error> {
+pub fn try_boot(no_backend: bool, current_dir: &str) -> Result<IcedContext, Error> {
     if !no_backend {
-        spawn_backend_process()?;
+        spawn_backend_process(current_dir)?;
     }
 
+    let fe_context = FeContext::load()?;
+
     Ok(IcedContext {
-        fe_context: FeContext::load()?,
+        fe_context: fe_context.clone(),
         window_size: Size::new(0.0, 0.0),
         turn_view_id: Id::unique(),
         logs_view_id: Id::unique(),
@@ -169,10 +179,14 @@ pub fn try_boot(no_backend: bool) -> Result<IcedContext, Error> {
         curr_popup: None,
         prev_popup: None,
         copy_buffer: None,
-        text_diff: None,
-        interrupt: None,
-        user_response: None,
         text_editor_content: TextEditorContent::with_text(""),
+        text_diff: None,
+        is_paused: fe_context.is_paused()?,
+        pause: None,
+        user_interrupt: None,
+        llm_request: None,
+        processed_llm_requests: HashSet::new(),
+        user_response: None,
     })
 }
 
@@ -186,18 +200,34 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick => {
-            context.fe_context.end_frame(context.interrupt.take(), context.user_response.take())?;
+            context.fe_context.end_frame(
+                context.pause.take(),
+                context.user_interrupt.take(),
+                context.user_response.take(),
+            )?;
 
             if let Some(LogView::Logs(_)) = &context.loaded_log {
                 context.loaded_log = Some(LogView::Logs(load_logs_tail()?));
             }
 
-            if context.fe_context.ask_to_user.is_some() {
-                if context.curr_popup.is_some() {
-                    context.close_popup();
+            let llm_request = context.fe_context.get_llm_request()?;
+
+            if let Some((id, _)) = &llm_request {
+                if !context.processed_llm_requests.contains(id) {
+                    if context.llm_request.is_none() {
+                        context.close_popup();
+                    }
+
+                    context.llm_request = llm_request;
                 }
             }
 
+            else if context.llm_request.is_some() {
+                context.llm_request = None;
+                context.close_popup();
+            }
+
+            context.is_paused = context.fe_context.is_paused()?;
             context.fe_context.start_frame()?;
         },
         IcedMessage::WindowResized(s) => {
@@ -235,14 +265,25 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::CopyToClipboard => todo!(),
         IcedMessage::PauseNeukgu => {
-            context.interrupt = Some(Interrupt::Pause);
+            context.pause = Some(true);
         },
         IcedMessage::ResumeNeukgu => {
-            context.interrupt = Some(Interrupt::Resume);
+            context.pause = Some(false);
         },
         IcedMessage::InterruptNeukgu => {
-            context.interrupt = Some(Interrupt::Request { request_id: rand::random::<u64>(), request: context.text_editor_content.text() });
+            context.user_interrupt = Some((rand::random::<u64>(), context.text_editor_content.text()));
             context.close_popup();
+        },
+        IcedMessage::AnswerLLMRequest => {
+            let Some((id, _)) = context.llm_request.take() else { unreachable!() };
+            context.processed_llm_requests.insert(id);
+            context.user_response = Some((id, UserResponse::Answer(context.text_editor_content.text())));
+            context.text_editor_content = TextEditorContent::with_text("");
+        },
+        IcedMessage::DismissLLMRequest => {
+            let Some((id, _)) = context.llm_request.take() else { unreachable!() };
+            context.processed_llm_requests.insert(id);
+            context.user_response = Some((id, UserResponse::Reject));
             context.text_editor_content = TextEditorContent::with_text("");
         },
         IcedMessage::EditText(a) => {
@@ -293,18 +334,18 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view_resizable).into();
 
-    if context.fe_context.ask_to_user.is_some() {
+    if context.llm_request.is_some() {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_ask_to_user_popup(context),
-        ]).into()
+        ]).into();
     }
 
     else if let Some((index, turn)) = &context.loaded_turn {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_turn(*index, turn, context),
-        ]).into()
+        ]).into();
     }
 
     else if let Some(loaded_log) = &context.loaded_log {
@@ -375,11 +416,11 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 }
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    if context.curr_popup.is_some() || context.fe_context.ask_to_user.is_some() {
+    if context.curr_popup.is_some() || context.llm_request.is_some() {
         return Container::new(text!("")).padding(8).into();
     }
 
-    let mut buttons: Vec<Element<IcedMessage>> = if context.fe_context.is_paused() {
+    let mut buttons: Vec<Element<IcedMessage>> = if context.is_paused {
         vec![button("Resume", IcedMessage::ResumeNeukgu, blue()).into()]
     } else {
         vec![button("Pause", IcedMessage::PauseNeukgu, blue()).into()]
@@ -429,7 +470,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         with_color = with_color.style(|_| set_bg(gray(0.15)));
     }
 
-    if context.curr_popup.is_none() && context.fe_context.ask_to_user.is_none() {
+    if context.curr_popup.is_none() && context.llm_request.is_none() {
         MouseArea::new(with_color)
             .on_enter(IcedMessage::HoverOnTurn(Some(p.id.clone())))
             .on_exit(IcedMessage::HoverOnTurn(None))
@@ -515,14 +556,14 @@ fn render_llm_tokens(llm_tokens: Vec<LLMToken>, context: &IcedContext) -> Elemen
 fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     popup(
         Column::from_vec(vec![
-            text!("{}", context.fe_context.ask_to_user.as_ref().unwrap().1).into(),
+            text!("{}", context.llm_request.as_ref().unwrap().1).into(),
             TextEditor::new(&context.text_editor_content)
                 .placeholder("Answer neukgu's question")
                 .on_action(|action| IcedMessage::EditText(action))
                 .into(),
             Row::from_vec(vec![
-                button("Answer", todo!(), green()).into(),
-                button("Dismiss", todo!(), red()).into(),
+                button("Answer", IcedMessage::AnswerLLMRequest, green()).into(),
+                button("Dismiss", IcedMessage::DismissLLMRequest, red()).into(),
             ]).spacing(20).into(),
         ]).padding(20).spacing(20).into(),
         context,

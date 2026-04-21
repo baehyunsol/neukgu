@@ -102,7 +102,7 @@ impl MockState {
     }
 
     pub fn get_next_turn(&mut self) -> String {
-        if rand::random::<bool>() {
+        if rand::random::<u32>() % 4 == 0 {
             self.valid = false;
             String::from("The mock AI occasionally outputs random, non-sense outputs.")
         }
@@ -146,6 +146,10 @@ fn mock_requests() -> Vec<MockRequest> {
             None,
         ),
         MockRequest::new(
+            "<ask><to>user</to><question>I don't see any instructions... what do you want me to do?</question></ask>",
+            None,
+        ),
+        MockRequest::new(
             "<run>\n<command>cargo new new_crate</command>\n</run>",
             Some("<exit_code>0</exit_code>"),
         ),
@@ -168,6 +172,10 @@ fn mock_requests() -> Vec<MockRequest> {
         MockRequest::new(
             "<run>\n<command>cargo run --manifest-path new_crate/Cargo.toml</command>\n</run>",
             Some("<exit_code>101</exit_code>"),
+        ),
+        MockRequest::new(
+            "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content></content>\n</write>",
+            None,
         ),
     ]
 }

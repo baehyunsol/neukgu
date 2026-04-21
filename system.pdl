@@ -11,6 +11,8 @@ The user might provide more files/directories. You can freely create files/direc
 
 You can use 5 tools to accomplish your task. You use XML syntax to call each tool. I'll explain each tool with examples.
 
+When you're done, create a file `logs/done`. Then I'll give you a feedback.
+
 1. Read
 
 With this tool, you can read a text file, an image file or a directory.

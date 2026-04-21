@@ -22,14 +22,6 @@
   - 지금 당장은 고민할 필요가 없음. 애초에 AI가 저렇게 긴 파일을 한번에 쓸 능력이 안되거든!
 19. multi-agent
   - 코드 짜는 agent 따로, test하는 agent 따로, doc 쓰는 agent 따로... 하면 더 좋으려나?
-20. instruction.md가 굳이 필요함?? 파일을 따로 쓰기 vs gui/cli에서 instruction을 직접 주기
-  - 파일을 따로 쓸 경우 장점
-    - instruction이 길어질 때 쓰기 편함
-    - instruction을 다시 확인하기 편함 (늑구가 안 돌고 있을 때도 확인 가능!)
-  - 파일을 따로 쓸 경우 단점
-    - instruction이 짧을 때 쓰기 귀찮음
-    - instruction.md가 이미 있는 경우 노답임
-    - 동시에 여러 agent를 돌리기 불편함
 23. `` FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`) ``
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
@@ -45,6 +37,7 @@
   - 현재 디렉토리에서 새로운 instruction을 실행하고 싶을 때
     - `.neukgu/logs/log`, `.neukgu/context.json`을 새롭게 만들기
       - 기존 것도 어딘가에 백업해두면 session을 복구할 수 있음!!
+      - 생각해보니까 "session 복구"라는 개념이 좀 애매함... 다른 늑구가 돌면서 파일들을 헤집어 놓았을텐데 복구하면 다 깨지는 거 아님?
     - `.neukgu/be2fe.json`, `.neukgu/fe2be.json`을 새롭게 만들기
       - 이건 백업할 필요 X
     - `neukgu-instruction.md`는 사용자한테 새로 입력받기
@@ -56,3 +49,37 @@
   - flow (backend): parse-tool-call -> write the question to be2fe -> wait (keeps checking fe2be)
   - flow (frontend): check be2fe -> update fe_context -> wait for the answer -> update fe_context -> update fe2be
   - possible outcomes: no fe, has fe but timeout, user rejected to answer, user answered
+  - 이거 하는 김에 fe <-> be 통신을 전반적으로 깔끔하게 바꾸자... 이거 말고도 interaction할 일이 많잖아!!
+  - 전반적인 flow
+    - user가 fe에 특정 input을 입력 -> fe_state가 변화 -> fe2be.json이 변화 -> be가 fe2be.json을 읽음 -> 특정 action을 함 -> be가 be2fe.json을 수정 -> fe가 be2fe.json을 읽음 -> fe2be.json이 변화 -> fe_state가 변화 -> fe에 반영...
+    - 일단, 자료구조를 2개로 나누자 1: flag 형식의 정보 (e.g. pause: bool), 2: queue 형식의 정보 (user-to-llm, llm-to-user)
+      - be2fe queue랑 fe2be queue를 만들고, 동일한 enum을 사용하게 하자!!
+    - be는 주기적으로 fe2be를 읽어서 자신의 상태를 업데이트. fe는 주기적으로 be2fe를 읽어서 자신의 상태를 업데이트
+      - 
+36. rollback
+  - 특정 turn을 context에서 숨기기 vs 특정 시점으로 돌아가기
+    - 둘이 뭐가 다르냐면, write-tool을 숨기면 write한 파일은 그대로 남지만, write-tool을 rollback 하면 write한 파일의 내용도 과거로 돌아감!!
+    - 구현은 전자가 압도적으로 쉬움...
+37. set_current_dir 하지 말자... 그냥 root_dir을 줘야함 ㅠㅠ 안 그러면 session 관리가 너무 힘듦!!
+  - 그대신 subprocess 띄울 때는 해당 path로 보내고 띄워야함
+38. multi-session neukgu?
+  - tab을 여러개 띄워두고 동시에 여러 작업을 시키면... 편하겠지?
+  - 근데 또 window manager가 할 수 있는 걸 굳이 내가 구현해야하나 싶기도 하고
+  - tab이 여러개일 때 각 tab의 상황을 동시에 보여주는 상황판이 있으면 더 편할 수도?
+  - 여러 tab을 관리하는 agent??
+39. 한 be에 여러 fe 붙이기?
+  - fe가 read-only면 상관이 없는데 fe가 be한테 정보를 줄 수가 있어서 문제 (e.g. user2llm, llm2user, pause, ...)
+  - read-only fe를 만들까?
+    - 아니면, fe가 여럿인지 아닌지를 자동으로 감지해서 interrupt를 어떻게 걸지 결정해도 되고... ㅋㅋㅋ
+40. 다 끝나면 `logs/done` 만들라고 하기
+  - logs/done
+41. testbench
+  - mock-api 만들고, gui로 실행해서,
+    - 늑구 질문에 정상적으로 대답한 다음에 잘 진행되는지 확인
+    - 끝까지 가서 잘 끝나는지 보고, 끝난 다음에 interrupt 하면 계속 진행되는지 확인
+  - mock-api 만들고, gui로 실행해서,
+    - 늑구 질문 거절한 다음에 잘 진행되는지 확인
+  - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, gui로 실행해서
+    - 늑구 질문 무시한 다음에 잘 진행되는지 확인
+  - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, tui로 실행해서
+    - 늑구 질문 잘 넘어가는지 확인

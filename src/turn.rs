@@ -57,9 +57,8 @@ pub struct Turn {
     pub llm_elapsed_ms: u64,
     pub tool_elapsed_ms: u64,
 
-    // Currently, user-interrupt is implemented by inserting a fake turn
-    // with `Ask { to: User }`.
-    pub is_fake: bool,
+    // A user interrupt creates a fake-turn.
+    pub is_user_interrupt: bool,
 }
 
 impl Turn {
@@ -69,7 +68,7 @@ impl Turn {
         turn_result: TurnResult,
         llm_elapsed_ms: u64,
         tool_elapsed_ms: u64,
-        is_fake: bool,
+        is_user_interrupt: bool,
         config: &Config,
     ) -> Turn {
         let mut turn = Turn {
@@ -79,7 +78,7 @@ impl Turn {
             turn_result,
             llm_elapsed_ms,
             tool_elapsed_ms,
-            is_fake,
+            is_user_interrupt,
         };
         let turn_summary = turn.summary(config);
         let turn_id = get_turn_id(turn_summary);
@@ -138,7 +137,7 @@ impl Turn {
     pub fn preview(&self) -> TurnPreview {
         let preview_title = match &self.parse_result {
             Some(parse_result) => {
-                if self.is_user_interrupt() {
+                if self.is_user_interrupt {
                     String::from("User interrupt")
                 }
 
@@ -161,11 +160,6 @@ impl Turn {
             tool_elapsed_ms: self.tool_elapsed_ms,
             timestamp: TURN_TIMESTAMP_REGEX.captures(&self.id.0).unwrap().get(1).unwrap().as_str().to_string(),
         }
-    }
-
-    // As of now, this is the only condition to check...
-    pub fn is_user_interrupt(&self) -> bool {
-        self.is_fake
     }
 }
 

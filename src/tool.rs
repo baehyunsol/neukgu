@@ -1,18 +1,16 @@
 use async_std::task::sleep;
 use crate::{
-    Be2Fe,
     Config,
     Context,
     Error,
-    Fe2Be,
     ImageId,
     LLMToken,
     LogEntry,
+    UserResponse,
     export_to_sandbox,
     from_browser_error,
     image,
     import_from_sandbox,
-    load_json,
     prettify_bytes,
     prettify_time,
     subprocess,
@@ -21,12 +19,10 @@ use headless_chrome::Browser;
 use headless_chrome::browser::LaunchOptions as BrowserLaunchOptions;
 use headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption;
 use ragit_fs::{
-    WriteMode as FsWriteMode,
     basename,
     create_dir_all,
     exists,
     is_dir,
-    join,
     parent,
     read_bytes,
     read_dir,
@@ -415,58 +411,42 @@ impl ToolCall {
                 }
             },
             ToolCall::Ask { id, to: AskTo::User, question } => {
-                if let Some((_, request)) = &context.user_request {
-                    Ok(Ok(ToolCallSuccess::Ask {
-                        to: AskTo::User,
-                        answer: request.to_string(),
-                    }))
-                }
+                context.ask_to_user(*id, question.to_string())?;
 
-                else {
-                    let be2fe_at = join(".neukgu", "be2fe.json")?;
-                    let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
-                    let question_id = rand::random::<u64>();
-                    be2fe.ask_to_user = Some((
-                        question_id,
-                        question.to_string(),
-                    ));
-                    write_string(
-                        &be2fe_at,
-                        &serde_json::to_string_pretty(&be2fe)?,
-                        FsWriteMode::Atomic,
-                    )?;
+                let response;
+                let tool_call_result = 'block: {
+                    if let Err(Error::FrontendNotAvailable) = context.wait_for_fe() {
+                        response = UserResponse::Timeout;
+                        break 'block Err(ToolCallError::UserNotResponding);
+                    }
 
-                    let tool_call_result = 'block: {
-                        match context.wait_for_fe() {
-                            Ok(()) => {},
-                            Err(Error::FrontendNotAvailable) => {
-                                break 'block Ok(Err(ToolCallError::UserNotResponding));
-                            },
-                            Err(e) => {
-                                break 'block Err(e);
-                            },
-                        }
+                    for _ in 0..config.user_response_timeout {
+                        if let Some(response_) = context.check_user_response(*id)? {
+                            response = response_.clone();
 
-                        for _ in 0..config.user_response_timeout {
-                            sleep(Duration::from_millis(1000)).await;
-                            let fe2be: Fe2Be = load_json(&join(".neukgu", "fe2be.json")?)?;
-
-                            if let Some((id, response)) = &fe2be.user_response && *id == question_id {
-                                break 'block Ok(Ok(ToolCallSuccess::Ask { to: AskTo::User, answer: response.to_string() }));
+                            match response_ {
+                                UserResponse::Answer(answer) => {
+                                    break 'block Ok(ToolCallSuccess::Ask { to: AskTo::User, answer });
+                                },
+                                UserResponse::Timeout => {
+                                    break 'block Err(ToolCallError::UserNotResponding);
+                                },
+                                UserResponse::Reject => {
+                                    break 'block Err(ToolCallError::UserRejectedToRespond);
+                                },
                             }
                         }
 
-                        Ok(Err(ToolCallError::UserNotResponding))
-                    };
+                        sleep(Duration::from_millis(1_000)).await;
+                        context.sync_with_fe()?;
+                    }
 
-                    be2fe.ask_to_user = None;
-                    write_string(
-                        &be2fe_at,
-                        &serde_json::to_string_pretty(&be2fe)?,
-                        FsWriteMode::Atomic,
-                    )?;
-                    tool_call_result
-                }
+                    response = UserResponse::Timeout;
+                    Err(ToolCallError::UserNotResponding)
+                };
+
+                context.answer_to_llm(*id, question.to_string(), response)?;
+                Ok(tool_call_result)
             },
             ToolCall::Ask { id: _, to: AskTo::Web, question } => {
                 let answer = ask_question_to_web(question, &mut context.logger, config.model()?).await?;
@@ -517,6 +497,7 @@ impl ToolCall {
                     path.to_url()?
                 };
 
+                // TODO: It occasionally panics on MacOS, when it launches the browser multiple times in a session.
                 let browser = Browser::new(BrowserLaunchOptions {
                     window_size: Some((1920, 1080)),
                     ..BrowserLaunchOptions::default()
@@ -789,6 +770,7 @@ pub enum ToolCallError {
 
     // ask errors
     UserNotResponding,
+    UserRejectedToRespond,
 }
 
 impl ToolCallError {
@@ -843,6 +825,11 @@ impl ToolCallError {
             ToolCallError::UserNotResponding => vec![
                 LLMToken::String(format!(
                     "User is not responding.",
+                )),
+            ],
+            ToolCallError::UserRejectedToRespond => vec![
+                LLMToken::String(format!(
+                    "User doesn't want to answer your question.",
                 )),
             ],
             _ => panic!("TODO: {self:?}"),

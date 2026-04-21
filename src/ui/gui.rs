@@ -1,4 +1,4 @@
-use super::{FeContext, Truncation, init_binary_path, spawn_backend_process};
+use super::{FeContext, Truncation, spawn_backend_process};
 use crate::Error;
 use iced::{Background, Color, Element, Font, Length, Subscription, Task, Theme};
 use iced::border::{Border, Radius};
@@ -27,7 +27,6 @@ use working_dir::{
 };
 
 pub fn run() -> Result<(), Error> {
-    init_binary_path();
     iced::application(boot, update, view)
         .theme(Theme::Dark)
         .default_font(Font::MONOSPACE)
@@ -80,7 +79,7 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
 
             else {
                 // TODO: make `no_backend` configurable
-                match working_dir::try_boot(false) {
+                match working_dir::try_boot(false, &path) {
                     Ok(c) => {
                         *context = IcedContext::WorkingDir(c);
                     },

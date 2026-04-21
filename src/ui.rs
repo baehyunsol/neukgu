@@ -6,7 +6,6 @@ use crate::{
     ContextJson,
     Error,
     FileContent,
-    Interrupt,
     LogId,
     TokenUsage,
     ToolCall,
@@ -26,8 +25,7 @@ use crate::{
 use ragit_fs::{
     FileError,
     WriteMode as FsWriteMode,
-    current_dir,
-    into_abs_path,
+    exists,
     join,
     join3,
     write_string,
@@ -36,7 +34,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use similar::Algorithm as DiffAlgorithm;
 use similar::udiff::unified_diff;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::TryLockError;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
@@ -47,39 +45,75 @@ pub mod tui;
 pub mod gui;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Message {
+    pub id: u64,
+    pub kind: MessageKind,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum MessageKind {
+    LLM2User {
+        question: String,
+        answer: Option<UserResponse>,
+    },
+    User2LLM {
+        question: String,
+        completed: bool,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum UserResponse {
+    Answer(String),
+    Timeout,
+    Reject,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Be2Fe {
-    pub completed_user_request: Option<u64>,
-    pub ask_to_user: Option<(u64, String)>,
+    // `Be2Fe` frequently reads `Fe2Be::pause` and updates this field.
+    pub pause: bool,
+
+    // `Fe2Be` frequently reads this field and updates `Fe2Be::from_be`.
+    // When a message is pushed to `Fe2Be::from_be`, the message in this field will be removed.
+    pub to_fe: HashMap<u64, Message>,
+
+    // `Be2Fe` frequently reads `Fe2Be::to_be` and updates this field.
+    pub from_fe: HashMap<u64, Message>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Fe2Be {
+    // `Fe2Be` doesn't read `Be2Fe::pause`. It's set by user input.
+    pub pause: bool,
+
+    // `Be2Fe` frequently reads this field and updates `Be2Fe::from_fe`.
+    // When a message is pushed to `Be2Fe::from_fe`, the message in this field will be removed.
+    pub to_be: HashMap<u64, Message>,
+
+    // `Fe2Be` frequently reads `Be2Fe::to_fe` and updates this field.
+    pub from_be: HashMap<u64, Message>,
+
+    // Fe will update this field once a second.
+    pub updated_at: i64,
 }
 
 impl Default for Be2Fe {
     fn default() -> Be2Fe {
         Be2Fe {
-            completed_user_request: None,
-            ask_to_user: None,
+            pause: false,
+            to_fe: HashMap::new(),
+            from_fe: HashMap::new(),
         }
     }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Fe2Be {
-    pub pause: bool,
-
-    // These are completely different concepts.
-    // LLMs can ask user a question with `<ask>`.
-    // The user can ask llm a question with interrupts.
-    pub user_request: Option<(u64, String)>,
-    pub user_response: Option<(u64, String)>,
-
-    pub updated_at: i64,
 }
 
 impl Default for Fe2Be {
     fn default() -> Fe2Be {
         Fe2Be {
             pause: false,
-            user_request: None,
-            user_response: None,
+            to_be: HashMap::new(),
+            from_be: HashMap::new(),
             updated_at: -1,
         }
     }
@@ -104,8 +138,6 @@ pub struct FeContext {
     pub history: Vec<TurnSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub config: Config,
-    pub ask_to_user: Option<(u64, String)>,
-    pub answered_questions: HashSet<u64>,
     pub initialized_at: Instant,
 
     // If it experienced an API error (status code not 200..300) in
@@ -135,6 +167,29 @@ pub static TOOL_CALL_END_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.
 pub static BACKEND_ERROR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+backend_error\((\d+\-\d+)\).*").unwrap());
 
 impl FeContext {
+    pub fn sync_with_be(&self) -> Result<(), Error> {
+        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let be2fe: Be2Fe = load_json(&be2fe_at)?;
+        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
+        fe2be.updated_at = Local::now().timestamp();
+
+        for (id, message) in be2fe.to_fe.iter() {
+            fe2be.from_be.insert(*id, message.clone());
+        }
+
+        for id in be2fe.from_fe.keys() {
+            fe2be.to_be.remove(id);
+        }
+
+        write_string(
+            &fe2be_at,
+            &serde_json::to_string_pretty(&fe2be)?,
+            FsWriteMode::Atomic,
+        )?;
+        Ok(())
+    }
+
     pub fn load() -> Result<FeContext, Error> {
         let mut context = FeContext::load_without_preview()?;
         context.fetch_previews()?;
@@ -217,8 +272,6 @@ impl FeContext {
             last_api_error,
             last_backend_error,
             config: Config::load()?,
-            ask_to_user: None,
-            answered_questions: HashSet::new(),
             initialized_at: Instant::now(),
             truncation,
             previews: HashMap::new(),
@@ -254,68 +307,57 @@ impl FeContext {
 
     pub fn start_frame(&mut self) -> Result<(), Error> {
         self.update()?;
-        let fe2be_at = join(".neukgu", "fe2be.json")?;
-        let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
-        let be2fe_at = join(".neukgu", "be2fe.json")?;
-        let be2fe = load_json::<Be2Fe>(&be2fe_at)?;
-
-        if let Some(id) = be2fe.completed_user_request {
-            if let Some((id_, _)) = fe2be.user_request && id_ == id {
-                fe2be.user_request = None;
-            }
-        }
-
-        if let Some((id, question)) = &be2fe.ask_to_user && !self.answered_questions.contains(id) {
-            self.ask_to_user = Some((*id, question.to_string()));
-        }
-
-        write_string(
-            &fe2be_at,
-            &serde_json::to_string(&fe2be)?,
-            FsWriteMode::Atomic,
-        )?;
         Ok(())
     }
 
-    // Interrupt::Request: The user asked a question to LLM and the LLM has to answer this.
+    // user_interrupt: The user asked a question to LLM and the LLM has to answer this.
     // user_response: LLM asked a question to the user and the user answered this.
-    pub fn end_frame(&mut self, interrupt: Option<Interrupt>, user_response: Option<(u64, String)>) -> Result<(), Error> {
+    pub fn end_frame(
+        &mut self,
+        pause: Option<bool>,
+        user_interrupt: Option<(u64, String)>,
+        user_response: Option<(u64, UserResponse)>,
+    ) -> Result<(), Error> {
         let fe2be_at = join(".neukgu", "fe2be.json")?;
         let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
 
-        match interrupt {
-            Some(Interrupt::Pause) => {
-                fe2be.pause = true;
-            },
-            Some(Interrupt::Resume) => {
-                fe2be.pause = false;
-            },
-            Some(Interrupt::Request { request_id, request }) => {
-                fe2be.user_request = Some((request_id, request));
-            },
-            None => {},
+        if let Some(pause) = pause {
+            fe2be.pause = pause;
         }
 
-        if let Some((id_, user_response)) = user_response {
-            let Some((id, _)) = &self.ask_to_user else { unreachable!() };
-            assert_eq!(*id, id_);
-            fe2be.user_response = Some((*id, user_response));
-            self.answered_questions.insert(*id);
-            self.ask_to_user = None;
+        if let Some((id, interrupt)) = user_interrupt {
+            fe2be.to_be.insert(
+                id,
+                Message {
+                    id,
+                    kind: MessageKind::User2LLM {
+                        question: interrupt,
+                        completed: false,
+                    },
+                },
+            );
         }
 
-        // timeout has reached
-        else {
-            self.ask_to_user = None;
+        if let Some((id, response)) = user_response {
+            let Some(Message { id: _, kind: MessageKind::LLM2User { question, answer: None } }) = fe2be.from_be.remove(&id) else { unreachable!() };
+            fe2be.to_be.insert(
+                id,
+                Message {
+                    id,
+                    kind: MessageKind::LLM2User {
+                        question,
+                        answer: Some(response),
+                    }
+                },
+            );
         }
 
-        fe2be.updated_at = Local::now().timestamp();
         write_string(
             &fe2be_at,
-            &serde_json::to_string(&fe2be)?,
+            &serde_json::to_string_pretty(&fe2be)?,
             FsWriteMode::Atomic,
         )?;
-
+        self.sync_with_be()?;
         Ok(())
     }
 
@@ -325,11 +367,8 @@ impl FeContext {
         ).collect()
     }
 
-    pub fn is_paused(&self) -> bool {
-        match load_json::<Fe2Be>(&join(".neukgu", "fe2be.json").unwrap()) {
-            Ok(f) => f.pause,
-            Err(_) => false,
-        }
+    pub fn is_paused(&self) -> Result<bool, Error> {
+        Ok(load_json::<Be2Fe>(&join(".neukgu", "be2fe.json")?)?.pause)
     }
 
     pub fn top_bar(&self) -> Result<String, Error> {
@@ -341,8 +380,8 @@ impl FeContext {
             "llm context: {} / {}, neukgu: {}\ntotal input tokens: {}, total output tokens: {}, last 6hrs input tokens: {}, last 6hrs output tokens: {}",
             prettify_bytes(self.get_total_llm_bytes()),
             prettify_bytes(self.config.llm_context_max_len),
-            if self.is_paused() {
-                "paused"
+            if self.is_paused().unwrap_or(false) || self.is_marked_done().unwrap_or(false) {
+                "sleeping"
             } else if self.is_be_busy().unwrap_or(false) {
                 "healthy"
             } else if self.is_waking_up() {
@@ -359,8 +398,12 @@ impl FeContext {
 
     // Push `curr_status` and `curr_error` at the end of turns.
     pub fn curr_status(&self) -> String {
-        if self.is_paused() {
+        if self.is_paused().unwrap_or(false) {
             format!("Paused")
+        } else if self.is_marked_done().unwrap_or(false) {
+            format!("Neukgu has completed his job and is proud of his work!")
+        } else if self.get_llm_request().unwrap_or(None).is_some() {
+            format!("Neukgu is waiting for the user to answer his question.")
         } else if self.is_be_busy().unwrap_or(false) {
             if let Some(curr_tool_call) = &self.curr_tool_call {
                 format!("{} (processing)", curr_tool_call.preview())
@@ -463,9 +506,61 @@ impl FeContext {
     fn is_waking_up(&self) -> bool {
         Instant::now().duration_since(self.initialized_at.clone()).as_millis() < 3000
     }
+
+    pub fn get_llm_request(&self) -> Result<Option<(u64, String)>, Error> {
+        let fe2be: Fe2Be = load_json(&join(".neukgu", "fe2be.json")?)?;
+
+        for Message { id, kind } in fe2be.from_be.values() {
+            if let MessageKind::LLM2User { question, answer: None } = kind {
+                return Ok(Some((*id, question.to_string())));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn is_marked_done(&self) -> Result<bool, Error> {
+        Ok(exists(&join("logs", "done")?))
+    }
 }
 
 impl Context {
+    pub fn sync_with_fe(&self) -> Result<(), Error> {
+        if !self.is_fe_alive()? {
+            return Ok(());
+        }
+
+        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
+        let fe2be_at = join(".neukgu", "fe2be.json")?;
+        let fe2be: Fe2Be = load_json(&fe2be_at)?;
+        be2fe.pause = fe2be.pause;
+
+        for (id, message) in fe2be.to_be.iter() {
+            be2fe.from_fe.insert(*id, message.clone());
+        }
+
+        for (id, old_message) in fe2be.from_be.iter() {
+            match be2fe.to_fe.remove(id) {
+                // Backend can create response (timeout), so we have to wait until the frontend reads the backend's response.
+                Some(new_message) => match (&old_message.kind, &new_message.kind) {
+                    (MessageKind::LLM2User { answer: None, .. }, MessageKind::LLM2User { answer: Some(_), .. }) => {
+                        be2fe.to_fe.insert(*id, new_message);
+                    },
+                    _ => {},
+                },
+                _ => {},
+            }
+        }
+
+        write_string(
+            &be2fe_at,
+            &serde_json::to_string_pretty(&be2fe)?,
+            FsWriteMode::Atomic,
+        )?;
+        Ok(())
+    }
+
     pub fn wait_for_fe(&self) -> Result<(), Error> {
         let fe2be_at = join(".neukgu", "fe2be.json")?;
         let mut is_fe_alive = false;
@@ -474,12 +569,12 @@ impl Context {
             let fe2be: Fe2Be = load_json(&fe2be_at)?;
             let curr_timestamp = Local::now().timestamp();
 
-            if fe2be.updated_at + 10 >= curr_timestamp {
+            if fe2be.updated_at + 5 >= curr_timestamp {
                 is_fe_alive = true;
                 break;
             }
 
-            sleep(Duration::from_millis(3_000));
+            sleep(Duration::from_millis(2_000));
         }
 
         if is_fe_alive {
@@ -495,20 +590,92 @@ impl Context {
         let fe2be_at = join(".neukgu", "fe2be.json")?;
         let fe2be: Fe2Be = load_json(&fe2be_at)?;
         let curr_timestamp = Local::now().timestamp();
-        Ok(fe2be.updated_at + 10 >= curr_timestamp)
+        Ok(fe2be.updated_at + 5 >= curr_timestamp)
+    }
+
+    pub fn is_paused(&self) -> Result<bool, Error> {
+        Ok(load_json::<Be2Fe>(&join(".neukgu", "be2fe.json")?)?.pause)
+    }
+
+    pub fn ask_to_user(&self, id: u64, question: String) -> Result<(), Error> {
+        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
+        be2fe.to_fe.insert(
+            id,
+            Message {
+                id,
+                kind: MessageKind::LLM2User {
+                    question,
+                    answer: None,
+                },
+            },
+        );
+
+        write_string(
+            &be2fe_at,
+            &serde_json::to_string_pretty(&be2fe)?,
+            FsWriteMode::Atomic,
+        )?;
+        Ok(())
+    }
+
+    pub fn answer_to_llm(&self, id: u64, question: String, response: UserResponse) -> Result<(), Error> {
+        let be2fe_at = join(".neukgu", "be2fe.json")?;
+        let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
+        be2fe.to_fe.insert(
+            id,
+            Message {
+                id,
+                kind: MessageKind::LLM2User {
+                    question,
+                    answer: Some(response),
+                },
+            },
+        );
+
+        write_string(
+            &be2fe_at,
+            &serde_json::to_string_pretty(&be2fe)?,
+            FsWriteMode::Atomic,
+        )?;
+        Ok(())
+    }
+
+    pub fn check_user_interrupt(&self) -> Result<Option<(u64, String)>, Error> {
+        if !self.is_fe_alive()? {
+            return Ok(None);
+        }
+
+        let be2fe: Be2Fe = load_json(&join(".neukgu", "be2fe.json")?)?;
+
+        for message in be2fe.from_fe.values() {
+            if let Message { id, kind: MessageKind::User2LLM { question, .. }} = message {
+                if !self.completed_user_interrupts.contains(id) {
+                    return Ok(Some((*id, question.to_string())));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn check_user_response(&self, id_: u64) -> Result<Option<UserResponse>, Error> {
+        let be2fe: Be2Fe = load_json(&join(".neukgu", "be2fe.json")?)?;
+
+        for message in be2fe.from_fe.values() {
+            if let Message { id, kind: MessageKind::LLM2User { answer: Some(answer), ..} } = message && *id == id_ {
+                return Ok(Some(answer.clone()));
+            }
+        }
+
+        Ok(None)
     }
 }
 
-static BINARY_PATH: LazyLock<String> = LazyLock::new(|| into_abs_path(&std::env::args().next().unwrap()).unwrap());
-
-fn init_binary_path() {
-    LazyLock::force(&BINARY_PATH);
-}
-
-fn spawn_backend_process() -> Result<(), Error> {
-    Command::new(BINARY_PATH.to_string())
+fn spawn_backend_process(current_dir: &str) -> Result<(), Error> {
+    Command::new(std::env::args().next().unwrap())
         .args(["headless", "--attach-fe"])
-        .current_dir(&current_dir()?)
+        .current_dir(current_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()?;
