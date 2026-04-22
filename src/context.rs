@@ -34,6 +34,8 @@ pub struct Context {
     pub curr_raw_response: Option<(String, u64)>,
 
     pub completed_user_interrupts: HashSet<u64>,
+    pub hidden_turns: HashSet<TurnId>,
+    pub pinned_turns: HashSet<TurnId>,  // never hidden
 
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
@@ -47,6 +49,8 @@ pub struct ContextJson {
     pub history: Vec<TurnId>,
     pub curr_raw_response: Option<(String, u64)>,
     pub completed_user_interrupts: HashSet<u64>,
+    pub hidden_turns: HashSet<TurnId>,
+    pub pinned_turns: HashSet<TurnId>,
 }
 
 impl Context {
@@ -65,6 +69,8 @@ impl Context {
             curr_raw_response: None,
             turns: HashMap::new(),
             completed_user_interrupts: HashSet::new(),
+            hidden_turns: HashSet::new(),
+            pinned_turns: HashSet::new(),
             system_prompt,
             available_binaries,
             logger,
@@ -82,6 +88,8 @@ impl Context {
             ).collect(),
             curr_raw_response: context_json.curr_raw_response.clone(),
             completed_user_interrupts: context_json.completed_user_interrupts.clone(),
+            hidden_turns: context_json.hidden_turns.clone(),
+            pinned_turns: context_json.pinned_turns.clone(),
             ..Context::new(config, working_dir)?
         })
     }
@@ -93,6 +101,8 @@ impl Context {
             ).collect(),
             curr_raw_response: self.curr_raw_response.clone(),
             completed_user_interrupts: self.completed_user_interrupts.clone(),
+            hidden_turns: self.hidden_turns.clone(),
+            pinned_turns: self.pinned_turns.clone(),
         };
 
         Ok(write_string(
@@ -208,11 +218,12 @@ impl Context {
     //    - Recent turns are likely to be more relevant than old turns.
     //    - The LLM is likely to gather important information in early turns (e.g. reading `neukgu-instruction.md`).
     fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
-        let mut truncated_context = false;
-
         let chosen_turns = 'b: {
             // Candidate 1: Full-render every turn.
-            let candidate: Vec<(TurnSummary, bool)> = self.history.iter().map(|s| (s.clone(), true)).collect();
+            let candidate: Vec<(TurnSummary, bool)> = self.history.iter()
+                .filter(|s| !self.hidden_turns.contains(&s.id))
+                .map(|s| (s.clone(), true))
+                .collect();
 
             // 1. If there are less than or equal to 5 turns, it full-renders everything.
             //    - In this case, it doesn't check max_len.
@@ -221,10 +232,13 @@ impl Context {
                 break 'b candidate;
             }
 
-            truncated_context = true;
-
             // Candidate 2: Full-render the last 2 turns and short-render the other turns.
-            let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)].iter().map(|s| (s.clone(), false)).collect();
+            let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)]
+                .iter()
+                .filter(|s| !self.hidden_turns.contains(&s.id))
+                .map(|s| (s.clone(), false))
+                .collect();
+
             candidate.push((self.history[self.history.len() - 2].clone(), true));
             candidate.push((self.history[self.history.len() - 1].clone(), true));
 
@@ -234,10 +248,11 @@ impl Context {
 
             // Candidate 3: Full-render the last 2 turns. Filter out pasre-error turns in the other turns and short-render them.
             let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)].iter().filter(
-                |s| s.result != TurnResultSummary::ParseError
+                |s| s.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&s.id)
             ).map(
                 |s| (s.clone(), false)
             ).collect();
+
             candidate.push((self.history[self.history.len() - 2].clone(), true));
             candidate.push((self.history[self.history.len() - 1].clone(), true));
 
@@ -257,13 +272,14 @@ impl Context {
             let mut post_len = config.llm_context_max_len * 3 / 4;
             let mut post_turns = vec![];
 
+            // TODO: apply `self.pinned_turns`
             // TODO: What if short-rendered first turn is longer than pre_len?
             for turn in self.history.iter() {
                 if turn.llm_len_short > pre_len {
                     break;
                 }
 
-                if turn.result != TurnResultSummary::ParseError {
+                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) {
                     pre_turns.push((turn.clone(), false));
                     pre_len -= turn.llm_len_short;
                 }
@@ -283,7 +299,7 @@ impl Context {
                     break;
                 }
 
-                if turn.result != TurnResultSummary::ParseError {
+                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) {
                     post_turns.push((turn.clone(), false));
                     post_len -= turn.llm_len_short;
                 }
@@ -296,11 +312,9 @@ impl Context {
             break 'b chosen_turns;
         };
 
-        if truncated_context {
-            self.logger.log(LogEntry::TruncatedContext(chosen_turns.iter().map(
-                |(turn, full_render)| ChosenTurn { turn: turn.id.clone(), full_render: *full_render }
-            ).collect()))?;
-        }
+        self.logger.log(LogEntry::TruncatedContext(chosen_turns.iter().map(
+            |(turn, full_render)| ChosenTurn { turn: turn.id.clone(), full_render: *full_render }
+        ).collect()))?;
 
         let mut llm_turns = vec![request::Turn {
             // TODO: better starting message?

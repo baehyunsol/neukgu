@@ -115,17 +115,23 @@ fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 }
 
-fn button<'s, Message>(name: &'s str, message: Message, solid_color: Color) -> Button<'s, Message> {
+fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color) -> Button<'s, Message> {
     Button::new(name)
         .style(move |_, status| {
+            let (r, g, b) = (bg_color.r, bg_color.g, bg_color.b);
             let bg_color = match status {
-                ButtonStatus::Hovered => Color::from_rgba(solid_color.r, solid_color.g, solid_color.b, 0.5),
-                _ => solid_color,
+                ButtonStatus::Hovered => Color::from_rgba(r, g, b, 0.5),
+                _ => bg_color,
+            };
+            let text_color = if (r > 0.5 && g > 0.5 && b > 0.5) || r + g + b > 2.0 {
+                black()
+            } else {
+                white()
             };
 
             ButtonStyle {
                 background: Some(Background::Color(bg_color)),
-                text_color: white(),
+                text_color: text_color,
                 border: Border {
                     color: black(),
                     width: 0.0,

@@ -207,7 +207,9 @@ impl ToolCall {
                             }
                         }
                     },
+                    TypedFile::BrokenPdf { error } => Ok(Err(ToolCallError::BrokenFile { path: joined_path, kind: String::from("pdf"), error })),
                     TypedFile::Image(id) => Ok(Ok(ToolCallSuccess::ReadImage { path: joined_path, id })),
+                    TypedFile::BrokenImage { error } => Ok(Err(ToolCallError::BrokenFile { path: joined_path, kind: String::from("image"), error })),
                     TypedFile::Dir(entries) => {
                         if entries.len() as u64 > config.dir_max_entries && (start.is_none() || start_i < 2) && end.is_none() {
                             Ok(Err(ToolCallError::TooManyDirEntriesToRead {
@@ -649,13 +651,15 @@ impl ToolCallSuccess {
                     (None, None) => format!("{total_entries} entries"),
                     (None | Some(0 | 1), Some(e)) => format!("{total_entries} entries (seeing the first {} entries)", e + 1),
                     (Some(s), None) => format!("{total_entries} entries (seeing the last {} entries)", total_entries - s + 1),
-                    _ => todo!(),
+                    (Some(s), Some(e)) => format!("{total_entries} entries (seeing {s}..={e})"),
                 };
                 let entries = entries.iter().map(
                     |entry| match entry {
                         FileEntry::TextFile { name, bytes, lines, .. } => format!("{name}\ttext\t{}\t{lines} lines", prettify_bytes(*bytes)),
                         FileEntry::PdfFile { name, pages } => format!("{name}\tpdf\t{pages} pages"),
+                        FileEntry::BrokenPdf { name, bytes } => format!("{name}\t{}\t(Failed to parse pdf file)", prettify_bytes(*bytes)),
                         FileEntry::ImageFile { name, size: (w, h) } => format!("{name}\timage\t{w}x{h}"),
+                        FileEntry::BrokenImage { name, bytes } => format!("{name}\t{}\t(Failed to parse image file)", prettify_bytes(*bytes)),
                         FileEntry::EtcFile { name, bytes } => format!("{name}\t{}", prettify_bytes(*bytes)),
                         FileEntry::Dir { name } => format!("{name}/\tdirectory"),
                     }
@@ -752,6 +756,11 @@ pub enum ToolCallError {
         given_range: (Option<u64>, Option<u64>),
     },
     TooManyReadWithoutWrite,
+    BrokenFile {
+        path: String,
+        kind: String,
+        error: String,
+    },
 
     // write errors
     NoPermissionToWrite {
@@ -814,6 +823,9 @@ impl ToolCallError {
             ],
             ToolCallError::TooManyReadWithoutWrite => vec![
                 LLMToken::String(String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this.")),
+            ],
+            ToolCallError::BrokenFile { path, kind, error } => vec![
+                LLMToken::String(format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}")),
             ],
             ToolCallError::WriteModeError { path, mode, exists } => {
                 let s = match (mode, exists) {

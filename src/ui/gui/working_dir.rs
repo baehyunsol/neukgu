@@ -174,6 +174,7 @@ pub enum IcedMessage {
     BackPopup,
     ClosePopup,
     CopyToClipboard,
+    ToggleTurnVisibility(TurnId),
     PauseNeukgu,
     ResumeNeukgu,
     InterruptNeukgu,
@@ -311,6 +312,18 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::CopyToClipboard => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
+        },
+        // "" -> "hidden" -> "pinned"
+        IcedMessage::ToggleTurnVisibility(id) => {
+            match (context.fe_context.hidden_turns.remove(&id), context.fe_context.pinned_turns.remove(&id)) {
+                (true, _) => {
+                    context.fe_context.pinned_turns.insert(id);
+                },
+                (_, true) => {},
+                (false, false) => {
+                    context.fe_context.hidden_turns.insert(id);
+                },
+            }
         },
         IcedMessage::PauseNeukgu => {
             context.pause = Some(true);
@@ -490,12 +503,20 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 }
 
 fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    let truncation_color = match context.fe_context.truncation.get(&p.id).unwrap() {
-        Truncation::Hidden => red(),
-        Truncation::FullRender => green(),
-        Truncation::ShortRender => blue(),
+    let context_engineering = {
+        let color = match context.fe_context.truncation.get(&p.id).unwrap() {
+            Truncation::Hidden => red(),
+            Truncation::FullRender => green(),
+            Truncation::ShortRender => blue(),
+        };
+        let text = match (context.fe_context.hidden_turns.get(&p.id), context.fe_context.pinned_turns.get(&p.id)) {
+            (Some(_), _) => "hidden",
+            (_, Some(_)) => "pinned",
+            (None, None) => "      ",
+        };
+
+        button(text, IcedMessage::ToggleTurnVisibility(p.id.clone()), color)
     };
-    let truncation = Container::new(text!("  ")).style(move |_| set_bg(truncation_color));
 
     let turn_result: Element<IcedMessage> = match p.result {
         TurnResultSummary::ParseError => text!(" (parse-error)").color(red()),
@@ -503,8 +524,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         TurnResultSummary::ToolCallSuccess => text!(""),
     }.into();
 
-    let row = Row::from_vec(vec![
-        truncation.into(),
+    let turn_row = Row::from_vec(vec![
         text!("{index:>3}. ").into(),
         text!("[{}]", p.timestamp).into(),
         Column::from_vec(vec![
@@ -514,9 +534,9 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
             ]).into(),
             text!("(LLM: {}, TOOL: {})", prettify_time(p.llm_elapsed_ms), prettify_time(p.tool_elapsed_ms)).width(Length::FillPortion(2)).into(),
         ]).width(Length::Fill).into(),
-    ]).width(Length::Fixed(context.window_size.width)).align_y(Vertical::Center).spacing(12);
+    ]).width(Length::Fill).align_y(Vertical::Center).spacing(4);
 
-    let mut with_color = Container::new(row).padding(8);
+    let mut with_color = Container::new(turn_row).padding(8);
 
     if let Some(id) = &context.hovered_turn && &p.id == id {
         with_color = with_color.style(|_| set_bg(gray(0.45)));
@@ -526,7 +546,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         with_color = with_color.style(|_| set_bg(gray(0.15)));
     }
 
-    if context.curr_popup.is_none() && context.llm_request.is_none() {
+    let with_mouse_area: Element<IcedMessage> = if context.curr_popup.is_none() && context.llm_request.is_none() {
         MouseArea::new(with_color)
             .on_enter(IcedMessage::HoverOnTurn(Some(p.id.clone())))
             .on_exit(IcedMessage::HoverOnTurn(None))
@@ -536,7 +556,13 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
 
     else {
         with_color.into()
-    }
+    };
+
+    Row::from_vec(vec![context_engineering.into(), with_mouse_area])
+        .width(Length::Fixed(context.window_size.width))
+        .align_y(Vertical::Center)
+        .spacing(12)
+        .into()
 }
 
 fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContext) -> Element<'c, IcedMessage> {

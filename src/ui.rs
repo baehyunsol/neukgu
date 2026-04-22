@@ -35,7 +35,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use similar::Algorithm as DiffAlgorithm;
 use similar::udiff::unified_diff;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::TryLockError;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
@@ -86,7 +86,15 @@ pub struct Be2Fe {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fe2Be {
     // `Fe2Be` doesn't read `Be2Fe::pause`. It's set by user input.
+    //
+    // `Be2Fe::pause` and `Fe2Be::pause` are different.
+    // `Fe2Be::pause` means whether the user paused neukgu or not and
+    // `Be2Fe::pause` means whether neukgu is actually paused. The 2 fields
+    // will be synchronized eventually, but that might take time.
     pub pause: bool,
+
+    pub hidden_turns: HashSet<TurnId>,
+    pub pinned_turns: HashSet<TurnId>,
 
     // `Be2Fe` frequently reads this field and updates `Be2Fe::from_fe`.
     // When a message is pushed to `Be2Fe::from_fe`, the message in this field will be removed.
@@ -113,6 +121,8 @@ impl Default for Fe2Be {
     fn default() -> Fe2Be {
         Fe2Be {
             pause: false,
+            hidden_turns: HashSet::new(),
+            pinned_turns: HashSet::new(),
             to_be: HashMap::new(),
             from_be: HashMap::new(),
             updated_at: -1,
@@ -147,6 +157,8 @@ pub struct FeContext {
     pub last_api_error: Option<u16>,
 
     pub last_backend_error: Option<String>,
+    pub hidden_turns: HashSet<TurnId>,
+    pub pinned_turns: HashSet<TurnId>,
 
     // It indicates whether a turn is hidden, full-rendered or short-rendered in the LLM context.
     pub truncation: HashMap<TurnId, Truncation>,
@@ -184,6 +196,8 @@ impl FeContext {
             fe2be.to_be.remove(id);
         }
 
+        fe2be.hidden_turns = self.hidden_turns.clone();
+        fe2be.pinned_turns = self.pinned_turns.clone();
         write_string(
             &fe2be_at,
             &serde_json::to_string_pretty(&fe2be)?,
@@ -275,6 +289,8 @@ impl FeContext {
             curr_tool_call,
             last_api_error,
             last_backend_error,
+            hidden_turns: be_context.hidden_turns.clone(),
+            pinned_turns: be_context.pinned_turns.clone(),
             config: Config::load(working_dir)?,
             initialized_at: Instant::now(),
             truncation,
@@ -303,6 +319,8 @@ impl FeContext {
         *self = FeContext {
             previews: self.previews.clone(),
             initialized_at: self.initialized_at.clone(),
+            hidden_turns: self.hidden_turns.clone(),
+            pinned_turns: self.pinned_turns.clone(),
             ..FeContext::load_without_preview(&self.working_dir)?
         };
         self.fetch_previews()?;
@@ -377,7 +395,7 @@ impl FeContext {
 
     pub fn top_bar(&self) -> String {
         format!(
-            "llm context: {} / {}, neukgu: {}",
+            "context: {} / {}, neukgu: {}",
             prettify_bytes(self.get_total_llm_bytes()),
             prettify_bytes(self.config.llm_context_max_len),
             if self.is_paused().unwrap_or(false) || self.is_marked_done().unwrap_or(false) {
@@ -537,7 +555,7 @@ impl FeContext {
 }
 
 impl Context {
-    pub fn sync_with_fe(&self) -> Result<(), Error> {
+    pub fn sync_with_fe(&mut self) -> Result<(), Error> {
         if !self.is_fe_alive()? {
             return Ok(());
         }
@@ -547,6 +565,8 @@ impl Context {
         let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let fe2be: Fe2Be = load_json(&fe2be_at)?;
         be2fe.pause = fe2be.pause;
+        self.hidden_turns = fe2be.hidden_turns.clone();
+        self.pinned_turns = fe2be.pinned_turns.clone();
 
         for (id, message) in fe2be.to_be.iter() {
             be2fe.from_fe.insert(*id, message.clone());
