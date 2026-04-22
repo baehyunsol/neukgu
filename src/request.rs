@@ -7,10 +7,12 @@ use std::time::Duration;
 
 mod anthropic;
 mod mock;
+mod openai;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ApiProvider {
     Anthropic,
+    OpenAi,
     Mock,
 }
 
@@ -32,6 +34,13 @@ impl Model {
         Model {
             name: String::from("claude-sonnet-4-6"),
             provider: ApiProvider::Anthropic,
+        }
+    }
+
+    pub fn gpt() -> Model {
+        Model {
+            name: String::from("gpt-5.4"),
+            provider: ApiProvider::OpenAi,
         }
     }
 
@@ -74,6 +83,7 @@ impl Request {
         for _ in 0..5 {
             let http_request = match self.model.provider {
                 ApiProvider::Anthropic => self.to_anthropic_request(working_dir)?,
+                ApiProvider::OpenAi => self.to_openai_request(working_dir)?,
                 ApiProvider::Mock => self.to_mock_request()?,
             };
             let mut request = client
@@ -112,6 +122,7 @@ impl Request {
                                 200..=299 => {
                                     let response = match self.model.provider {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
+                                        ApiProvider::OpenAi => Response::from_openai(&s)?,
                                         ApiProvider::Mock => unreachable!(),
                                     };
                                     logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;

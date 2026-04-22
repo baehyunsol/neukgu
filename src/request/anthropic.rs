@@ -11,11 +11,8 @@ pub struct AnthropicRequest {
     model: String,
     max_tokens: u32,
     system: String,
-
-    // These have to be manually constructed.
     messages: Vec<Value>,
     tools: Vec<Value>,
-
     thinking: Value,
 }
 
@@ -31,7 +28,7 @@ impl Request {
 
         headers.insert("x-api-key", &api_key);
         headers.insert("anthropic-version", "2023-06-01");
-        headers.insert("content-type", "application/json");
+        // headers.insert("content-type", "application/json");
         let headers: HashMap<String, String> = headers.iter().map(
             |(k, v)| (k.to_string(), v.to_string())
         ).collect();
@@ -134,6 +131,6 @@ fn contents_to_json(contents: &[LLMToken], working_dir: &str) -> Result<Value, E
     Ok(result.into())
 }
 
-pub fn encode_base64(bytes: &[u8]) -> String {
+fn encode_base64(bytes: &[u8]) -> String {
     base64::prelude::BASE64_STANDARD.encode(bytes)
 }

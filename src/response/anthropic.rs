@@ -25,35 +25,40 @@ impl Response {
         let raw_response: AnthropicResponse = serde_json::from_str(s)?;
         let mut response = String::new();
         let mut thinking = None;
-        let mut web_search_results = vec![];  // TODO: collect this
 
         for content in raw_response.content.iter() {
             match content.get("type") {
-                Some(Value::String(s)) => match s.as_str() {
+                Some(Value::String(ty)) => match ty.as_str() {
                     "text" => match content.get("text") {
                         Some(Value::String(s)) => {
                             response = format!("{response}{s}");
                         },
-                        _ => unreachable!(),
+                        _ => {
+                            return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                        },
                     },
                     "thinking" => match content.get("thinking") {
                         Some(Value::String(s)) => {
                             assert!(thinking.is_none());
                             thinking = Some(s.to_string());
                         },
-                        _ => unreachable!(),
+                        _ => {
+                            return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                        },
                     },
                     // We'll just ignore the rest (likely be intermediate results of web_search tool)
                     _ => {},
                 },
-                _ => unreachable!(),
+                _ => {
+                    return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                },
             }
         }
 
         Ok(Response {
             response,
             thinking,
-            web_search_results,
+            web_search_results: vec![],  // TODO: collect these
             cached_input_tokens: raw_response.usage.cache_read_input_tokens,
             input_tokens: raw_response.usage.input_tokens,
             output_tokens: raw_response.usage.output_tokens,

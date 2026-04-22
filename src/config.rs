@@ -28,6 +28,7 @@ impl Config {
     pub fn model(&self) -> Result<Model, Error> {
         match self.model.as_str() {
             "sonnet" => Ok(Model::sonnet()),
+            "gpt" => Ok(Model::gpt()),
             "mock" => Ok(Model::mock()),
             _ => Err(Error::InvalidModelName(self.model.to_string())),
         }
@@ -58,7 +59,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            model: String::from("sonnet"),
+            model: String::from("gpt"),
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
             llm_context_max_len: 204_800,
             text_file_max_len: 32_768,
