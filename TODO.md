@@ -99,6 +99,11 @@
   - 제일 직관적인 거는, TextEditor를 띄울 때 기존의 `neukgu-instruction.md`의 내용을 채워놓고 띄우는 거임
   - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
+50. diff를 지금처럼 계산하지말고, truncate_and_write를 하는 시점에 diff를 계산해서 log에 남겨버리자!!
+  - 이거 하면서 file_content_history랑 관련된 거는 다 없애버리자!
+51. log를 남길 때 `.json.gz`나 `.rs.gz`처럼 남기자
+  - 그 다음에, log 보여줄 때, read-only-text-editor에다가 syntax highlighter를 붙여서 보여주자!
+  - 그대신 너무 길면 (8192글자?) 걍 보여주지 말자. copy 하라고 하자 ㅋㅋㅋ
 
 ```nu
 cd ~/Documents/Rust/neukgu;
