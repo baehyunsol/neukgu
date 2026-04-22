@@ -77,5 +77,5 @@
   - 특정 turn을 고르면 그 turn은 context에 절대 안 들어가게 할 수 있음 (hide)
     - 만약에 그 turn이 write였으면 revert도 되면 좋겠음... 구현하기 빡세겠지?
   - 특정 turn을 고르면 그 turn은 무조건 context에 들어가게 할 수 있음 (pin)
-46. 폰트를 hard-code 해버리자! 그런 다음에 한글하고 알파벳하고 폭이 얼마나 차이 나는지 계산해서 ui 그릴 때 반영하자!
 47. 글자 크기 일괄로 줄이기/늘이기
+48. Keybindings... for everything in GUI!

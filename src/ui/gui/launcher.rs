@@ -240,20 +240,25 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 
 fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let mut row = vec![];
-    let char_count = entry.name.chars().count();
+    let char_count = entry.name.chars().map(
+        |ch| match ch {
+            '가'..='힣' => 20,
+            _ => 14,
+        }
+    ).sum::<usize>() / 14;
     let is_dir = entry.is_dir;
     let is_hovered = if let Some(e) = &context.hovered_entry { e == &entry.name } else { false };
-    let truncated_name = if char_count < 27 {
+    let truncated_name = if char_count < 36 {
         format!(
             "{}{}{}",
             entry.name,
             if entry.is_dir { "/" } else { " " },
-            " ".repeat(27 - char_count),
+            " ".repeat(36 - char_count),
         )
     } else {
         format!(
             "{}...{}",
-            entry.name.chars().take(24).collect::<String>(),
+            entry.name.chars().take(33).collect::<String>(),
             if is_dir { "/" } else { " " },
         )
     };

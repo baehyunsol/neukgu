@@ -25,10 +25,13 @@ use working_dir::{
     IcedMessage as WorkingDirMessage,
 };
 
+const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
+
 pub fn run() -> Result<(), Error> {
     iced::application(boot, update, view)
         .theme(Theme::Dark)
-        .default_font(Font::MONOSPACE)
+        .font(include_bytes!("../../resources/SpaceMono-Regular.ttf"))
+        .default_font(DEFAULT_MONO_FONT)
         .subscription(|_| Subscription::batch([
             time::every(Duration::from_millis(1_000)).map(|_| IcedMessage::Tick),
             keyboard::listen().map(|key| match key {
