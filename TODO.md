@@ -81,7 +81,10 @@
   - perplexity한테 물어보니까
   - 1, `working-dir/.venv/bin/python`을 실행하면 venv와 동일한 효과가 난다
   - 2, `.venv/`의 absolute path가 이곳저곳에 hard-code 돼 있기 때문에 sandbox로 갖고 가면 문제가 생길 거다
+  - 그럼, `.neukgu/` 안에다가 venv를 만들어두고 command-run에서 python/pip을 쓰면 저 안에 있는 binary를 가져다가 쓰자!
 47. 글자 크기 일괄로 줄이기/늘이기
+  - Ctrl +/-로 조작하기
+  - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
 48. Keybindings... for everything in GUI!
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
   - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
