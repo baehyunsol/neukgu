@@ -11,7 +11,7 @@ chrono = "0.4.44"
 flate2 = "1.1.9"
 hayro = "0.6.0"
 headless_chrome = "1.0.21"
-iced = { version = "0.14.0", features = ["image", "tokio"] }
+iced = { version = "0.14.0", features = ["highlighter", "image", "tokio"] }
 image = "0.25.10"
 png = "0.18.1"
 ragit-cli = "0.4.5"

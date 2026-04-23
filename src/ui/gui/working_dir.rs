@@ -4,6 +4,7 @@ use super::{
     black,
     blue,
     button,
+    disabled_button,
     gray,
     green,
     horizontal_bar,
@@ -19,9 +20,11 @@ use crate::{
     ImageId,
     LLMToken,
     LogId,
+    ToolCallSuccess,
     Turn,
     TurnId,
     TurnPreview,
+    TurnResult,
     TurnResultSummary,
     UserResponse,
     load_log,
@@ -36,11 +39,17 @@ use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Sensor, Stack, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
-use iced::widget::text_editor::{Action as TextEditorAction, Content as TextEditorContent, TextEditor};
+use iced::widget::text_editor::{
+    Action as TextEditorAction,
+    Content as TextEditorContent,
+    Edit as TextEditorEdit,
+    TextEditor,
+};
 use ragit_fs::join3;
 use regex::Regex;
 use std::collections::HashSet;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 const HELP_MESSAGE: &str = "
 This is a neukgu's working directory.
@@ -75,6 +84,7 @@ pub struct IcedContext {
     pub loaded_turn: Option<(usize, Turn)>,
     pub loaded_log: Option<LogView>,
     pub loaded_image: Option<ImageId>,
+    pub user_response_timeout_counter: Instant,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
@@ -100,7 +110,15 @@ impl IcedContext {
         match popup {
             Popup::Turn((index, turn_id)) => {
                 let turn = Turn::load(&turn_id, &self.fe_context.working_dir)?;
-                self.text_diff = self.fe_context.calc_diff(&turn)?;
+
+                if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { diff: Some(diff), .. }) = &turn.turn_result {
+                    self.text_diff = Some(diff.to_string());
+                }
+
+                else {
+                    self.text_diff = None;
+                }
+
                 self.copy_buffer = Some(format!(
 "# {index}. {}
 
@@ -127,9 +145,21 @@ impl IcedContext {
             },
             Popup::Log(id) => {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
-                let log = load_log(&id, &log_dir)?;
+                let (mut log, mut extension) = load_log(&id, &log_dir)?;
                 self.copy_buffer = Some(log.to_string());
-                self.loaded_log = Some(LogView::Log(log));
+
+                if log.len() > 16384 {
+                    log = String::from("The log is too long to display. Copy the log and paste it to your text editor to see the log.");
+                    extension = String::from("txt");
+                }
+
+                // `LogView::Log` uses a un-editable text-editor to display the content
+                // I want to change the content, but I don't know how... this is the best I can do:
+                self.text_editor_content.perform(TextEditorAction::SelectAll);
+                self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
+                self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(log.to_string()))));
+
+                self.loaded_log = Some(LogView::Log { log, extension });
             },
             Popup::Help => {
                 // There's nothing to load
@@ -199,10 +229,13 @@ pub enum Popup {
 #[derive(Clone, Debug)]
 pub enum LogView {
     Logs(Vec<String>),
-    Log(String),
+    Log {
+        log: String,
+        extension: String,
+    },
 }
 
-pub fn try_boot(no_backend: bool, working_dir: &str) -> Result<IcedContext, Error> {
+pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size) -> Result<IcedContext, Error> {
     if !no_backend {
         spawn_backend_process(working_dir)?;
     }
@@ -210,7 +243,7 @@ pub fn try_boot(no_backend: bool, working_dir: &str) -> Result<IcedContext, Erro
     let fe_context = FeContext::load(working_dir)?;
     Ok(IcedContext {
         fe_context: fe_context.clone(),
-        window_size: Size::new(0.0, 0.0),
+        window_size,
         turn_view_id: Id::unique(),
         logs_view_id: Id::unique(),
         turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
@@ -218,10 +251,11 @@ pub fn try_boot(no_backend: bool, working_dir: &str) -> Result<IcedContext, Erro
         loaded_turn: None,
         loaded_log: None,
         loaded_image: None,
+        user_response_timeout_counter: Instant::now(),
         curr_popup: None,
         prev_popup: None,
         copy_buffer: None,
-        text_editor_content: TextEditorContent::with_text(""),
+        text_editor_content: TextEditorContent::new(),
         text_diff: None,
         is_paused: fe_context.is_paused()?,
         pause: None,
@@ -263,6 +297,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 if !context.processed_llm_requests.contains(id) {
                     if context.llm_request.is_none() {
                         context.close_popup();
+                        context.user_response_timeout_counter = Instant::now();
                     }
 
                     context.llm_request = llm_request;
@@ -376,7 +411,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let mut turns_scrollable = Scrollable::new(turns_stretched).id(context.turn_view_id.clone());
 
-    if context.curr_popup.is_none() {
+    if context.curr_popup.is_none() && context.llm_request.is_none() {
         turns_scrollable = turns_scrollable.on_scroll(|v| IcedMessage::TurnViewScrolled(v.absolute_offset()));
     }
 
@@ -412,7 +447,9 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     else if let Some(loaded_log) = &context.loaded_log {
         let view = match loaded_log {
             LogView::Logs(logs) => render_logs(logs, context),
-            LogView::Log(log) => popup(Scrollable::new(text!("{log}")).into(), context),
+            LogView::Log { extension, .. } => {
+                popup(Scrollable::new(TextEditor::new(&context.text_editor_content).highlight(extension, iced::highlighter::Theme::SolarizedDark)).into(), context)
+            },
         };
 
         full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
@@ -436,7 +473,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
                 let color = match line.chars().next() {
                     Some('+') => green(),
                     Some('-') => red(),
-                    Some('@') => blue(),
+                    Some('@') => yellow(),
                     _ => white(),
                 };
 
@@ -515,7 +552,11 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
             (None, None) => "      ",
         };
 
-        button(text, IcedMessage::ToggleTurnVisibility(p.id.clone()), color)
+        if context.curr_popup.is_none() && context.llm_request.is_none() {
+            button(text, IcedMessage::ToggleTurnVisibility(p.id.clone()), color)
+        } else {
+            disabled_button(text, color)
+        }
     };
 
     let turn_result: Element<IcedMessage> = match p.result {
@@ -636,16 +677,20 @@ fn render_llm_tokens(llm_tokens: Vec<LLMToken>, context: &IcedContext) -> Elemen
 }
 
 fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let elapsed_secs = Instant::now().duration_since(context.user_response_timeout_counter.clone()).as_secs();
+
     popup(
         Column::from_vec(vec![
             text!("{}", context.llm_request.as_ref().unwrap().1).into(),
             TextEditor::new(&context.text_editor_content)
                 .placeholder("Answer neukgu's question")
+                .width(context.window_size.width - 128.0)
                 .on_action(|action| IcedMessage::EditText(action))
                 .into(),
             Row::from_vec(vec![
                 button("Answer", IcedMessage::AnswerLLMRequest, green()).into(),
                 button("Dismiss", IcedMessage::DismissLLMRequest, red()).into(),
+                text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).into(),
             ]).spacing(20).into(),
         ]).padding(20).spacing(20).into(),
         context,

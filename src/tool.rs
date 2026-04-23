@@ -7,6 +7,7 @@ use crate::{
     LLMToken,
     LogEntry,
     UserResponse,
+    clean_sandbox,
     export_to_sandbox,
     from_browser_error,
     image,
@@ -28,11 +29,12 @@ use ragit_fs::{
     read_bytes,
     read_dir,
     read_string,
-    remove_dir_all,
     write_bytes,
     write_string,
 };
 use serde::{Deserialize, Serialize};
+use similar::Algorithm as DiffAlgorithm;
+use similar::udiff::unified_diff;
 use std::time::{Duration, Instant};
 
 mod ask;
@@ -295,6 +297,19 @@ impl ToolCall {
                 let byte_count = content.len() as u64;
                 let char_count = content.chars().count() as u64;
                 let line_count = content.lines().count() as u64;
+                let mut diff = None;
+
+                if *mode == WriteMode::Truncate {
+                    let prev_content = String::from_utf8_lossy(&read_bytes(&real_path)?).to_string();
+                    diff = Some(unified_diff(
+                        DiffAlgorithm::Patience,
+                        &prev_content,
+                        content,
+                        5,
+                        None,
+                    ));
+                }
+
                 write_string(
                     &real_path,
                     content,
@@ -304,6 +319,7 @@ impl ToolCall {
                 Ok(Ok(ToolCallSuccess::Write {
                     path: joined_path,
                     content: content.to_string(),
+                    diff,
                     mode: *mode,
                     bytes: byte_count,
                     chars: char_count,
@@ -355,7 +371,6 @@ impl ToolCall {
                     }));
                 }
 
-                // TODO: if something fails, the sandbox won't be removed properly
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
                 let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
                 let started_at = Instant::now();
@@ -367,7 +382,7 @@ impl ToolCall {
                 )?;
                 let elapsed_ms = Instant::now().duration_since(started_at).as_millis() as u64;
                 import_from_sandbox(&sandbox_at, &context.working_dir, false /* copy_index_dir */)?;
-                remove_dir_all(&sandbox_at)?;
+                clean_sandbox(&config.sandbox_root, &sandbox_at, &context.working_dir)?;
 
                 let timeout_value = timeout;
                 let stdout_dst = stdout;
@@ -430,7 +445,8 @@ impl ToolCall {
                         break 'block Err(ToolCallError::UserNotResponding);
                     }
 
-                    for _ in 0..config.user_response_timeout {
+                    // It waits 3 more seconds than the set timeout because fe is a few seconds slower than be
+                    for _ in 0..(config.user_response_timeout + 3) {
                         if let Some(response_) = context.check_user_response(*id)? {
                             response = response_.clone();
 
@@ -526,11 +542,14 @@ impl ToolCall {
                     script_output = Some(format!("{:?}", tab.evaluate(script, false).map_err(from_browser_error)?));
                 }
 
+                // Some pages take time to load.
+                sleep(Duration::from_millis(2_000)).await;
+
                 // TODO: maybe we have to wait a few seconds until it loads?
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
                 let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
                 write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
-                Ok(Ok(ToolCallSuccess::Render { input: url, output_path: joined_output, output_image: image_id, script_output }))
+                Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
             },
         }
     }
@@ -605,6 +624,7 @@ pub enum ToolCallSuccess {
     Write {
         path: String,
         content: String,
+        diff: Option<String>,
         mode: WriteMode,
         bytes: u64,
         chars: u64,
@@ -706,8 +726,9 @@ impl ToolCallSuccess {
             ToolCallSuccess::Ask { answer, .. } => vec![LLMToken::String(answer.to_string())],
             ToolCallSuccess::Render { input, output_path, output_image, script_output } => vec![
                 LLMToken::String(format!(
-                    "Successfully opened `{input}`{}, captured a screenshot, and saved it to `{output_path}`.{}",
+                    "Successfully opened `{input}`{}{}, captured a screenshot, and saved it to `{output_path}`.{}",
                     if input.ends_with(".svg") { "" } else { " with chrome" },
+                    if script_output.is_some() { ", ran javascript" } else { "" },
                     if let Some(script_output) = script_output { format!("\nscript output: {script_output}") } else { String::new() },
                 )),
                 LLMToken::Image(*output_image),
@@ -813,6 +834,11 @@ impl ToolCallError {
                     "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 200 lines with <end>200</end>, or use search tools like ripgrep.",
                     prettify_bytes(*length),
                     prettify_bytes(*limit),
+                )),
+            ],
+            ToolCallError::TooManyTextLinesToRead { length, limit, .. } => vec![
+                LLMToken::String(format!(
+                    "You're trying to read too many lines at once. You're trying to read {length} lines, and the environment won't allow you to read more than {limit} lines at once.",
                 )),
             ],
             ToolCallError::TooManyDirEntriesToRead { path, entries, limit: _, given_range: (None, None) } => vec![

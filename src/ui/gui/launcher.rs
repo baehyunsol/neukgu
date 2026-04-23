@@ -102,8 +102,8 @@ pub fn try_boot() -> Result<IcedContext, Error> {
         entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
         hovered_entry: None,
         curr_popup: None,
-        long_text_editor_content: TextEditorContent::with_text(""),
-        short_text_editor_content: TextEditorContent::with_text(""),
+        long_text_editor_content: TextEditorContent::new(),
+        short_text_editor_content: TextEditorContent::new(),
     })
 }
 
@@ -318,10 +318,17 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         .on_action(|action| IcedMessage::EditLongText(action));
 
     popup(
-        Column::from_vec(vec![
-            text_editor.into(),
-            button("Init", IcedMessage::Init { path: path.to_string() }, green()).padding(20).into(),
-        ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill).into(),
+        Scrollable::new(
+            Column::from_vec(vec![
+                text_editor.into(),
+                button("Init", IcedMessage::Init { path: path.to_string() }, green()).padding(20).into(),
+            ])
+                .spacing(20)
+                .align_x(Horizontal::Center)
+                .width(Length::Fill),
+        )
+            .width(Length::Fill)
+            .into(),
     )
 }
 
@@ -336,11 +343,18 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .on_action(|action| IcedMessage::EditLongText(action));
 
     popup(
-        Column::from_vec(vec![
-            short_text_editor.into(),
-            long_text_editor.into(),
-            button("Create", IcedMessage::Create { path: path.to_string() }, green()).padding(20).into(),
-        ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill).into(),
+        Scrollable::new(
+            Column::from_vec(vec![
+                short_text_editor.into(),
+                long_text_editor.into(),
+                button("Create", IcedMessage::Create { path: path.to_string() }, green()).padding(20).into(),
+            ])
+                .spacing(20)
+                .align_x(Horizontal::Center)
+                .width(Length::Fill),
+        )
+            .width(Length::Fill)
+            .into(),
     )
 }
 

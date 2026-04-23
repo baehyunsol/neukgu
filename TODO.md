@@ -33,17 +33,18 @@
   - ReadText나 WriteText가 성공하면 걔의 log_id를 저장하면 됨
     - `HashMap<Path, Vec<LogId>>`처럼 저장하면 됨! log_id는 순서대로 저장되어 있으므로 diff를 뜰 때는 바로 이전의 내용과 비교하면 됨!
 34. reset session
-  - 현재 디렉토리에서 새로운 instruction을 실행하고 싶을 때
-    - `.neukgu/logs/log`, `.neukgu/context.json`을 새롭게 만들기
-      - "session 복구"라는 개념은 없음. 날라가면 끝임! 왜냐면 세션을 복구하려면 수정된 파일들을 다 원복해야하는데 그게 불가능하거든
-      - instruction history같은 건 어딘가에 저장해두면 괜찮지 않을까?
-    - `.neukgu/be2fe.json`, `.neukgu/fe2be.json`을 새롭게 만들기
-      - 이건 백업할 필요 X
-    - `neukgu-instruction.md`는 사용자한테 새로 입력받기
-      - 기존 instruction을 어딘가에 백업해두자
-    - 나머지는 그대로 놔두기!
-  - working_dir application에다가 "new instruction"이라는 버튼을 추가하자
-  - diff를 보려면 file content history는 살려둬야함 -> 이걸 살려두면 왠지 edge-case가 왕창 생길 거 같은데...
+  - `.neukgu/`를 아예 새로 만들고, `neukgu-instruction.md`도 새로 입력을 받자
+    - 생각해보니까 token usage는 초기화하면 안되는데??
+  - working_dir::try_boot를 새로 해버리자 -> 이러면 자연스럽게 fe_context도 초기화됨
+  - be의 context를 초기화하는게 문제...
+    - 기존의 be process를 안전하게 죽여야함 -> be process의 handle을 fe_context가 갖고 있자. 그러면 kill 해버릴 수 있음
+    - be process가 잘 죽었으면 sandbox 정리하는 함수 한번 호출하기 (clean_dangling_sandboxes)
+  -  instruction history를 간단하게 남기고 싶음
+    - neukgu-instruction.md의 내용을 `Vec<String>`에다가 저장 -> easy
+      - 예쁘게 보려면 각 instruction에 제목도 붙여야 함... ㅋㅋㅋ
+    - 늑구가 만들어낸 결과물들은 어떻게 기록하지? turn을 다 기록하기에는 너무 낭비가 심한데??
+    - 늑구가 만들어낸 결과물에다가 내가 메모를 추가할까?
+       - 늑구한테 메모를 추가하라고 할까?
 38. multi-session neukgu?
   - tab을 여러개 띄워두고 동시에 여러 작업을 시키면... 편하겠지?
   - 근데 또 window manager가 할 수 있는 걸 굳이 내가 구현해야하나 싶기도 하고
@@ -58,6 +59,7 @@
 41. testbench
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문에 정상적으로 대답한 다음에 잘 진행되는지 확인
+    - 중간에 Cargo.toml 새로 쓴 거 diff 잘 뜨는지 확인
     - 끝까지 가서 잘 끝나는지 보고, 끝난 다음에 interrupt 하면 계속 진행되는지 확인
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문 거절한 다음에 잘 진행되는지 확인
@@ -67,30 +69,18 @@
     - 중간중간에 hidden/pinned 눌러보고 잘 적용되는지 확인
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, tui로 실행해서
     - 늑구 질문 잘 넘어가는지 확인
+  - llm_context_max_len을 짧게 설정한 다음에, mock-api 만들고, gui로 실행해서
+    - context가 꽉 찼을 때 자동으로 중간이 비워지는 로직 잘 되는지 확인하기
+    - 중간 turn에다가 pinned 설정해놓고 잘 반영되는지 확인하기
+  - 이걸 다 한 다음에 `/tmp/neukgu-sandbox/`를 확인해서 쓰레기가 얼마나 있는지 확인 (한두개는 있어도 됨)
   - 추가
-    - 뭐가 됐든 한참 기다리고 tmp/가 크기 때문에 안 터지는지 확인하기
     - 한 세션에서 브라우저 여러번 띄우면 문제 생기는 거같은데?? -> 이거는 테스트하기 쉬움!!
       - 근데 mac이랑 linux에서 지금은 잘 돎... 브라우저를 더 많이 띄워봐야하나? 아니면 시간 간격을 좀 두고 띄워볼까?
-42. long text input -> 길어지면 아래 버튼이 안 보임. scroll bar가 필요!!
-43. web-search-tool -> 왜 이렇게 느린 거임??
+43. anthropic에서 web-search-tool 쓰면 너무 느림 ㅠㅠ
 44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!
   - perplexity한테 물어보니까
   - 1, `working-dir/.venv/bin/python`을 실행하면 venv와 동일한 효과가 난다
   - 2, `.venv/`의 absolute path가 이곳저곳에 hard-code 돼 있기 때문에 sandbox로 갖고 가면 문제가 생길 거다
-45. context engineering
-  - 특정 turn을 고르면 그 turn은 context에 절대 안 들어가게 할 수 있음 (hide)
-    - 만약에 그 turn이 write였으면 revert도 되면 좋겠음... 구현하기 빡세겠지?
-  - 특정 turn을 고르면 그 turn은 무조건 context에 들어가게 할 수 있음 (pin)
-  - render_turn_preview에서 제일 왼쪽에 버튼을 붙이자!
-    - 버튼을 뭘로 하지... hide도 toggle을 해야하고 pin도 toggle을 해야하는데 그 둘이 간섭이 있음... (e.g. hide랑 pin을 동시에 할 수가 없지)
-    - hide/pin
-  - be_context랑 fe_context에 각각 `hidden_turns: HashSet<TurnId>`, `pinned_turns: HashSet<TurnId>`를 두자
-    - ui에서는 항상 fe_context를 수정을 하고, be에서는 항상 fe_context를 그대로 읽어옴
-  - pin을 하면 full-render를 해, short-render를 해? -> 이거는 알아서 하라고 할까? ㅋㅋ
-  - fit_history_to_llm_context에서 candidate 1 ~ 4를 수정해야하는데...
-    - candidate 1 ~ 3은 로직이 간단해서 수정이 쉬움
-    - candidate 4는 hide는 구현이 쉬운데 pin이 좀 빡셈...
-      - 굳이 하자면, mid_turns를 따로 세야할 수도...
 47. 글자 크기 일괄로 줄이기/늘이기
 48. Keybindings... for everything in GUI!
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
@@ -99,11 +89,26 @@
   - 제일 직관적인 거는, TextEditor를 띄울 때 기존의 `neukgu-instruction.md`의 내용을 채워놓고 띄우는 거임
   - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
-50. diff를 지금처럼 계산하지말고, truncate_and_write를 하는 시점에 diff를 계산해서 log에 남겨버리자!!
-  - 이거 하면서 file_content_history랑 관련된 거는 다 없애버리자!
-51. log를 남길 때 `.json.gz`나 `.rs.gz`처럼 남기자
-  - 그 다음에, log 보여줄 때, read-only-text-editor에다가 syntax highlighter를 붙여서 보여주자!
-  - 그대신 너무 길면 (8192글자?) 걍 보여주지 말자. copy 하라고 하자 ㅋㅋㅋ
+52. global neukgu
+  - 이 컴퓨터에 있는 모든 neukgu dir의 목록을 한번에 보기... -> 좀 과한가?
+53. rollback
+  - 늑구한테 "export_layer에 group layer도 구현해줘"라고 시켰는데 하다보니까 노답인 거같아서 아예 초기화하고 싶은 경우
+  - git을 쓰기는... 쉽지 않음. harness가 git을 제어해버리면 늑구가 git을 못 쓰잖아?
+  - 그나마 간단한 거는 늑구가 첫 turn을 돌기 전에 sandbox에 working dir을 통째로 복사해뒀다가, 나중에 rollback 용도로 쓰는 거지
+    - 그럼 WAL에다가 "이 dir은 롤백용이니까 건들지 마세요"라고 적어둬야함...
+    - 늑구가 오래 돌면 그 사이에 sandbox가 날아갈 확률이 높음
+54. work-stealing interruption
+  - interrupt를 하면 현재 turn이 끝난 다음에 반영이 되잖아? 현재 turn을 즉시 멈추고 interrupt를 반영하게 만들자!
+  - 늑구가 command-run을 했는데, 이거 영원히 안 끝나는 command여서 10분 후에 timeout에 걸릴 운명임. 그럼 내가 미리 깨고 들어가서 interrupt 하고 싶음..
+  - 구현은 가능함. `subprocess::run` 안에서 loop를 돌면서 timeout을 검사하는데, 그 안에서 interrupt도 같이 확인하면 됨!
+  - render에서도 구현 가능: browser instantiate된 다음에 한번 검사하고, screenshot 찍기 직전에 한번 검사하면 됨
+  - LLM request에서도 구현해야함. 이건 조금 빡센데, tokio에 `select!`라는 macro가 있대. 이거 잘 활용하면 될 듯?
+55. 늑구가 돌고 있는 와중에 hide/pin을 누르면 현재 turn은 버려야함
+  - turn이 0번부터 10번까지 있고 현재 11번 turn을 생성 중이라고 치자. 근데 8, 9, 10번 turn을 버리고 싶어졌음
+    - 8/9/10을 hide를 해도 11번 turn은 8/9/10이 반영됨. 11이 생기고 나서 11을 hide하면 12에는 11이 반영됨. 즉, 8/9/10의 흔적이 영원히 남게됨!
+  - step_inner에서 `raw_response`를 만들기 전이랑 만든 후에 `hidden_turns`, `pinned_turns`를 비교해서 둘이 다르면 `raw_response`를 버리고 다시 만들자!
+  - 이거 하는 김에 pause/resume도 즉시 반영되게 바꾸자! pause하면 그냥 현재 turn은 버리는 걸로...
+  - 54번이랑 밀접하게 연관돼 있음!!
 
 ```nu
 cd ~/Documents/Rust/neukgu;

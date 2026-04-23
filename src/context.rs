@@ -138,11 +138,6 @@ impl Context {
         let new_turn_summary = new_turn.summary(config);
         new_turn.store(&self.working_dir)?;
         self.history.push(new_turn_summary.clone());
-
-        if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, .. }) = &new_turn.turn_result {
-            self.logger.log_file_content(path, &new_turn.id)?;
-        }
-
         Ok(())
     }
 
@@ -272,7 +267,6 @@ impl Context {
             let mut post_len = config.llm_context_max_len * 3 / 4;
             let mut post_turns = vec![];
 
-            // TODO: apply `self.pinned_turns`
             // TODO: What if short-rendered first turn is longer than pre_len?
             for turn in self.history.iter() {
                 if turn.llm_len_short > pre_len {
@@ -305,8 +299,19 @@ impl Context {
                 }
             }
 
+            let pre_turns_set: HashSet<TurnId> = pre_turns.iter().map(|turn| turn.0.id.clone()).collect();
+            let post_turns_set: HashSet<TurnId> = post_turns.iter().map(|turn| turn.0.id.clone()).collect();
+
+            // pinned turns are short-rendered
+            let pinned_turns: Vec<(TurnSummary, bool)> = self.history.iter().filter(
+                |turn| self.pinned_turns.contains(&turn.id) && !pre_turns_set.contains(&turn.id) && !post_turns_set.contains(&turn.id)
+            ).map(
+                |turn| (turn.clone(), false)
+            ).collect();
+
             let chosen_turns = vec![
                 pre_turns,
+                pinned_turns,
                 post_turns.into_iter().rev().collect(),
             ].concat();
             break 'b chosen_turns;

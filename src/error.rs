@@ -1,4 +1,4 @@
-use crate::TurnId;
+use crate::{LogId, TurnId};
 use ragit_fs::FileError;
 
 #[derive(Debug)]
@@ -18,6 +18,7 @@ pub enum Error {
     FailedToParseAPIResponse(String),
     MockApiExpectationFailure { expect: String },
     NotAllowedCharInProjectName { name: String, ch: char },
+    InvalidLogId(LogId),
 
     HttpError { status_code: u16 },
     CliError {

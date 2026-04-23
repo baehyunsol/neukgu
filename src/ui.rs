@@ -5,17 +5,13 @@ use crate::{
     Context,
     ContextJson,
     Error,
-    FileContent,
     LogId,
     TokenUsage,
     ToolCall,
-    ToolCallSuccess,
     Turn,
     TurnId,
     TurnPreview,
-    TurnResult,
     TurnSummary,
-    WriteMode as ToolWriteMode,
     load_json,
     load_log,
     load_logs_tail,
@@ -24,7 +20,7 @@ use crate::{
 };
 use ragit_fs::{
     FileError,
-    WriteMode as FsWriteMode,
+    WriteMode,
     exists,
     into_abs_path,
     join3,
@@ -33,8 +29,6 @@ use ragit_fs::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use similar::Algorithm as DiffAlgorithm;
-use similar::udiff::unified_diff;
 use std::collections::{HashMap, HashSet};
 use std::fs::TryLockError;
 use std::process::{Command, Stdio};
@@ -201,7 +195,7 @@ impl FeContext {
         write_string(
             &fe2be_at,
             &serde_json::to_string_pretty(&fe2be)?,
-            FsWriteMode::Atomic,
+            WriteMode::Atomic,
         )?;
         Ok(())
     }
@@ -239,19 +233,19 @@ impl FeContext {
 
             else if in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
-                let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id, &log_dir)?)?;
+                let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id, &log_dir)?.0)?;
                 curr_tool_call = Some(tool_call);
             }
 
             else if truncated_context.is_none() && let Some(cap) = TRUNCATED_CONTEXT_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
-                let c: Vec<ChosenTurn> = serde_json::from_str(&load_log(&log_id, &log_dir)?)?;
+                let c: Vec<ChosenTurn> = serde_json::from_str(&load_log(&log_id, &log_dir)?.0)?;
                 truncated_context = Some(c);
             }
 
             else if in_session && last_backend_error.is_none() && let Some(cap) = BACKEND_ERROR_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
-                let e = load_log(&log_id, &log_dir)?;
+                let (e, _) = load_log(&log_id, &log_dir)?;
                 last_backend_error = Some(e);
             }
 
@@ -377,7 +371,7 @@ impl FeContext {
         write_string(
             &fe2be_at,
             &serde_json::to_string_pretty(&fe2be)?,
-            FsWriteMode::Atomic,
+            WriteMode::Atomic,
         )?;
         self.sync_with_be()?;
         Ok(())
@@ -456,52 +450,6 @@ impl FeContext {
         } else {
             None
         }
-    }
-
-    pub fn calc_diff(&self, turn: &Turn) -> Result<Option<String>, Error> {
-        if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, content, mode: ToolWriteMode::Truncate, .. }) = &turn.turn_result {
-            let file_content_map: FileContent = load_json(&join4(&self.working_dir, ".neukgu", "logs", "files.json")?)?;
-
-            match file_content_map.0.get(path) {
-                Some(turn_ids) => {
-                    let mut prev_content = String::new();
-
-                    for (i, turn_id) in turn_ids.iter().enumerate() {
-                        if turn_id == &turn.id {
-                            if i > 0 {
-                                let prev_turn = Turn::load(&turn_ids[i - 1], &self.working_dir)?;
-
-                                match &prev_turn.turn_result {
-                                    TurnResult::ToolCallSuccess(ToolCallSuccess::ReadText { content, .. } | ToolCallSuccess::Write { content, .. }) => {
-                                        prev_content = content.to_string();
-                                    },
-                                    _ => {
-                                        // It's kinda internal error.
-                                        return Err(Error::CannotCalcDiff { path: path.to_string(), turn_id: turn.id.clone() });
-                                    },
-                                }
-                            }
-
-                            break;
-                        }
-                    }
-
-                    return Ok(Some(unified_diff(
-                        DiffAlgorithm::Patience,
-                        &prev_content,
-                        content,
-                        5,
-                        None,
-                    )));
-                },
-                None => {
-                    // There's a bug in backend.
-                    return Err(Error::CannotCalcDiff { path: path.to_string(), turn_id: turn.id.clone() });
-                },
-            }
-        }
-
-        Ok(None)
     }
 
     fn get_total_llm_bytes(&self) -> u64 {
@@ -588,7 +536,7 @@ impl Context {
         write_string(
             &be2fe_at,
             &serde_json::to_string_pretty(&be2fe)?,
-            FsWriteMode::Atomic,
+            WriteMode::Atomic,
         )?;
         Ok(())
     }
@@ -646,7 +594,7 @@ impl Context {
         write_string(
             &be2fe_at,
             &serde_json::to_string_pretty(&be2fe)?,
-            FsWriteMode::Atomic,
+            WriteMode::Atomic,
         )?;
         Ok(())
     }
@@ -668,7 +616,7 @@ impl Context {
         write_string(
             &be2fe_at,
             &serde_json::to_string_pretty(&be2fe)?,
-            FsWriteMode::Atomic,
+            WriteMode::Atomic,
         )?;
         Ok(())
     }

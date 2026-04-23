@@ -76,7 +76,7 @@ pub struct Turn {
 }
 
 impl Request {
-    pub async fn request(&mut self, working_dir: &str, logger: &mut Logger) -> Result<Response, Error> {
+    pub async fn request(&mut self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let mut error = None;
 

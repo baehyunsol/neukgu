@@ -7,10 +7,10 @@ use ragit_fs::{
     join3,
     join4,
     read_string,
-    remove_dir_all,
     write_string,
 };
 use serde::de::DeserializeOwned;
+use std::collections::HashSet;
 use std::fs::TryLockError;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -35,7 +35,7 @@ pub use config::Config;
 pub use context::{ChosenTurn, Context, ContextJson};
 pub use error::{Error, from_browser_error};
 pub use image::{ImageId, normalize_and_get_id};
-use log::{FileContent, Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
+use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
 use pdf::{PdfId, render_and_get_id};
 use prettify::{
@@ -45,7 +45,7 @@ use prettify::{
 };
 pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
 pub use response::Response;
-pub use sandbox::{export_to_sandbox, import_from_sandbox};
+pub use sandbox::{clean_dangling_sandboxes, clean_sandbox, export_to_sandbox, import_from_sandbox};
 pub use tool::{
     AskTo,
     ToolCall,
@@ -87,19 +87,22 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
         },
     }
 
+    clean_dangling_sandboxes(&context.working_dir)?;
     let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
 
     match step_inner(context, config).await {
         Ok(()) => {
-            remove_dir_all(&backup_dir)?;
+            clean_sandbox(&config.sandbox_root, &backup_dir, &context.working_dir)?;
         },
         Err(e) => {
             import_from_sandbox(&backup_dir, &context.working_dir, true /* copy index dir */)?;
+            clean_sandbox(&config.sandbox_root, &backup_dir, &context.working_dir)?;
             context.logger.log(LogEntry::BackendError(format!("{e:?}")))?;
             return Err(e);
         },
     }
 
+    drop(lock_file);
     Ok(())
 }
 
@@ -240,6 +243,12 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api
     write_string(
         &join3(working_dir, ".neukgu", "fe2be.json")?,
         &serde_json::to_string(&Fe2Be::default())?,
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
+
+    write_string(
+        &join3(working_dir, ".neukgu", "wal")?,
+        &serde_json::to_string(&HashSet::<String>::new())?,
         RagitFsWriteMode::AlwaysCreate,
     )?;
 

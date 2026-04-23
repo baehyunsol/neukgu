@@ -44,12 +44,14 @@ pub fn run() -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Clone, Debug)]
 pub enum IcedContext {
     Launcher(LauncherContext),
     WorkingDir(WorkingDirContext),
     Error(ErrorContext),
 }
 
+#[derive(Clone, Debug)]
 pub enum IcedMessage {
     Launcher(LauncherMessage),
     WorkingDir(WorkingDirMessage),
@@ -73,8 +75,10 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
             Task::none()
         },
         (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
+            let IcedContext::Launcher(c) = context.clone() else { unreachable!() };
+
             // TODO: make `no_backend` configurable
-            match working_dir::try_boot(false, &path) {
+            match working_dir::try_boot(false, &path, c.window_size) {
                 Ok(c) => {
                     *context = IcedContext::WorkingDir(c);
                 },
@@ -116,6 +120,10 @@ fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color) -> Button<'s, Message> {
+    disabled_button(name, bg_color).on_press(message)
+}
+
+fn disabled_button<'s, Message>(name: &'s str, bg_color: Color) -> Button<'s, Message> {
     Button::new(name)
         .style(move |_, status| {
             let (r, g, b) = (bg_color.r, bg_color.g, bg_color.b);
@@ -123,7 +131,7 @@ fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color) -> Butt
                 ButtonStatus::Hovered => Color::from_rgba(r, g, b, 0.5),
                 _ => bg_color,
             };
-            let text_color = if (r > 0.5 && g > 0.5 && b > 0.5) || r + g + b > 2.0 {
+            let text_color = if (r > 0.5 && g > 0.5 && b > 0.5) || g > 0.7 || r + g + b > 2.0 {
                 black()
             } else {
                 white()
@@ -141,7 +149,6 @@ fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color) -> Butt
             }
         })
         .padding(8)
-        .on_press(message)
 }
 
 fn horizontal_bar<'a, Message: 'a>(window_width: f32) -> Element<'a, Message> {

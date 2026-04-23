@@ -5,13 +5,13 @@ use crate::{
     ToolCall,
     ToolCallError,
     ToolCallSuccess,
-    TurnId,
     load_json,
 };
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
 use ragit_fs::{
     WriteMode,
+    exists,
     file_size,
     join,
     read_bytes,
@@ -72,22 +72,22 @@ impl Logger {
     pub fn log(&self, entry: LogEntry) -> Result<(), Error> {
         let now = Local::now();
         let log_id = LogId::new();
-        let (title, extra_content) = match entry {
-            LogEntry::InitLogger => (String::from("init_logger"), None),
-            LogEntry::TruncatedContext(c) => (format!("truncated_context({})", log_id.0), Some(serde_json::to_string_pretty(&c)?)),
-            LogEntry::SendRequest(r) => (format!("send_request({})", log_id.0), Some(format!("{r:?}"))),
-            LogEntry::RequestBody(b) => (format!("request_body({})", log_id.0), Some(serde_json::to_string_pretty(&b)?)),
-            LogEntry::ReqwestError(e) => (format!("reqwest_error({})", log_id.0), Some(e)),
-            LogEntry::GotResponse(c) => (format!("got_response({c})"), None),
-            LogEntry::ResponseHeader(h) => (format!("response_header({})", log_id.0), Some(serde_json::to_string_pretty(&h)?)),
-            LogEntry::ResponseText(t) => (format!("response_text({})", log_id.0), Some(serde_json::to_string_pretty(&serde_json::from_str::<Value>(&t)?)?)),
-            LogEntry::TooManyRequests => (String::from("too_many_requests"), None),
-            LogEntry::LLMServerBusy => (String::from("llm_server_busy"), None),
-            LogEntry::ToolCallStart(c) => (format!("tool_call_start({})", log_id.0), Some(serde_json::to_string_pretty(&c)?)),
-            LogEntry::ToolCallEnd(c) => (format!("tool_call_end({})", log_id.0), Some(serde_json::to_string_pretty(&c)?)),
-            LogEntry::AskQuestionToWebBegin(q) => (format!("ask_question_to_web_begin({})", log_id.0), Some(q)),
-            LogEntry::AskQuestionToWebEnd => (format!("ask_question_to_web_end"), None),
-            LogEntry::BackendError(e) => (format!("backend_error({})", log_id.0), Some(e)),
+        let (title, extra_content, extension) = match entry {
+            LogEntry::InitLogger => (String::from("init_logger"), None, ""),
+            LogEntry::TruncatedContext(c) => (format!("truncated_context({})", log_id.0), Some(serde_json::to_string_pretty(&c)?), "json"),
+            LogEntry::SendRequest(r) => (format!("send_request({})", log_id.0), Some(format!("{r:?}")), "rs"),
+            LogEntry::RequestBody(b) => (format!("request_body({})", log_id.0), Some(serde_json::to_string_pretty(&b)?), "json"),
+            LogEntry::ReqwestError(e) => (format!("reqwest_error({})", log_id.0), Some(e), "rs"),
+            LogEntry::GotResponse(c) => (format!("got_response({c})"), None, ""),
+            LogEntry::ResponseHeader(h) => (format!("response_header({})", log_id.0), Some(serde_json::to_string_pretty(&h)?), "json"),
+            LogEntry::ResponseText(t) => (format!("response_text({})", log_id.0), Some(serde_json::to_string_pretty(&serde_json::from_str::<Value>(&t)?)?), "json"),
+            LogEntry::TooManyRequests => (String::from("too_many_requests"), None, ""),
+            LogEntry::LLMServerBusy => (String::from("llm_server_busy"), None, ""),
+            LogEntry::ToolCallStart(c) => (format!("tool_call_start({})", log_id.0), Some(serde_json::to_string_pretty(&c)?), "json"),
+            LogEntry::ToolCallEnd(c) => (format!("tool_call_end({})", log_id.0), Some(serde_json::to_string_pretty(&c)?), "json"),
+            LogEntry::AskQuestionToWebBegin(q) => (format!("ask_question_to_web_begin({})", log_id.0), Some(q), "txt"),
+            LogEntry::AskQuestionToWebEnd => (format!("ask_question_to_web_end"), None, ""),
+            LogEntry::BackendError(e) => (format!("backend_error({})", log_id.0), Some(e), "rs"),
         };
 
         write_string(
@@ -105,7 +105,7 @@ impl Logger {
             gz.read_to_end(&mut compressed)?;
 
             write_bytes(
-                &join(&self.log_dir, &log_id.0)?,
+                &join(&self.log_dir, &format!("{}.{extension}.gz", log_id.0))?,
                 &compressed,
                 WriteMode::AlwaysCreate,
             )?;
@@ -141,32 +141,6 @@ impl Logger {
         )?;
         Ok(())
     }
-
-    // It logs every text files that neukgu reads/writes.
-    // It's later used to
-    //    1. make sure that no files are modified while neukgu is sleeping
-    //    2. calc diff of writes
-    pub fn log_file_content(&self, path: &str, turn_id: &TurnId) -> Result<(), Error> {
-        let map_at = join(&self.log_dir, "files.json")?;
-        let mut map: FileContent = load_json(&map_at)?;
-
-        // `path` is always normalized, so we can use it as a key
-        match map.0.entry(path.to_string()) {
-            Entry::Occupied(mut e) => {
-                e.get_mut().push(turn_id.clone());
-            },
-            Entry::Vacant(e) => {
-                e.insert(vec![turn_id.clone()]);
-            },
-        }
-
-        write_string(
-            &map_at,
-            &serde_json::to_string_pretty(&map)?,
-            WriteMode::Atomic,
-        )?;
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -186,18 +160,22 @@ impl TokenUsage {
     }
 }
 
-// It only remembers the log_id of the read/write operation.
-// In order to get the actual content, you have to read the turn file.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct FileContent(pub HashMap<String, Vec<TurnId>>);
+pub fn load_log(id: &LogId, log_dir: &str) -> Result<(/* log */ String, /* extension */ String), Error> {
+    for extension in ["json", "rs", "txt"] {
+        let path = join(log_dir, &format!("{}.{extension}.gz", id.0))?;
 
-pub fn load_log(id: &LogId, log_dir: &str) -> Result<String, Error> {
-    let path = join(log_dir, &id.0)?;
-    let bytes = read_bytes(&path)?;
-    let mut decompressed = vec![];
-    let mut gz = GzDecoder::new(&bytes[..]);
-    gz.read_to_end(&mut decompressed)?;
-    Ok(String::from_utf8(decompressed)?)
+        if !exists(&path) {
+            continue;
+        }
+
+        let bytes = read_bytes(&path)?;
+        let mut decompressed = vec![];
+        let mut gz = GzDecoder::new(&bytes[..]);
+        gz.read_to_end(&mut decompressed)?;
+        return Ok((String::from_utf8(decompressed)?, extension.to_string()));
+    }
+
+    Err(Error::InvalidLogId(id.clone()))
 }
 
 pub fn load_logs_tail(log_dir: &str) -> Result<Vec<String>, Error> {

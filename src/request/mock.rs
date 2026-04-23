@@ -119,7 +119,7 @@ impl MockState {
                 },
                 None => {
                     self.valid = false;
-                    String::from("The test is complete!")
+                    String::from("The test is complete! Let me check if there's a new instruction.\n<read><path>neukgu-instruction.md</path></read>")
                 },
             }
         }
@@ -163,7 +163,19 @@ fn mock_requests() -> Vec<MockRequest> {
             Some("new_crate"),
         ),
         MockRequest::new(
-            "<write>\n<mode>truncate</mode>\n<path>new_crate/Cargo.toml</path>\n<content>\nThis is an empty file hahaha\n</content>\n</write>",
+            r#"
+<write>
+<mode>truncate</mode>
+<path>new_crate/Cargo.toml</path>
+<content>
+[package]
+This is an invalid Cargo.toml hahaha
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+</content>
+</write>"#,
             None,
         ),
         MockRequest::new(
@@ -186,6 +198,10 @@ fn mock_requests() -> Vec<MockRequest> {
         ),
         MockRequest::new(
             "<render><input>hello.html</input><output>hello-2.png</output></render>",
+            None,
+        ),
+        MockRequest::new(
+            "<render><input>https://youtube.com</input><output>youtube.png</output></render>",
             None,
         ),
         // browser test end
