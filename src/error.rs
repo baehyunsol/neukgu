@@ -8,6 +8,7 @@ pub enum Error {
     FailedToAcquireWriteLock,
     IndexDirNotFound,
     IndexDirAlreadyExists,
+    FailedToInitPythonVenv,
 
     // CLI has `--instruction` arg, but `neukgu-instruction.md` already exists.
     InstructionAlreadyExists,
@@ -32,6 +33,8 @@ pub enum Error {
 
     /// I don't know how to handle `anyhow::Error`, so I just convert it to string.
     BrowserError(String),
+
+    EnvVarError(std::env::VarError),
 
     /// see <https://docs.rs/ragit-fs/latest/ragit_fs/struct.FileError.html>
     FileError(FileError),
@@ -67,6 +70,12 @@ impl From<ragit_cli::Error> for Error {
             message: e.kind.render(),
             span: e.span,
         }
+    }
+}
+
+impl From<std::env::VarError> for Error {
+    fn from(e: std::env::VarError) -> Error {
+        Error::EnvVarError(e)
     }
 }
 

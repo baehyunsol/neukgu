@@ -1,5 +1,5 @@
 use crate::{Context, Error, subprocess};
-use ragit_fs::{exists, join3};
+use ragit_fs::{exists, join, join3};
 use regex::Regex;
 
 impl Context {
@@ -17,20 +17,32 @@ impl Context {
     }
 }
 
-pub fn load_available_binaries() -> Result<Vec<String>, Error> {
+pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> {
     let mut available_binaries = vec![];
     let mut unavailable_binaries = vec![];
     let bin_list: Vec<(&str, &[&str], &str)> = vec![
         ("git", &["version"], r".*git.*\d+\.\d+.+"),
         ("cargo", &["version"], r".*cargo.*\d+\.\d+.+"),
-        ("python3", &["-c", "print(3162277660168379331998 * 3162277660168379331998)"], ".*9999999999999999999994348728804092706672004.*"),
+        // ("python3", &[""], ""),
         ("rg", &["--version"], r".*ripgrep.*\d+\.\d+.+"),
     ];
+
+    match try_init_python_venv(working_dir) {
+        Ok(_) => {
+            available_binaries.push(String::from("python3"));
+            available_binaries.push(String::from("pip"));
+        },
+        Err(e) => {
+            eprintln!("{e:?}");
+            unavailable_binaries.push(String::from("python3"));
+            unavailable_binaries.push(String::from("pip"));
+        },
+    }
 
     for (bin, args, checker) in bin_list.iter() {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
 
-        match subprocess::run(bin.to_string(), &args, ".", 1, "", false) {
+        match subprocess::run(bin.to_string(), &args, &[], ".", 1, "", false) {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout).to_string();
                 let checker = Regex::new(checker).unwrap();
@@ -43,7 +55,8 @@ pub fn load_available_binaries() -> Result<Vec<String>, Error> {
                     unavailable_binaries.push(bin.to_string());
                 }
             },
-            Err(_) => {
+            Err(e) => {
+                eprintln!("{e:?}");
                 unavailable_binaries.push(bin.to_string());
             },
         }
@@ -56,4 +69,29 @@ pub fn load_available_binaries() -> Result<Vec<String>, Error> {
     else {
         Err(Error::UnavailableBinaries(unavailable_binaries))
     }
+}
+
+fn try_init_python_venv(working_dir: &str) -> Result<(), Error> {
+    let py_venv = join3(working_dir, ".neukgu", "py-venv")?;
+    let python3_link = join3(&py_venv, "bin", "python3")?;
+
+    if exists(&python3_link) {
+        return Ok(());
+    }
+
+    let output = subprocess::run(
+        String::from("python3"),
+        &[String::from("-m"), String::from("venv"), String::from("py-venv")],
+        &[],
+        &join(working_dir, ".neukgu")?,
+        5,
+        working_dir,
+        false,
+    )?;
+
+    if output.timeout || !exists(&python3_link) || !exists(&join3(&py_venv, "bin", "pip")?) {
+        return Err(Error::FailedToInitPythonVenv);
+    }
+
+    Ok(())
 }

@@ -17,18 +17,25 @@ pub struct Output {
 pub fn run(
     binary: String,
     args: &[String],
+    envs: &[(&str, String)],
     cwd: &str,
     timeout: u64,  // seconds
     working_dir: &str,
     check_interruption_: bool,
 ) -> Result<Output, Error> {
     let timeout = (timeout * 1000) as u128;
-    let mut child_process = Command::new(binary)
+    let mut command = Command::new(binary);
+    let mut child_process = command
         .args(args)
         .current_dir(cwd)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+
+    for (var, val) in envs.iter() {
+        child_process = child_process.env(var, val);
+    }
+
+    let mut child_process = child_process.spawn()?;
 
     let mut child_stdout = child_process.stdout.take().unwrap();
     let mut child_stderr = child_process.stderr.take().unwrap();

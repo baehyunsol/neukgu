@@ -25,6 +25,7 @@ use ragit_fs::{
     exists,
     is_dir,
     join,
+    join3,
     parent,
     read_bytes,
     read_dir,
@@ -371,12 +372,24 @@ impl ToolCall {
                     }));
                 }
 
+                let mut env: Vec<(&str, String)> = vec![];
+
+                if binary == "python3" || binary == "pip" {
+                    let venv_dir = join3(&context.working_dir, ".neukgu", "py-venv")?;
+                    let venv_bin = join(&venv_dir, "bin")?;
+                    let path = std::env::var("PATH")?;
+                    let new_path = format!("{venv_bin}:{path}");
+                    env.push(("PATH", new_path));
+                    env.push(("VIRTUAL_ENV", venv_dir));
+                }
+
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
                 let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
                 let started_at = Instant::now();
                 let result = subprocess::run(
                     bin_path,
                     if command.len() > 1 { &command[1..] } else { &command[0..0] },
+                    &env,
                     &sandbox_at,
                     timeout,
                     &context.working_dir,

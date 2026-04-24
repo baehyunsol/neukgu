@@ -61,7 +61,7 @@ impl Context {
             &config.system_prompt_context(),
             true,
         )?;
-        let available_binaries = load_available_binaries()?;
+        let available_binaries = load_available_binaries(working_dir)?;
         let logger = Logger::new(&join3(working_dir, ".neukgu", "logs")?);
 
         Ok(Context {

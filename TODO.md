@@ -82,6 +82,12 @@
   - 1, `working-dir/.venv/bin/python`을 실행하면 venv와 동일한 효과가 난다
   - 2, `.venv/`의 absolute path가 이곳저곳에 hard-code 돼 있기 때문에 sandbox로 갖고 가면 문제가 생길 거다
   - 그럼, `.neukgu/` 안에다가 venv를 만들어두고 command-run에서 python/pip을 쓰면 저 안에 있는 binary를 가져다가 쓰자!
+  - 하고 있는데 자꾸 이상한 오류 남 ㅠㅠ
+    - 일단, `.neukgu/py-venv/`를 만들었음
+    - suprocess::run할 때 bin_path로 sandbox대신 working-dir을 줬는데 안됨
+    - PATH에다가 `.neukgu/py-venv/bin/`을 넣어서 env_var에 넣어줬는데도 안됨
+    - `python3 -m venv py-venv --copies`를 해보니까 이 버전의 python은 `--copies`가 아예 안된다고 빠꾸먹음...
+  - 해보니까 ubuntu에서는 잘 됨. macOS에서 `py -m venv`로 만든 venv에 문제가 있는 듯?
 47. 글자 크기 일괄로 줄이기/늘이기
   - Ctrl +/-로 조작하기
   - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
@@ -100,18 +106,11 @@
   - 그나마 간단한 거는 늑구가 첫 turn을 돌기 전에 sandbox에 working dir을 통째로 복사해뒀다가, 나중에 rollback 용도로 쓰는 거지
     - 그럼 WAL에다가 "이 dir은 롤백용이니까 건들지 마세요"라고 적어둬야함...
     - 늑구가 오래 돌면 그 사이에 sandbox가 날아갈 확률이 높음
-54. work-stealing interruption
-  - interrupt를 하면 현재 turn이 끝난 다음에 반영이 되잖아? 현재 turn을 즉시 멈추고 interrupt를 반영하게 만들자!
-  - 늑구가 command-run을 했는데, 이거 영원히 안 끝나는 command여서 10분 후에 timeout에 걸릴 운명임. 그럼 내가 미리 깨고 들어가서 interrupt 하고 싶음..
-  - 구현은 가능함. `subprocess::run` 안에서 loop를 돌면서 timeout을 검사하는데, 그 안에서 interrupt도 같이 확인하면 됨!
-  - render에서도 구현 가능: browser instantiate된 다음에 한번 검사하고, screenshot 찍기 직전에 한번 검사하면 됨
-  - LLM request에서도 구현해야함. 이건 조금 빡센데, tokio에 `select!`라는 macro가 있대. 이거 잘 활용하면 될 듯?
-55. 늑구가 돌고 있는 와중에 hide/pin을 누르면 현재 turn은 버려야함
-  - turn이 0번부터 10번까지 있고 현재 11번 turn을 생성 중이라고 치자. 근데 8, 9, 10번 turn을 버리고 싶어졌음
-    - 8/9/10을 hide를 해도 11번 turn은 8/9/10이 반영됨. 11이 생기고 나서 11을 hide하면 12에는 11이 반영됨. 즉, 8/9/10의 흔적이 영원히 남게됨!
-  - step_inner에서 `raw_response`를 만들기 전이랑 만든 후에 `hidden_turns`, `pinned_turns`를 비교해서 둘이 다르면 `raw_response`를 버리고 다시 만들자!
-  - 이거 하는 김에 pause/resume도 즉시 반영되게 바꾸자! pause하면 그냥 현재 turn은 버리는 걸로...
-  - 54번이랑 밀접하게 연관돼 있음!!
+56. search
+  - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
+  - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
+57. turn_preview_title이 너무 길면 자르자. `python -c` 해서 긴 명령어 칠 때가 많네!
+58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 
 ```nu
 cd ~/Documents/Rust/neukgu;

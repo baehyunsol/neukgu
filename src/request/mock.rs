@@ -218,7 +218,20 @@ edition = "2024"
             None,
         ),
 
-        // TODO: impl pip and test pip
+        // An arbitrary library to test python/pip.
+        // I chose this because I don't think many people have this library pre-installed on their machine.
+        MockRequest::new(
+            "<run>\n<command>python3 -c \"import unicorn\"</command>\n</run>",
+            Some("<exit_code>1</exit_code>"),
+        ),
+        MockRequest::new(
+            "<run>\n<command>pip install unicorn</command>\n</run>",
+            None,
+        ),
+        MockRequest::new(
+            "<run>\n<command>python3 -c \"import unicorn\"</command>\n</run>",
+            Some("<exit_code>0</exit_code>"),
+        ),
 
         MockRequest::new(
             "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content></content>\n</write>",
