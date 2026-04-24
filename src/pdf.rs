@@ -1,4 +1,4 @@
-use crate::{Error, ImageId, hash_bytes, load_json, normalize_and_get_id};
+use crate::{Error, ImageId, check_interruption, hash_bytes, load_json, normalize_and_get_id};
 use hayro::{RenderSettings, render};
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::palette::css::WHITE;
@@ -60,6 +60,10 @@ pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error
         let png_bytes = pixmap.into_png()?;
         let image_id = normalize_and_get_id(&png_bytes, working_dir)?;
         pages.push(image_id);
+
+        if check_interruption(working_dir)? {
+            return Err(Error::UserInterrupt);
+        }
     }
 
     write_string(

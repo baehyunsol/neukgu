@@ -379,6 +379,8 @@ impl ToolCall {
                     if command.len() > 1 { &command[1..] } else { &command[0..0] },
                     &sandbox_at,
                     timeout,
+                    &context.working_dir,
+                    true,
                 )?;
                 let elapsed_ms = Instant::now().duration_since(started_at).as_millis() as u64;
                 import_from_sandbox(&sandbox_at, &context.working_dir, false /* copy_index_dir */)?;
@@ -821,6 +823,9 @@ pub enum ToolCallError {
     // ask errors
     UserNotResponding,
     UserRejectedToRespond,
+
+    // etc
+    UserInterrupt,
 }
 
 impl ToolCallError {
@@ -890,6 +895,7 @@ impl ToolCallError {
                     "User doesn't want to answer your question.",
                 )),
             ],
+            ToolCallError::UserInterrupt => unreachable!(),
             _ => panic!("TODO: {self:?}"),
         }
     }

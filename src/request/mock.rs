@@ -3,7 +3,6 @@ use async_std::task::sleep;
 use crate::{Error, Response, load_json};
 use ragit_fs::{WriteMode, exists, join3, write_string};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -15,7 +14,7 @@ impl Request {
             url: String::from("http://127.0.0.1:8000"),
 
             headers: HashMap::new(),
-            body: json!({}),
+            body: serde_json::to_value(self)?,
         })
     }
 
@@ -41,20 +40,15 @@ impl Request {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct MockState {
-    seq: usize,
+    turns: Vec<Option<MockRequest>>,
 
-    // The mock LLM occasionally outputs non-sense outputs.
-    // In such cases, this flag is not set.
-    // If this flag is set, it checks if the expectation is met.
-    valid: bool,
+    // in the next turn, it'll `self.turns.push(all_turns[self.seq])`
+    seq: usize,
 }
 
 impl MockState {
     pub fn new() -> MockState {
-        MockState {
-            seq: 0,
-            valid: true,
-        }
+        MockState { turns: vec![], seq: 0 }
     }
 
     pub fn load(working_dir: &str) -> Result<MockState, Error> {
@@ -78,11 +72,8 @@ impl MockState {
     }
 
     pub fn check_prev_turn_output(&self, output: &[LLMToken]) -> Result<(), Error> {
-        if self.seq > 0 && self.valid {
-            let turns = mock_requests();
-            let prev_turn = &turns[self.seq - 1];
-
-            if let Some(expect) = &prev_turn.expect {
+        match self.turns.last() {
+            Some(Some(MockRequest { expect: Some(expect), .. })) => {
                 for token in output.iter() {
                     if let LLMToken::String(s) = token && s.contains(expect) {
                         return Ok(());
@@ -90,35 +81,28 @@ impl MockState {
                 }
 
                 Err(Error::MockApiExpectationFailure { expect: expect.to_string() })
-            }
-
-            else {
-                Ok(())
-            }
-        }
-
-        else {
-            Ok(())
+            },
+            _ => Ok(()),
         }
     }
 
     pub fn get_next_turn(&mut self) -> String {
         if rand::random::<u32>() % 4 == 0 {
-            self.valid = false;
+            self.turns.push(None);
             String::from("The mock AI occasionally outputs random, non-sense outputs.")
         }
 
         else {
-            let turns = mock_requests();
+            let all_turns = mock_requests();
 
-            match turns.get(self.seq) {
+            match all_turns.get(self.seq) {
                 Some(r) => {
+                    self.turns.push(Some(r.clone()));
                     self.seq += 1;
-                    self.valid = true;
                     r.request.to_string()
                 },
                 None => {
-                    self.valid = false;
+                    self.turns.push(None);
                     String::from("The test is complete! Let me check if there's a new instruction.\n<read><path>neukgu-instruction.md</path></read>")
                 },
             }
@@ -126,6 +110,23 @@ impl MockState {
     }
 }
 
+pub fn revert_mock_state(working_dir: &str) -> Result<(), Error> {
+    let mock_path = join3(working_dir, ".neukgu", "mock.json")?;
+
+    if exists(&mock_path) {
+        let mut mock_state: MockState = load_json(&mock_path)?;
+
+        if let Some(Some(_)) = mock_state.turns.pop() {
+            mock_state.seq -= 1;
+        }
+
+        mock_state.store(working_dir)?;
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct MockRequest {
     request: String,
     expect: Option<String>,
@@ -205,6 +206,19 @@ edition = "2024"
             None,
         ),
         // browser test end
+
+        MockRequest::new(
+            "<run>\n<command>python3 -c \"print(3162277660168379331998 * 3162277660168379331998)\"</command>\n</run>",
+            Some("9999999999999999999994348728804092706672004"),
+        ),
+
+        // If you want to test interruption, do it here!
+        MockRequest::new(
+            "<run>\n<command>python3 -c \"import time; time.sleep(10); print(3162277660168379331998 * 3162277660168379331998)\"</command>\n</run>",
+            None,
+        ),
+
+        // TODO: impl pip and test pip
 
         MockRequest::new(
             "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content></content>\n</write>",

@@ -1,6 +1,6 @@
 // copy-pasted from Sodigy (commit e2ec298ff146)
 
-use crate::Error;
+use crate::{Error, check_interruption};
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -19,6 +19,8 @@ pub fn run(
     args: &[String],
     cwd: &str,
     timeout: u64,  // seconds
+    working_dir: &str,
+    check_interruption_: bool,
 ) -> Result<Output, Error> {
     let timeout = (timeout * 1000) as u128;
     let mut child_process = Command::new(binary)
@@ -61,6 +63,12 @@ pub fn run(
                 thread::sleep(Duration::from_millis(sleep_for));
                 sleep_for = (sleep_for * 2).min(128);
             },
+        }
+
+        if check_interruption_ && check_interruption(working_dir)? {
+            child_process.kill()?;
+            child_process.wait()?;
+            return Err(Error::UserInterrupt);
         }
     };
 

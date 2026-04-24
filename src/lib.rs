@@ -19,6 +19,7 @@ mod config;
 mod context;
 mod error;
 mod image;
+mod interrupt;
 mod log;
 mod parse;
 mod pdf;
@@ -35,6 +36,7 @@ pub use config::Config;
 pub use context::{ChosenTurn, Context, ContextJson};
 pub use error::{Error, from_browser_error};
 pub use image::{ImageId, normalize_and_get_id};
+use interrupt::{check_interruption, interrupt_backend};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
 use pdf::{PdfId, render_and_get_id};
@@ -44,6 +46,7 @@ use prettify::{
     prettify_tokens,
 };
 pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
+use request::revert_mock_state;
 pub use response::Response;
 pub use sandbox::{clean_dangling_sandboxes, clean_sandbox, export_to_sandbox, import_from_sandbox};
 pub use tool::{
@@ -107,13 +110,13 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
 }
 
 async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error> {
-    if let Some((id, interrupt)) = context.check_user_interrupt()? {
-        context.process_user_interrupt(id, interrupt, config)?;
+    if let Some((id, interrupt)) = context.check_question_from_user()? {
+        context.process_question_from_user(id, interrupt, config)?;
         context.store()?;
         context.remove_done_mark()?;
     }
 
-    // TODO: When it's marked done, it still create and remove sandbox-backup everytime,
+    // TODO: When it's marked done, it still creates and removes sandbox-backup everytime,
     //       which is a gigantic overhead. I temporily alleviated it with longer sleep,
     //       but I need a better solution.
     if context.is_marked_done()? {
@@ -121,17 +124,35 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
         return Ok(());
     }
 
+    let mut user_interrupt = false;
     let raw_response = match &context.curr_raw_response {
         Some((r, _)) => r.to_string(),
         None => {
             let llm_call_started_at = Instant::now();
             let mut request = context.to_request(config)?;
-            let response = request.request(&context.working_dir, &mut context.logger).await?.response.to_string();
+            let response = match request.request(&context.working_dir, &context.logger).await {
+                Ok(response) => response.response.to_string(),
+                Err(Error::UserInterrupt) => {
+                    context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
+                    user_interrupt = true;
+                    String::new()
+                },
+                Err(e) => {
+                    return Err(e);
+                },
+            };
             let llm_elapsed_ms = Instant::now().duration_since(llm_call_started_at).as_millis() as u64;
             context.start_turn(response.clone(), llm_elapsed_ms);
             response
         },
     };
+
+    if user_interrupt {
+        context.discard_current_turn();
+        sleep(Duration::from_millis(300));  // wait for fe to update its state
+        context.sync_with_fe()?;
+        return Ok(());
+    }
 
     context.store()?;
     context.sync_with_fe()?;
@@ -144,14 +165,23 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes()) {
         Ok(parse_result) => match validate_parse_result(&parse_result) {
             // A valid response has exactly 1 tool-call.
-            Ok(tool_call) => {
-                let tool_call_result = tool_call.run(context, config).await?;
-                context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
+            Ok(tool_call) => match tool_call.run(context, config).await {
+                Ok(tool_call_result) => {
+                    context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
 
-                match tool_call_result {
-                    Ok(s) => (Some(parse_result), TurnResult::ToolCallSuccess(s)),
-                    Err(e) => (Some(parse_result), TurnResult::ToolCallError(e)),
-                }
+                    match tool_call_result {
+                        Ok(s) => (Some(parse_result), TurnResult::ToolCallSuccess(s)),
+                        Err(e) => (Some(parse_result), TurnResult::ToolCallError(e)),
+                    }
+                },
+                Err(Error::UserInterrupt) => {
+                    context.logger.log(LogEntry::UserInterruptWhileToolCall)?;
+                    user_interrupt = true;
+                    (Some(parse_result), TurnResult::ToolCallError(ToolCallError::UserInterrupt))
+                },
+                Err(e) => {
+                    return Err(e);
+                },
             },
             Err(e) => (Some(parse_result), TurnResult::ParseError(e)),
         },
@@ -165,6 +195,11 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
         config,
         false,
     )?;
+
+    if user_interrupt {
+        context.discard_previous_turn();
+        sleep(Duration::from_millis(300));  // wait for fe to update its state
+    }
 
     context.sync_with_fe()?;
     context.store()?;
@@ -218,6 +253,7 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api
     create_dir(&join3(working_dir, ".neukgu", "pdfs")?)?;
     create_dir(&join3(working_dir, ".neukgu", "turns")?)?;
     create_dir(&join3(working_dir, ".neukgu", "logs")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "interruptions")?)?;
     write_string(
         &join4(working_dir, ".neukgu", "logs", "log")?,
         "",

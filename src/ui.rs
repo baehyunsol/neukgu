@@ -12,6 +12,7 @@ use crate::{
     TurnId,
     TurnPreview,
     TurnSummary,
+    interrupt_backend,
     load_json,
     load_log,
     load_logs_tail,
@@ -326,12 +327,12 @@ impl FeContext {
         Ok(())
     }
 
-    // user_interrupt: The user asked a question to LLM and the LLM has to answer this.
+    // question_from_user: The user asked a question to LLM and the LLM has to answer this.
     // user_response: LLM asked a question to the user and the user answered this.
     pub fn end_frame(
         &mut self,
         pause: Option<bool>,
-        user_interrupt: Option<(u64, String)>,
+        question_from_user: Option<(u64, String)>,
         user_response: Option<(u64, UserResponse)>,
     ) -> Result<(), Error> {
         let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
@@ -341,13 +342,13 @@ impl FeContext {
             fe2be.pause = pause;
         }
 
-        if let Some((id, interrupt)) = user_interrupt {
+        if let Some((id, question)) = question_from_user {
             fe2be.to_be.insert(
                 id,
                 Message {
                     id,
                     kind: MessageKind::User2LLM {
-                        question: interrupt,
+                        question,
                         completed: false,
                     },
                 },
@@ -500,6 +501,10 @@ impl FeContext {
     pub fn is_marked_done(&self) -> Result<bool, Error> {
         Ok(exists(&join3(&self.working_dir, "logs", "done")?))
     }
+
+    pub fn interrupt_backend(&self) -> Result<(), Error> {
+        interrupt_backend(&self.working_dir)
+    }
 }
 
 impl Context {
@@ -621,7 +626,7 @@ impl Context {
         Ok(())
     }
 
-    pub fn check_user_interrupt(&self) -> Result<Option<(u64, String)>, Error> {
+    pub fn check_question_from_user(&self) -> Result<Option<(u64, String)>, Error> {
         if !self.is_fe_alive()? {
             return Ok(None);
         }
@@ -630,7 +635,7 @@ impl Context {
 
         for message in be2fe.from_fe.values() {
             if let Message { id, kind: MessageKind::User2LLM { question, .. }} = message {
-                if !self.completed_user_interrupts.contains(id) {
+                if !self.completed_questions_from_user.contains(id) {
                     return Ok(Some((*id, question.to_string())));
                 }
             }

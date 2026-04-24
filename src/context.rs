@@ -17,6 +17,7 @@ use crate::{
     get_first_tool_call,
     load_available_binaries,
     request,
+    revert_mock_state,
     validate_parse_result,
 };
 use ragit_fs::{WriteMode, exists, join3, read_string, remove_file, write_string};
@@ -33,7 +34,7 @@ pub struct Context {
     // so we just have to run tool-call (or throw a parse error).
     pub curr_raw_response: Option<(String, u64)>,
 
-    pub completed_user_interrupts: HashSet<u64>,
+    pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,  // never hidden
 
@@ -48,7 +49,7 @@ pub struct Context {
 pub struct ContextJson {
     pub history: Vec<TurnId>,
     pub curr_raw_response: Option<(String, u64)>,
-    pub completed_user_interrupts: HashSet<u64>,
+    pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
 }
@@ -68,7 +69,7 @@ impl Context {
             history: vec![],
             curr_raw_response: None,
             turns: HashMap::new(),
-            completed_user_interrupts: HashSet::new(),
+            completed_questions_from_user: HashSet::new(),
             hidden_turns: HashSet::new(),
             pinned_turns: HashSet::new(),
             system_prompt,
@@ -87,7 +88,7 @@ impl Context {
                 |h| h.get_turn_summary()
             ).collect(),
             curr_raw_response: context_json.curr_raw_response.clone(),
-            completed_user_interrupts: context_json.completed_user_interrupts.clone(),
+            completed_questions_from_user: context_json.completed_questions_from_user.clone(),
             hidden_turns: context_json.hidden_turns.clone(),
             pinned_turns: context_json.pinned_turns.clone(),
             ..Context::new(config, working_dir)?
@@ -100,7 +101,7 @@ impl Context {
                 |h| h.id.clone()
             ).collect(),
             curr_raw_response: self.curr_raw_response.clone(),
-            completed_user_interrupts: self.completed_user_interrupts.clone(),
+            completed_questions_from_user: self.completed_questions_from_user.clone(),
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
         };
@@ -117,13 +118,18 @@ impl Context {
         self.curr_raw_response = Some((raw_response, llm_elapsed_ms));
     }
 
+    pub fn discard_current_turn(&mut self) {
+        assert!(self.curr_raw_response.is_some());
+        self.curr_raw_response = None;
+    }
+
     pub fn finish_turn(
         &mut self,
         parse_result: Option<Vec<ParsedSegment>>,
         turn_result: TurnResult,
         tool_elapsed_ms: u64,
         config: &Config,
-        is_user_interrupt: bool,
+        is_question_from_user: bool,
     ) -> Result<(), Error> {
         let (raw_response, llm_elapsed_ms) = self.curr_raw_response.take().unwrap();
         let new_turn = Turn::new(
@@ -132,13 +138,19 @@ impl Context {
             turn_result,
             llm_elapsed_ms,
             tool_elapsed_ms,
-            is_user_interrupt,
+            is_question_from_user,
             config,
         );
         let new_turn_summary = new_turn.summary(config);
         new_turn.store(&self.working_dir)?;
         self.history.push(new_turn_summary.clone());
         Ok(())
+    }
+
+    pub fn discard_previous_turn(&mut self) {
+        assert!(self.curr_raw_response.is_none());
+        revert_mock_state(&self.working_dir).unwrap();
+        self.history.pop().unwrap();
     }
 
     pub fn is_reading_too_much(&mut self) -> Result<bool, Error> {
@@ -351,7 +363,7 @@ impl Context {
         Ok((llm_turns, query))
     }
 
-    pub fn process_user_interrupt(&mut self, id: u64, interrupt: String, config: &Config) -> Result<(), Error> {
+    pub fn process_question_from_user(&mut self, id: u64, interrupt: String, config: &Config) -> Result<(), Error> {
         let q = "
 <ask>
 <to>user</to>
@@ -371,7 +383,7 @@ impl Context {
             config,
             true,
         )?;
-        self.completed_user_interrupts.insert(id);
+        self.completed_questions_from_user.insert(id);
         Ok(())
     }
 

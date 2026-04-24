@@ -96,7 +96,7 @@ pub struct IcedContext {
     // user interaction
     pub is_paused: bool,
     pub pause: Option<bool>,
-    pub user_interrupt: Option<(u64, String)>,
+    pub question_from_user: Option<(u64, String)>,
     pub llm_request: Option<(u64, String)>,
     pub processed_llm_requests: HashSet<u64>,
     pub user_response: Option<(u64, UserResponse)>,
@@ -259,7 +259,7 @@ pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size) -> Resul
         text_diff: None,
         is_paused: fe_context.is_paused()?,
         pause: None,
-        user_interrupt: None,
+        question_from_user: None,
         llm_request: None,
         processed_llm_requests: HashSet::new(),
         user_response: None,
@@ -278,7 +278,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Tick => {
             context.fe_context.end_frame(
                 context.pause.take(),
-                context.user_interrupt.take(),
+                context.question_from_user.take(),
                 context.user_response.take(),
             )?;
 
@@ -359,16 +359,23 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     context.fe_context.hidden_turns.insert(id);
                 },
             }
+
+            context.fe_context.interrupt_backend()?;
+            return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::PauseNeukgu => {
             context.pause = Some(true);
+            context.fe_context.interrupt_backend()?;
+            return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::ResumeNeukgu => {
             context.pause = Some(false);
         },
         IcedMessage::InterruptNeukgu => {
-            context.user_interrupt = Some((rand::random::<u64>(), context.text_editor_content.text()));
+            context.question_from_user = Some((rand::random::<u64>(), context.text_editor_content.text()));
             context.close_popup();
+            context.fe_context.interrupt_backend()?;
+            return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::AnswerLLMRequest => {
             let Some((id, _)) = context.llm_request.take() else { unreachable!() };

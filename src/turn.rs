@@ -58,7 +58,7 @@ pub struct Turn {
     pub tool_elapsed_ms: u64,
 
     // A user interrupt creates a fake-turn.
-    pub is_user_interrupt: bool,
+    pub is_question_from_user: bool,
 }
 
 impl Turn {
@@ -68,7 +68,7 @@ impl Turn {
         turn_result: TurnResult,
         llm_elapsed_ms: u64,
         tool_elapsed_ms: u64,
-        is_user_interrupt: bool,
+        is_question_from_user: bool,
         config: &Config,
     ) -> Turn {
         let mut turn = Turn {
@@ -78,7 +78,7 @@ impl Turn {
             turn_result,
             llm_elapsed_ms,
             tool_elapsed_ms,
-            is_user_interrupt,
+            is_question_from_user,
         };
         let turn_summary = turn.summary(config);
         let turn_id = get_turn_id(turn_summary);
@@ -137,8 +137,8 @@ impl Turn {
     pub fn preview(&self) -> TurnPreview {
         let preview_title = match &self.parse_result {
             Some(parse_result) => {
-                if self.is_user_interrupt {
-                    String::from("User interrupt")
+                if self.is_question_from_user {
+                    String::from("Question from user")
                 }
 
                 else if let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {

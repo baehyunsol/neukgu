@@ -1,5 +1,5 @@
 use async_std::task::sleep;
-use crate::{Error, ImageId, Logger, LogEntry, Response};
+use crate::{Error, ImageId, Logger, LogEntry, Response, check_interruption};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -8,6 +8,8 @@ use std::time::Duration;
 mod anthropic;
 mod mock;
 mod openai;
+
+pub use mock::revert_mock_state;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ApiProvider {
@@ -76,7 +78,33 @@ pub struct Turn {
 }
 
 impl Request {
+    // VIBE NOTE: gemini 3.1 pro (via perplexity) taught me how to use `tokio` macros.
     pub async fn request(&mut self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
+        let request_future = self.request_inner(working_dir, logger);
+        tokio::pin!(request_future);
+        let mut interval = tokio::time::interval(Duration::from_millis(200));
+
+        loop {
+            tokio::select! {
+                result = &mut request_future => {
+                    return result;
+                },
+                _ = interval.tick() => {
+                    match check_interruption(working_dir) {
+                        Ok(true) => {
+                            return Err(Error::UserInterrupt);
+                        },
+                        Err(e) => {
+                            return Err(e);
+                        },
+                        _ => {},
+                    }
+                },
+            }
+        }
+    }
+
+    async fn request_inner(&mut self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let mut error = None;
 

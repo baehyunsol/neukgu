@@ -30,7 +30,7 @@ pub fn load_available_binaries() -> Result<Vec<String>, Error> {
     for (bin, args, checker) in bin_list.iter() {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
 
-        match subprocess::run(bin.to_string(), &args, ".", 1) {
+        match subprocess::run(bin.to_string(), &args, ".", 1, "", false) {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout).to_string();
                 let checker = Regex::new(checker).unwrap();

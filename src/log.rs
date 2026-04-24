@@ -58,6 +58,8 @@ pub enum LogEntry {
     AskQuestionToWebBegin(String),
     AskQuestionToWebEnd,
     BackendError(String),
+    UserInterruptWhileLLMRequest,
+    UserInterruptWhileToolCall,
 }
 
 impl Logger {
@@ -88,6 +90,8 @@ impl Logger {
             LogEntry::AskQuestionToWebBegin(q) => (format!("ask_question_to_web_begin({})", log_id.0), Some(q), "txt"),
             LogEntry::AskQuestionToWebEnd => (format!("ask_question_to_web_end"), None, ""),
             LogEntry::BackendError(e) => (format!("backend_error({})", log_id.0), Some(e), "rs"),
+            LogEntry::UserInterruptWhileLLMRequest => (format!("user_interrupt_while_llm_request"), None, ""),
+            LogEntry::UserInterruptWhileToolCall => (format!("user_interrupt_while_tool_call"), None, ""),
         };
 
         write_string(

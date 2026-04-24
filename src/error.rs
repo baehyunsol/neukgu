@@ -19,6 +19,7 @@ pub enum Error {
     MockApiExpectationFailure { expect: String },
     NotAllowedCharInProjectName { name: String, ch: char },
     InvalidLogId(LogId),
+    UserInterrupt,
 
     HttpError { status_code: u16 },
     CliError {

@@ -1,7 +1,7 @@
 use super::{Path, normalize_path};
-use crate::{Context, ImageId, PdfId, normalize_and_get_id, render_and_get_id};
+use crate::{Context, Error, ImageId, PdfId, normalize_and_get_id, render_and_get_id};
 use hayro::hayro_syntax::Pdf;
-use ragit_fs::{FileError, basename, extension, is_dir, join, read_bytes, read_dir};
+use ragit_fs::{basename, extension, is_dir, join, read_bytes, read_dir};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,7 +59,7 @@ pub enum FileEntry {
 // psd/psb (photoshop file format) files without any errors. So, we have
 // to classify the files with their extensions.
 // It already checked that the path exists.
-pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> {
+pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
     let real_path = join(&context.working_dir, path)?;
 
     if is_dir(&real_path) {
@@ -127,6 +127,7 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, FileError> 
         match ext.as_str() {
             "pdf" => match render_and_get_id(&bytes, &context.working_dir) {
                 Ok(id) => Ok(TypedFile::Pdf(id)),
+                Err(Error::UserInterrupt) => Err(Error::UserInterrupt),
                 Err(e) => Ok(TypedFile::BrokenPdf { error: format!("{e:?}") }),
             },
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "tiff" | "bmp" => match normalize_and_get_id(&bytes, &context.working_dir) {
