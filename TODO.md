@@ -88,10 +88,17 @@
     - PATH에다가 `.neukgu/py-venv/bin/`을 넣어서 env_var에 넣어줬는데도 안됨
     - `python3 -m venv py-venv --copies`를 해보니까 이 버전의 python은 `--copies`가 아예 안된다고 빠꾸먹음...
   - 해보니까 ubuntu에서는 잘 됨. macOS에서 `py -m venv`로 만든 venv에 문제가 있는 듯?
-47. 글자 크기 일괄로 줄이기/늘이기
-  - Ctrl +/-로 조작하기
-  - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
+  - Let's go with the current setting
+    - It works on Linux, and not on MacOS.
+    - I can check the python environment if something's suspicious.
+    - Everything's fine because neukgu is exclusive for me.
 48. Keybindings... for everything in GUI!
+  - Ctrl +/- to change the font sizes
+    - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
+  - Every buttons in the top bar
+    - (C)reate new, (L)aunch, (I)nit here, (H)elp
+    - (R)esume, (P)ause, (I)nterrupt, See (L)ogs, (T)oken Usage, (H)elp
+  - Left/Right to browse turns
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
   - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
   - 늑구와 관계없는 프로그램이 저 파일을 만드는 경우는... 없다고 하자!
@@ -106,11 +113,23 @@
   - 그나마 간단한 거는 늑구가 첫 turn을 돌기 전에 sandbox에 working dir을 통째로 복사해뒀다가, 나중에 rollback 용도로 쓰는 거지
     - 그럼 WAL에다가 "이 dir은 롤백용이니까 건들지 마세요"라고 적어둬야함...
     - 늑구가 오래 돌면 그 사이에 sandbox가 날아갈 확률이 높음
+  - How about adding a "snapshot" button?
+    - It copies the entire working-dir to somewhere, and it's stored in somewhere else (not in sandbox_root). We can rollback to snapshots.
 56. search
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
   - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
 57. turn_preview_title이 너무 길면 자르자. `python -c` 해서 긴 명령어 칠 때가 많네!
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
+59. More configuration in GUI
+  - When initializing a new working-dir, it can
+    - choose AI model
+    - enable/disable tools/binaries
+      - I'm not gonna update the system prompt (or maybe I have to do so...)
+      - when the AI calls the tool, it'll reject it with an error message
+      - If we can disable binaries, what's the point of `Error::UnavailableBinaries`?
+60. archive/extract `.neukgu/`
+  - It's different from ragit. Ragit can run perfectly fine without data files, but neukgu cannot run without working-dir.
+  - Better way is to just archive/extract the entire working-dir.
 
 ```nu
 cd ~/Documents/Rust/neukgu;

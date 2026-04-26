@@ -53,7 +53,7 @@ pub use read::{
     read_file,
 };
 pub use render::WebOrFile;
-pub use run::load_available_binaries;
+pub use run::{check_python_venv, load_available_binaries};
 pub use write::{DumpOrRedirect, WriteMode, check_write_permission};
 
 type Path = Vec<String>;
@@ -372,19 +372,21 @@ impl ToolCall {
                     }));
                 }
 
+                let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
+                let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
                 let mut env: Vec<(&str, String)> = vec![];
 
-                if binary == "python3" || binary == "pip" {
+                if bin_path == "python3" || bin_path == "pip" {
                     let venv_dir = join3(&context.working_dir, ".neukgu", "py-venv")?;
                     let venv_bin = join(&venv_dir, "bin")?;
                     let path = std::env::var("PATH")?;
                     let new_path = format!("{venv_bin}:{path}");
                     env.push(("PATH", new_path));
                     env.push(("VIRTUAL_ENV", venv_dir));
+
+                    check_python_venv(&env, &sandbox_at, &context.working_dir)?;
                 }
 
-                let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
-                let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
                 let started_at = Instant::now();
                 let result = subprocess::run(
                     bin_path,

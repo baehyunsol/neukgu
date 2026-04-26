@@ -95,3 +95,41 @@ fn try_init_python_venv(working_dir: &str) -> Result<(), Error> {
 
     Ok(())
 }
+
+// Python venv doesn't work on some platforms (e.g. python 3.9 on my Mac book).
+// So it checks whether python3 & pip are alive in the sandbox.
+pub fn check_python_venv(
+    env: &[(&str, String)],
+    sandbox_at: &str,
+    working_dir: &str,
+) -> Result<(), Error> {
+    let pip_result = subprocess::run(
+        String::from("pip"),
+        &["help"].iter().map(|arg| arg.to_string()).collect::<Vec<_>>(),
+        env,
+        sandbox_at,
+        3,
+        working_dir,
+        true,
+    )?;
+
+    if !pip_result.stdout.windows(7).any(|w| w == b"install") || !pip_result.stdout.windows(8).any(|w| w == b"download") {
+        return Err(Error::FailedToInitPythonVenv);
+    }
+
+    let py_result = subprocess::run(
+        String::from("python3"),
+        &["-c", "print(3162277660168379 * 3162277660168379)"].iter().map(|arg| arg.to_string()).collect::<Vec<_>>(),
+        env,
+        sandbox_at,
+        3,
+        working_dir,
+        true,
+    )?;
+
+    if !py_result.stdout.windows(31).any(|w| w == b"9999999999999997900254631487641") {
+        return Err(Error::FailedToInitPythonVenv);
+    }
+
+    Ok(())
+}
