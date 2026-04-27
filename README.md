@@ -8,7 +8,7 @@ It works like this:
 2. You write the instructions to `neukgu-instruction.md`.
 3. Run neukgu, and it will do the rest.
 
-In order to run this, you need 4 binaries installed: `git`, `python3`, `cargo` and `ripgrep`. Neukgu will try to find these in your PATH.
+In order to run this, you need 5 binaries installed: `git`, `python3`, `pip`, `cargo` and `ripgrep`. Neukgu will try to find these in your PATH.
 
 ## 1. Creating a working directory
 

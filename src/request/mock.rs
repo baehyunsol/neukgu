@@ -1,7 +1,7 @@
 use super::{HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
 use async_std::task::sleep;
 use crate::{Error, Response, load_json};
-use ragit_fs::{WriteMode, exists, join3, write_string};
+use ragit_fs::{WriteMode, exists, join3, remove_file, write_string};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -121,6 +121,16 @@ pub fn revert_mock_state(working_dir: &str) -> Result<(), Error> {
         }
 
         mock_state.store(working_dir)?;
+    }
+
+    Ok(())
+}
+
+pub fn reset_mock_state(working_dir: &str) -> Result<(), Error> {
+    let mock_path = join3(working_dir, ".neukgu", "mock.json")?;
+
+    if exists(&mock_path) {
+        remove_file(&mock_path)?;
     }
 
     Ok(())

@@ -3,10 +3,6 @@
 8. 추가 bin 주기
   - cc
   - ls
-9. Write-Ahead-Log
-  - sandbox를 만든 *다음에* `.neukgu/WAL`에다가 sandbox의 path를 적어둠
-  - sandbox를 삭제한 *다음에* `.neukgu/WAL`을 삭제함
-  - 처음 켜질 때 WAL이 존재하면 session을 복원하려고 시도..!!
 10. thinking tokens... -> 이것도 좀 이것저것 시도 ㄱㄱ
   - issue가 많음
   - A. 지 혼자 꼬리에 꼬리를 물고 생각을 하다가 max_tokens 꽉 채워버리고 죽어버림
@@ -33,18 +29,10 @@
   - ReadText나 WriteText가 성공하면 걔의 log_id를 저장하면 됨
     - `HashMap<Path, Vec<LogId>>`처럼 저장하면 됨! log_id는 순서대로 저장되어 있으므로 diff를 뜰 때는 바로 이전의 내용과 비교하면 됨!
 34. reset session
-  - `.neukgu/`를 아예 새로 만들고, `neukgu-instruction.md`도 새로 입력을 받자
-    - 생각해보니까 token usage는 초기화하면 안되는데??
-  - working_dir::try_boot를 새로 해버리자 -> 이러면 자연스럽게 fe_context도 초기화됨
-  - be의 context를 초기화하는게 문제...
-    - 기존의 be process를 안전하게 죽여야함 -> be process의 handle을 fe_context가 갖고 있자. 그러면 kill 해버릴 수 있음
-    - be process가 잘 죽었으면 sandbox 정리하는 함수 한번 호출하기 (clean_dangling_sandboxes)
-  -  instruction history를 간단하게 남기고 싶음
-    - neukgu-instruction.md의 내용을 `Vec<String>`에다가 저장 -> easy
-      - 예쁘게 보려면 각 instruction에 제목도 붙여야 함... ㅋㅋㅋ
-    - 늑구가 만들어낸 결과물들은 어떻게 기록하지? turn을 다 기록하기에는 너무 낭비가 심한데??
-    - 늑구가 만들어낸 결과물에다가 내가 메모를 추가할까?
-       - 늑구한테 메모를 추가하라고 할까?
+  - reset session은 구현했고, 과거의 session을 어딘가에 기록해두고 싶음 (`neukgu-instruction.md` + `context.json`). -> 제목을 지을 수 있으면 더 좋은데... 늑구한테 제목 지으라고 할까? ㅋㅋㅋ
+    - 과거의 session을 보는 view도 만들어야하긴 한데, working-dir-view를 재활용하기에는 다른게 너무 많고 from-scratch로 만들기에는 working-dir-view을 재활용하고 싶고...
+    - 과거의 session을 보는 view를 따로 만들면, 과거의 session을 보는 동안 현재 working-dir의 be_process가 못 도는데??
+    - 그럼 tab 기능을 만들어서 현재 session 하고 과거 session 하고 별개의 tab에 올려놔? ㅋㅋㅋ
 38. multi-session neukgu?
   - tab을 여러개 띄워두고 동시에 여러 작업을 시키면... 편하겠지?
   - 근데 또 window manager가 할 수 있는 걸 굳이 내가 구현해야하나 싶기도 하고
@@ -77,6 +65,7 @@
     - 한 세션에서 브라우저 여러번 띄우면 문제 생기는 거같은데?? -> 이거는 테스트하기 쉬움!!
       - 근데 mac이랑 linux에서 지금은 잘 돎... 브라우저를 더 많이 띄워봐야하나? 아니면 시간 간격을 좀 두고 띄워볼까?
 43. anthropic에서 web-search-tool 쓰면 너무 느림 ㅠㅠ
+  - main LLM이랑 search LLM이랑 다르게 쓸 수 있으면 좋을 텐데...
 44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!
   - perplexity한테 물어보니까
   - 1, `working-dir/.venv/bin/python`을 실행하면 venv와 동일한 효과가 난다
@@ -97,7 +86,8 @@
     - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
   - Every buttons in the top bar
     - (C)reate new, (L)aunch, (I)nit here, (H)elp
-    - (R)esume, (P)ause, (I)nterrupt, See (L)ogs, (T)oken Usage, (H)elp
+    - (R)esume, (P)ause, (I)nterrupt, See (L)ogs, (T)oken Usage, (H)elp, i(N)struction, (C)onfig, re(S)et
+    - Spacebar also resumes/pauses.
   - Left/Right to browse turns
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
   - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
@@ -118,7 +108,7 @@
 56. search
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
   - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
-57. turn_preview_title이 너무 길면 자르자. `python -c` 해서 긴 명령어 칠 때가 많네!
+  - 다른 popup 안에서도 Ctrl+F가 되면 좋을 듯... 근데 그건 너무 빡셀 듯 ㅠㅠ
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - When initializing a new working-dir, it can
@@ -127,15 +117,24 @@
       - I'm not gonna update the system prompt (or maybe I have to do so...)
       - when the AI calls the tool, it'll reject it with an error message
       - If we can disable binaries, what's the point of `Error::UnavailableBinaries`?
+  - set api key with GUI
+  - Change configs while neukgu is running
+    - change AI model
+    - enable/disable  tools/binariess
 60. archive/extract `.neukgu/`
   - It's different from ragit. Ragit can run perfectly fine without data files, but neukgu cannot run without working-dir.
   - Better way is to just archive/extract the entire working-dir.
+61. File viewer
+  - In order to do *everything* in neukgu GUI, we need a file viewer...
+  - I want to watch the live file system.
+62. 제일 첫 turn에 `neukgu-instruction.md`를 읽음 (당연). 그리고 바로 다음 턴에 `neukgu-instruction.md`를 또 읽음... -> gpt가 이럴 때가 많음. 도대체 왜 그러지?? harness 차원에서 코드로 막을 수 있기는 한데 너무 지엽적인 거 같기도 하고...
+63. When the binary reader has to read a very large file (> 100KiB), it doesn't have to read the entire file...
 
 ```nu
 cd ~/Documents/Rust/neukgu;
 cargo build;
 cd ~/Documents;
 rm -r ttt;
-~/Documents/Rust/neukgu/target/debug/neukgu new ttt --mock-api;
+~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock;
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
 ```

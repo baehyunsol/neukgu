@@ -1,7 +1,7 @@
 use super::{button, green, red};
-use iced::{Element, Size, Task};
+use iced::{Element, Size};
 use iced::alignment::Horizontal;
-use iced::widget::{Column, Sensor, text};
+use iced::widget::{Column, text};
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
@@ -11,40 +11,24 @@ pub struct IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
-    WindowResized(Size),
     Okay,
 }
 
-pub fn boot(message: String) -> IcedContext {
+pub fn boot(message: String, window_size: Size) -> IcedContext {
     IcedContext {
         message,
-        window_size: Size::new(0.0, 0.0),
+        window_size,
     }
-}
-
-pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
-    match message {
-        IcedMessage::WindowResized(s) => {
-            context.window_size = s;
-        },
-        IcedMessage::Okay => unreachable!(),
-    }
-
-    Task::none()
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Sensor::new(
-        Column::from_vec(vec![
-            text!("Error").color(red()).into(),
-            text!("{}", context.message).into(),
-            button("Okay", IcedMessage::Okay, green()).into(),
-        ])
-            .padding(20)
-            .spacing(20)
-            .align_x(Horizontal::Center)
-    )
-        .on_show(|s| IcedMessage::WindowResized(s))
-        .on_resize(|s| IcedMessage::WindowResized(s))
+    Column::from_vec(vec![
+        text!("Error").color(red()).into(),
+        text!("{}", context.message).into(),
+        button("Okay", IcedMessage::Okay, green()).into(),
+    ])
+        .padding(20)
+        .spacing(20)
+        .align_x(Horizontal::Center)
         .into()
 }

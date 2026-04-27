@@ -21,8 +21,10 @@ pub fn prettify_time(ms: u64) -> String {
     let minutes = seconds / 60;
     let hours = minutes / 60;
 
-    if seconds < 60 {
+    if seconds < 10 {
         format!("{:.2} seconds", ms as f64 / 1000.0)
+    } else if seconds < 60 {
+        format!("{seconds} seconds")
     } else if hours < 2 {
         format!("{minutes} minutes {} seconds", seconds % 60)
     } else {

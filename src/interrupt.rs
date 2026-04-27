@@ -44,7 +44,7 @@ pub fn check_interruption(working_dir: &str) -> Result<bool, Error> {
     Ok(interruption)
 }
 
-pub fn interrupt_backend(working_dir: &str) -> Result<(), Error> {
+pub fn interrupt_be(working_dir: &str) -> Result<(), Error> {
     let now = Local::now().timestamp_millis().to_string();
     write_bytes(
         &join4(working_dir, ".neukgu", "interruptions", &now)?,

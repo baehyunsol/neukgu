@@ -69,7 +69,7 @@ impl Request {
         };
 
         let body = OpenaiRequest {
-            model: self.model.name.to_string(),
+            model: self.model.name().to_string(),
             instructions: self.system_prompt.to_string(),
             input,
             tools,

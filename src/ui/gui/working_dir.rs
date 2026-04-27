@@ -11,7 +11,7 @@ use super::{
     pink,
     red,
     set_bg,
-    spawn_backend_process,
+    spawn_be_process,
     white,
     yellow,
 };
@@ -30,12 +30,13 @@ use crate::{
     load_log,
     load_logs_tail,
     prettify_time,
+    reset_working_dir,
     stringify_llm_tokens,
 };
 use iced::{Background, Color, ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
-use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Sensor, Stack, text};
+use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Stack, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
@@ -48,6 +49,7 @@ use iced::widget::text_editor::{
 use ragit_fs::join3;
 use regex::Regex;
 use std::collections::HashSet;
+use std::process::Child;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -64,17 +66,43 @@ There are 2 ways to interact with neukgu.
 1. Pause / Resume neukgu.
 2. Interrupt: you can give extra instructions while neukgu is working.
 
+Neukgu might ask you a question while he's working. Then, you'll see a
+question popup. A question has a timeout. If you don't answer the question
+for long time, neukgu will assume that you're not available and just continue
+his work.
+
 ## Context engineering
 
 Below the buttons, you can see a long list of turns. That is the entire trajectory of
 neukgu's operations.
 
-You can see a green/red/blue marker on the left of each turn. That has something to do
-with context engineering.
+It is very important to decide which turns to be included in the LLM's context. The
+harness provides some functionality to engineer neukgu's context.
+
+In the top bar, you'll see how much context neukgu is currently using. The denominator is
+the limit of the maximum context size, and the numerator is the current context size, excluding
+hidden turns. The context size is measured in bytes. Images are treated as a 2048 byte text.
+
+When the context gets to exceed the limit, the harness will hide turns. If a turn is marked red,
+the turn is hidden and neukgu cannot see the turn.
+
+You can also manually hide/pin the turns. If you hide a turn, the turn will be hidden regardless
+of the harness' context engineering. You can also pin a turn, and the turn will never be hidden
+no matter how many turns you have.
+
+If a turn is marked green or blue, the turn is in the neukgu's context. If it's green, the entire
+turn, including LLM's thoughts are included in the context. If it's blue, LLM's thoughts are not
+in the context. You can't control this. Only harness can do.
+
+## Done
+
+When neukgu finishes his job, he'll create `logs/done` file and go to sleep. If you're
+not satisfied with his work, you can interrupt him to do more work.
+He'll remove `logs/done` file and do more work.
 ";
 
-#[derive(Clone, Debug)]
 pub struct IcedContext {
+    pub be_process: Option<Child>,
     pub fe_context: FeContext,
     pub window_size: Size,
     pub turn_view_id: Id,
@@ -82,13 +110,14 @@ pub struct IcedContext {
     pub turn_view_scrolled: AbsoluteOffset,
     pub hovered_turn: Option<TurnId>,
     pub loaded_turn: Option<(usize, Turn)>,
-    pub loaded_log: Option<LogView>,
+    pub loaded_logs: Option<Vec<String>>,
     pub loaded_image: Option<ImageId>,
     pub user_response_timeout_counter: Instant,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
     pub text_editor_content: TextEditorContent,
+    pub syntax_highlight: Option<String>,
 
     // If it's set, it'll display "diff" button in the turn popup.
     pub text_diff: Option<String>,
@@ -141,7 +170,7 @@ impl IcedContext {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
                 let logs = load_logs_tail(&log_dir)?;
                 self.copy_buffer = Some(logs.join("\n"));
-                self.loaded_log = Some(LogView::Logs(logs));
+                self.loaded_logs = Some(logs);
             },
             Popup::Log(id) => {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
@@ -153,17 +182,13 @@ impl IcedContext {
                     extension = String::from("txt");
                 }
 
-                // `LogView::Log` uses a un-editable text-editor to display the content
-                // I want to change the content, but I don't know how... this is the best I can do:
-                self.text_editor_content.perform(TextEditorAction::SelectAll);
-                self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
-                self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(log.to_string()))));
-
-                self.loaded_log = Some(LogView::Log { log, extension });
+                self.set_text_editor_content(log.to_string());
+                self.syntax_highlight = Some(extension);
             },
             Popup::Help => {
-                // There's nothing to load
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
+                self.set_text_editor_content(HELP_MESSAGE.to_string());
+                self.syntax_highlight = Some(String::from("md"));
             },
             Popup::Image(id) => {
                 self.loaded_image = Some(id);
@@ -172,8 +197,27 @@ impl IcedContext {
             Popup::Diff => {
                 self.copy_buffer = self.text_diff.clone();
             },
-            Popup::TokenUsage(s) => {
-                self.copy_buffer = Some(s.to_string());
+            Popup::TokenUsage => {
+                let token_usage = self.fe_context.get_token_usage()?;
+                self.set_text_editor_content(token_usage.to_string());
+                self.copy_buffer = Some(token_usage.to_string());
+            },
+            Popup::Instruction => {
+                let instruction = self.fe_context.get_instruction()?;
+                self.set_text_editor_content(instruction.to_string());
+                self.copy_buffer = Some(instruction.to_string());
+                self.syntax_highlight = Some(String::from("md"));
+            },
+            Popup::Config => {
+                let config = serde_json::to_string_pretty(&self.fe_context.config)?;
+                self.set_text_editor_content(config.to_string());
+                self.copy_buffer = Some(config.to_string());
+                self.syntax_highlight = Some(String::from("json"));
+            },
+            Popup::Reset => {
+                self.set_text_editor_content(self.fe_context.get_instruction()?);
+                self.copy_buffer = None;
+                self.syntax_highlight = None;
             },
         }
 
@@ -183,18 +227,44 @@ impl IcedContext {
     pub fn close_popup(&mut self) {
         self.hovered_turn = None;
         self.loaded_turn = None;
-        self.loaded_log = None;
+        self.loaded_logs = None;
         self.loaded_image = None;
         self.curr_popup = None;
         self.copy_buffer = None;
         self.text_editor_content = TextEditorContent::with_text("");
+        self.syntax_highlight = None;
+    }
+
+    pub fn set_text_editor_content(&mut self, c: String) {
+        self.text_editor_content.perform(TextEditorAction::SelectAll);
+        self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
+        self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
+    }
+
+    pub fn kill_be_process(&mut self) -> Result<(), Error> {
+        match &mut self.be_process {
+            Some(be) => {
+                be.kill()?;
+                self.be_process = None;
+            },
+            None => {},
+        }
+
+        Ok(())
+    }
+
+    pub fn spawn_be_process(&mut self) -> Result<(), Error> {
+        if self.be_process.is_none() {
+            self.be_process = Some(spawn_be_process(&self.fe_context.working_dir)?);
+        }
+
+        Ok(())
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     Tick,
-    WindowResized(Size),
     TurnViewScrolled(AbsoluteOffset),
     HoverOnTurn(Option<TurnId>),
     OpenPopup {
@@ -208,6 +278,7 @@ pub enum IcedMessage {
     PauseNeukgu,
     ResumeNeukgu,
     InterruptNeukgu,
+    ResetNeukgu,
     AnswerLLMRequest,
     DismissLLMRequest,
     EditText(TextEditorAction),
@@ -223,25 +294,17 @@ pub enum Popup {
     Help,
     Image(ImageId),
     Diff,
-    TokenUsage(String),
-}
-
-#[derive(Clone, Debug)]
-pub enum LogView {
-    Logs(Vec<String>),
-    Log {
-        log: String,
-        extension: String,
-    },
+    TokenUsage,
+    Instruction,
+    Config,
+    Reset,
 }
 
 pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size) -> Result<IcedContext, Error> {
-    if !no_backend {
-        spawn_backend_process(working_dir)?;
-    }
-
     let fe_context = FeContext::load(working_dir)?;
+    let be_process = if no_backend { None } else { Some(spawn_be_process(working_dir)?) };
     Ok(IcedContext {
+        be_process,
         fe_context: fe_context.clone(),
         window_size,
         turn_view_id: Id::unique(),
@@ -249,13 +312,14 @@ pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size) -> Resul
         turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
         hovered_turn: None,
         loaded_turn: None,
-        loaded_log: None,
+        loaded_logs: None,
         loaded_image: None,
         user_response_timeout_counter: Instant::now(),
         curr_popup: None,
         prev_popup: None,
         copy_buffer: None,
         text_editor_content: TextEditorContent::new(),
+        syntax_highlight: None,
         text_diff: None,
         is_paused: fe_context.is_paused()?,
         pause: None,
@@ -282,13 +346,17 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.user_response.take(),
             )?;
 
-            if let Some(LogView::Logs(_)) = &context.loaded_log {
+            if context.loaded_logs.is_some() {
                 let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
-                context.loaded_log = Some(LogView::Logs(load_logs_tail(&log_dir)?));
+                let logs = load_logs_tail(&log_dir)?;
+                context.copy_buffer = Some(logs.join("\n"));
+                context.loaded_logs = Some(logs);
             }
 
-            if let Some(Popup::TokenUsage(_)) = &context.curr_popup {
-                context.curr_popup = Some(Popup::TokenUsage(context.fe_context.get_token_usage().unwrap_or_else(|e| format!("{e:?}"))));
+            if let Some(Popup::TokenUsage) = &context.curr_popup {
+                let token_usage = context.fe_context.get_token_usage()?;
+                context.set_text_editor_content(token_usage.to_string());
+                context.copy_buffer = Some(token_usage.to_string());
             }
 
             let llm_request = context.fe_context.get_llm_request()?;
@@ -311,9 +379,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
             context.is_paused = context.fe_context.is_paused()?;
             context.fe_context.start_frame()?;
-        },
-        IcedMessage::WindowResized(s) => {
-            context.window_size = s;
         },
         IcedMessage::TurnViewScrolled(o) => {
             context.turn_view_scrolled = o;
@@ -360,12 +425,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 },
             }
 
-            context.fe_context.interrupt_backend()?;
+            context.fe_context.interrupt_be()?;
             return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::PauseNeukgu => {
             context.pause = Some(true);
-            context.fe_context.interrupt_backend()?;
+            context.fe_context.interrupt_be()?;
             return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::ResumeNeukgu => {
@@ -374,7 +439,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::InterruptNeukgu => {
             context.question_from_user = Some((rand::random::<u64>(), context.text_editor_content.text()));
             context.close_popup();
-            context.fe_context.interrupt_backend()?;
+            context.fe_context.interrupt_be()?;
+            return Ok(Task::done(IcedMessage::Tick));
+        },
+        IcedMessage::ResetNeukgu => {
+            context.kill_be_process()?;
+            reset_working_dir(context.text_editor_content.text(), &context.fe_context.working_dir)?;
+            context.spawn_be_process()?;
+            context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
+            context.is_paused = context.fe_context.is_paused()?;
+            context.close_popup();
             return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::AnswerLLMRequest => {
@@ -410,7 +484,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     // It makes rooms for popups when there're not enough turns.
-    turns.push(text!("").width(Length::Fixed(800.0)).height(Length::Fixed(800.0)).into());
+    turns.push(text!("").width(context.window_size.width * 0.8).height(context.window_size.height * 0.8).into());
 
     let turns_stretched = Column::from_vec(turns)
         .padding(8)
@@ -431,11 +505,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         turns_colored.into(),
     ]);
 
-    let full_view_resizable = Sensor::new(full_view)
-        .on_show(|s| IcedMessage::WindowResized(s))
-        .on_resize(|s| IcedMessage::WindowResized(s));
-
-    let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view_resizable).into();
+    let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view).into();
 
     if context.llm_request.is_some() {
         full_view_stacked = Stack::from_vec(vec![
@@ -451,14 +521,8 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(loaded_log) = &context.loaded_log {
-        let view = match loaded_log {
-            LogView::Logs(logs) => render_logs(logs, context),
-            LogView::Log { extension, .. } => {
-                popup(Scrollable::new(TextEditor::new(&context.text_editor_content).highlight(extension, iced::highlighter::Theme::SolarizedDark)).into(), context)
-            },
-        };
-
+    else if let Some(logs) = &context.loaded_logs {
+        let view = render_logs(logs, context);
         full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
     }
 
@@ -474,6 +538,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    // TODO: we can use the syntax highlighter
     else if let Some(Popup::Diff) = context.curr_popup {
         let diff_view = Column::from_vec(context.text_diff.as_ref().unwrap().lines().map(
             |line| {
@@ -495,13 +560,6 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Help) = context.curr_popup {
-        full_view_stacked = Stack::from_vec(vec![
-            full_view_stacked,
-            popup(Scrollable::new(text!("{HELP_MESSAGE}")).into(), context).into(),
-        ]).into();
-    }
-
     else if let Some(Popup::Interrupt) = context.curr_popup {
         let text_editor = TextEditor::new(&context.text_editor_content)
             .placeholder("Say something to neukgu!")
@@ -517,10 +575,31 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::TokenUsage(s)) = &context.curr_popup {
+    else if let Some(Popup::Reset) = context.curr_popup {
+        let text_editor = TextEditor::new(&context.text_editor_content)
+            .placeholder("What do you want neukgu to do?")
+            .on_action(|action| IcedMessage::EditText(action));
+        let reset_edit = Column::from_vec(vec![
+            text!("New instruction").into(),
+            text_editor.into(),
+            button("Reset", IcedMessage::ResetNeukgu, green()).padding(20).into(),
+        ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill);
+
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(Scrollable::new(text!("{s}")).into(), context).into(),
+            popup(reset_edit.into(), context).into(),
+        ]).into();
+    }
+
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction | Popup::Config) = &context.curr_popup {
+        let text_editor = TextEditor::new(&context.text_editor_content).highlight(
+            &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
+            iced::highlighter::Theme::SolarizedDark,
+        );
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(Scrollable::new(text_editor).width(Length::Fill).into(), context),
         ]).into();
     }
 
@@ -532,18 +611,26 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
         return Container::new(text!("")).padding(8).into();
     }
 
-    let mut buttons: Vec<Element<IcedMessage>> = if context.is_paused {
+    let mut buttons_row1: Vec<Element<IcedMessage>> = if context.is_paused {
         vec![button("Resume", IcedMessage::ResumeNeukgu, blue()).into()]
     } else {
         vec![button("Pause", IcedMessage::PauseNeukgu, blue()).into()]
     };
+    let mut buttons_row2: Vec<Element<IcedMessage>> = vec![];
 
-    buttons.push(button("Interrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue()).into());
-    buttons.push(button("See logs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, blue()).into());
-    buttons.push(button("Token usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage(context.fe_context.get_token_usage().unwrap_or_else(|e| format!("{e:?}"))), prev: None }, blue()).into());
-    buttons.push(button("Help", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink()).into());
+    buttons_row1.push(button("Interrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue()).into());
+    buttons_row1.push(button("See logs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, blue()).into());
+    buttons_row1.push(button("Token usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, blue()).into());
+    buttons_row1.push(button("Help", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink()).into());
 
-    Row::from_vec(buttons).padding(8).spacing(8).into()
+    buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, green()).into());
+    buttons_row2.push(button("Config", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, green()).into());
+    buttons_row2.push(button("Reset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue()).into());
+
+    Column::from_vec(vec![
+        Row::from_vec(buttons_row1).padding(8).spacing(8).into(),
+        Row::from_vec(buttons_row2).padding(8).spacing(8).into(),
+    ]).into()
 }
 
 fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
@@ -577,7 +664,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         text!("[{}]", p.timestamp).into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
-                text!("{}", p.preview_title).into(),
+                text!("{}", p.preview_title_truncated).into(),
                 turn_result,
             ]).into(),
             text!("(LLM: {}, TOOL: {})", prettify_time(p.llm_elapsed_ms), prettify_time(p.tool_elapsed_ms)).width(Length::FillPortion(2)).into(),
@@ -704,7 +791,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
     )
 }
 
-fn popup<'a, 'b>(element: Element<'a, IcedMessage>, context: &'b IcedContext) -> Element<'a, IcedMessage> {
+fn popup<'e, 'c>(element: Element<'e, IcedMessage>, context: &'c IcedContext) -> Element<'e, IcedMessage> {
     let mut buttons: Vec<Element<IcedMessage>> = vec![];
 
     if context.curr_popup.is_some() {

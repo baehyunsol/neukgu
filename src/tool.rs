@@ -492,7 +492,7 @@ impl ToolCall {
                 Ok(tool_call_result)
             },
             ToolCall::Ask { id: _, to: AskTo::Web, question } => {
-                let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.model()?).await?;
+                let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.model).await?;
                 Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
             },
             // TODO: error if `script` is set and `input` is not an html
@@ -910,7 +910,11 @@ impl ToolCallError {
                     "User doesn't want to answer your question.",
                 )),
             ],
-            ToolCallError::UserInterrupt => unreachable!(),
+            ToolCallError::UserInterrupt => vec![
+                LLMToken::String(format!(
+                    "(This turn is supposed to be removed by `context.discard_previous_turn()`. If you, the human user, see this message in GUI or if you, an AI agent, see this message in the context, there's a bug in the harness.)",
+                )),
+            ],
             _ => panic!("TODO: {self:?}"),
         }
     }

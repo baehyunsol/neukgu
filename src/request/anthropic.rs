@@ -71,7 +71,7 @@ impl Request {
         };
 
         let body = AnthropicRequest {
-            model: self.model.name.to_string(),
+            model: self.model.name().to_string(),
             max_tokens: 32768,
             system: self.system_prompt.to_string(),
             messages,

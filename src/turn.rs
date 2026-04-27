@@ -138,7 +138,7 @@ impl Turn {
         let preview_title = match &self.parse_result {
             Some(parse_result) => {
                 if self.is_question_from_user {
-                    String::from("Question from user")
+                    String::from("Interrupt from user")
                 }
 
                 else if let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {
@@ -151,10 +151,16 @@ impl Turn {
             },
             _ => String::from("????"),
         };
+        let preview_title_truncated = if preview_title.chars().count() > 80 {
+            format!("{}...", preview_title.chars().take(76).collect::<String>())
+        } else {
+            preview_title.to_string()
+        };
 
         TurnPreview {
             id: self.id.clone(),
             preview_title,
+            preview_title_truncated,
             result: self.turn_result.summary(),
             llm_elapsed_ms: self.llm_elapsed_ms,
             tool_elapsed_ms: self.tool_elapsed_ms,
@@ -222,6 +228,7 @@ pub fn get_turn_id(summary: TurnSummary) -> TurnId {
 pub struct TurnPreview {
     pub id: TurnId,
     pub preview_title: String,
+    pub preview_title_truncated: String,
     pub result: TurnResultSummary,
     pub llm_elapsed_ms: u64,
     pub tool_elapsed_ms: u64,

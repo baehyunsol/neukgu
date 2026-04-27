@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::{Local, SecondsFormat};
 use crate::{
     ChosenTurn,
     Config,
@@ -12,11 +12,12 @@ use crate::{
     TurnId,
     TurnPreview,
     TurnSummary,
-    interrupt_backend,
+    interrupt_be,
     load_json,
     load_log,
     load_logs_tail,
     prettify_bytes,
+    prettify_time,
     prettify_tokens,
 };
 use ragit_fs::{
@@ -24,15 +25,17 @@ use ragit_fs::{
     WriteMode,
     exists,
     into_abs_path,
+    join,
     join3,
     join4,
+    read_string,
     write_string,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::TryLockError;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::LazyLock;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -144,6 +147,7 @@ pub struct FeContext {
     pub working_dir: String,
     pub history: Vec<TurnSummary>,
     pub curr_tool_call: Option<ToolCall>,
+    pub curr_tool_call_elapsed: Option<u64>,
     pub config: Config,
     pub initialized_at: Instant,
 
@@ -216,6 +220,7 @@ impl FeContext {
             |t| t.get_turn_summary()
         ).collect();
         let mut curr_tool_call = None;
+        let mut curr_tool_call_elapsed = None;
         let mut truncated_context = None;
         let mut last_api_error = None;
         let mut last_backend_error = None;
@@ -236,6 +241,7 @@ impl FeContext {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
                 let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id, &log_dir)?.0)?;
                 curr_tool_call = Some(tool_call);
+                curr_tool_call_elapsed = Some(calc_elapsed_ms(log_line));
             }
 
             else if truncated_context.is_none() && let Some(cap) = TRUNCATED_CONTEXT_RE.captures(log_line) {
@@ -282,6 +288,7 @@ impl FeContext {
             working_dir: working_dir.to_string(),
             history,
             curr_tool_call,
+            curr_tool_call_elapsed,
             last_api_error,
             last_backend_error,
             hidden_turns: be_context.hidden_turns.clone(),
@@ -430,7 +437,7 @@ impl FeContext {
             format!("Neukgu is waiting for the user to answer his question.")
         } else if self.is_be_busy().unwrap_or(false) {
             if let Some(curr_tool_call) = &self.curr_tool_call {
-                format!("{} (processing)", curr_tool_call.preview())
+                format!("{} (processing, elapsed {})", curr_tool_call.preview(), prettify_time(self.curr_tool_call_elapsed.unwrap()))
             } else {
                 format!("Neukgu is thinking...")
             }
@@ -502,8 +509,12 @@ impl FeContext {
         Ok(exists(&join3(&self.working_dir, "logs", "done")?))
     }
 
-    pub fn interrupt_backend(&self) -> Result<(), Error> {
-        interrupt_backend(&self.working_dir)
+    pub fn interrupt_be(&self) -> Result<(), Error> {
+        interrupt_be(&self.working_dir)
+    }
+
+    pub fn get_instruction(&self) -> Result<String, Error> {
+        Ok(read_string(&join(&self.working_dir, "neukgu-instruction.md")?)?)
     }
 }
 
@@ -657,13 +668,41 @@ impl Context {
     }
 }
 
-fn spawn_backend_process(working_dir: &str) -> Result<(), Error> {
+fn spawn_be_process(working_dir: &str) -> Result<Child, Error> {
     let bin_path = into_abs_path(&std::env::args().next().unwrap())?;
-    Command::new(&bin_path)
-        .args(["headless", "--attach-fe"])
-        .current_dir(working_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-    Ok(())
+
+    Ok(
+        Command::new(&bin_path)
+            .args(["headless", "--attach-fe"])
+            .current_dir(working_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()?
+    )
+}
+
+pub static RFC3339_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3}).+").unwrap());
+
+fn calc_elapsed_ms(log_line: &str) -> u64 {
+    let now = Local::now().to_rfc3339_opts(SecondsFormat::Millis, false);
+    let line1 = RFC3339_RE.captures(log_line).unwrap();
+    let line2 = RFC3339_RE.captures(&now).unwrap();
+    let (d1, h1, m1, s1, u1) = (
+        line1.get(1).unwrap().as_str().parse::<u64>().unwrap(),
+        line1.get(2).unwrap().as_str().parse::<u64>().unwrap(),
+        line1.get(3).unwrap().as_str().parse::<u64>().unwrap(),
+        line1.get(4).unwrap().as_str().parse::<u64>().unwrap(),
+        line1.get(5).unwrap().as_str().parse::<u64>().unwrap(),
+    );
+    let (d2, h2, m2, s2, u2) = (
+        line2.get(1).unwrap().as_str().parse::<u64>().unwrap(),
+        line2.get(2).unwrap().as_str().parse::<u64>().unwrap(),
+        line2.get(3).unwrap().as_str().parse::<u64>().unwrap(),
+        line2.get(4).unwrap().as_str().parse::<u64>().unwrap(),
+        line2.get(5).unwrap().as_str().parse::<u64>().unwrap(),
+    );
+
+    let sec1 = u1 + s1 * 1_000 + m1 * 60_000 + h1 * 3_600_000 + d1 * 86_400_000;
+    let sec2 = u2 + s2 * 1_000 + m2 * 60_000 + h2 * 3_600_000 + d2 * 86_400_000;
+    sec2.max(sec1) - sec1
 }

@@ -9,7 +9,63 @@ mod anthropic;
 mod mock;
 mod openai;
 
-pub use mock::revert_mock_state;
+pub use mock::{reset_mock_state, revert_mock_state};
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Model {
+    Gpt,
+    Sonnet,
+    Mock,
+}
+
+impl Model {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Model::Gpt => "gpt-5.4",
+            Model::Sonnet => "claude-sonnet-4-6",
+            Model::Mock => "mock",
+        }
+    }
+
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            Model::Gpt => "gpt",
+            Model::Sonnet => "sonnet",
+            Model::Mock => "mock",
+        }
+    }
+
+    pub fn from_short_name(s: &str) -> Result<Model, Error> {
+        match s {
+            "gpt" => Ok(Model::Gpt),
+            "sonnet" => Ok(Model::Sonnet),
+            "mock" => Ok(Model::Mock),
+            _ => Err(Error::InvalidModelName(s.to_string())),
+        }
+    }
+
+    pub fn provider(&self) -> ApiProvider {
+        match self {
+            Model::Gpt => ApiProvider::OpenAi,
+            Model::Sonnet => ApiProvider::Anthropic,
+            Model::Mock => ApiProvider::Mock,
+        }
+    }
+
+    pub fn all() -> [Model; 3] {
+        [Model::Gpt, Model::Sonnet, Model::Mock]
+    }
+
+    pub fn short_names() -> Vec<&'static str> {
+        Model::all().iter().map(|m| m.short_name()).collect()
+    }
+}
+
+impl Default for Model {
+    fn default() -> Model {
+        Model::Gpt
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ApiProvider {
@@ -23,35 +79,6 @@ pub struct HttpRequest {
     pub url: String,
     pub headers: HashMap<String, String>,
     pub body: Value,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Model {
-    pub name: String,
-    pub provider: ApiProvider,
-}
-
-impl Model {
-    pub fn sonnet() -> Model {
-        Model {
-            name: String::from("claude-sonnet-4-6"),
-            provider: ApiProvider::Anthropic,
-        }
-    }
-
-    pub fn gpt() -> Model {
-        Model {
-            name: String::from("gpt-5.4"),
-            provider: ApiProvider::OpenAi,
-        }
-    }
-
-    pub fn mock() -> Model {
-        Model {
-            name: String::from("mock"),
-            provider: ApiProvider::Mock,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -109,7 +136,7 @@ impl Request {
         let mut error = None;
 
         for _ in 0..5 {
-            let http_request = match self.model.provider {
+            let http_request = match self.model.provider() {
                 ApiProvider::Anthropic => self.to_anthropic_request(working_dir)?,
                 ApiProvider::OpenAi => self.to_openai_request(working_dir)?,
                 ApiProvider::Mock => self.to_mock_request()?,
@@ -127,7 +154,7 @@ impl Request {
             logger.log(LogEntry::RequestBody(http_request.body))?;
 
             // It has to generate all the logs that *real* API calls generate.
-            if let ApiProvider::Mock = self.model.provider {
+            if let ApiProvider::Mock = self.model.provider() {
                 let response = self.send_mock_request(working_dir).await?;
                 logger.log(LogEntry::GotResponse(200))?;
                 logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
@@ -148,7 +175,7 @@ impl Request {
 
                             match status_code {
                                 200..=299 => {
-                                    let response = match self.model.provider {
+                                    let response = match self.model.provider() {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
                                         ApiProvider::OpenAi => Response::from_openai(&s)?,
                                         ApiProvider::Mock => unreachable!(),

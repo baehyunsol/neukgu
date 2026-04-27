@@ -36,7 +36,7 @@ pub use config::Config;
 pub use context::{ChosenTurn, Context, ContextJson};
 pub use error::{Error, from_browser_error};
 pub use image::{ImageId, normalize_and_get_id};
-use interrupt::{check_interruption, interrupt_backend};
+use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
 use pdf::{PdfId, render_and_get_id};
@@ -46,7 +46,7 @@ use prettify::{
     prettify_tokens,
 };
 pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
-use request::revert_mock_state;
+use request::{reset_mock_state, revert_mock_state};
 pub use response::Response;
 pub use sandbox::{clean_dangling_sandboxes, clean_sandbox, export_to_sandbox, import_from_sandbox};
 pub use tool::{
@@ -223,7 +223,7 @@ pub fn validate_project_name(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api: bool) -> Result<(), Error> {
+pub fn init_working_dir(instruction: Option<String>, working_dir: &str, model: Model) -> Result<(), Error> {
     if exists(&join(working_dir, ".neukgu/")?) {
         return Err(Error::IndexDirAlreadyExists);
     }
@@ -264,11 +264,6 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api
         "{}",
         RagitFsWriteMode::AlwaysCreate,
     )?;
-    write_string(
-        &join4(working_dir, ".neukgu", "logs", "files.json")?,
-        "{}",
-        RagitFsWriteMode::AlwaysCreate,
-    )?;
 
     write_string(
         &join3(working_dir, ".neukgu", "be2fe.json")?,
@@ -289,16 +284,51 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, mock_api
     )?;
 
     let mut config = Config::default();
-
-    if mock_api {
-        config.model = String::from("mock");
-    }
-
+    config.model = model;
     config.store(working_dir)?;
 
     let context = Context::new(&config, working_dir)?;
     context.store()?;
 
+    Ok(())
+}
+
+pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), Error> {
+    let lock_file_at = join3(working_dir, ".neukgu", ".lock")?;
+    let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
+
+    clean_dangling_sandboxes(working_dir)?;
+    write_string(
+        &join(working_dir, "neukgu-instruction.md")?,
+        &instruction,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+    write_string(
+        &join4(working_dir, ".neukgu", "logs", "log")?,
+        "",
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+    write_string(
+        &join3(working_dir, ".neukgu", "be2fe.json")?,
+        &serde_json::to_string(&Be2Fe::default())?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+    write_string(
+        &join3(working_dir, ".neukgu", "fe2be.json")?,
+        &serde_json::to_string(&Fe2Be::default())?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+
+    let config = Config::load(working_dir)?;
+    let context = Context::new(&config, working_dir)?;
+    context.store()?;
+    context.remove_done_mark()?;
+
+    if config.model == Model::Mock {
+        reset_mock_state(working_dir)?;
+    }
+
+    drop(lock_file);
     Ok(())
 }
 

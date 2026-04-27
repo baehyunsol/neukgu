@@ -2,6 +2,7 @@ use neukgu::{
     Config,
     Context,
     Error,
+    Model,
     gui,
     init_working_dir,
     step,
@@ -87,30 +88,30 @@ fn run(args: Vec<String>) -> Result<(), Error> {
         Some("new") => {
             let parsed_args = ArgParser::new()
                 .optional_arg_flag("--instruction", ArgType::String)
-                .optional_flag(&["--mock-api"])
+                .optional_arg_flag("--model", ArgType::enum_(&Model::short_names()))
                 .args(ArgType::String, ArgCount::Exact(1))
                 .parse(&args, 2)?;
 
             let project_name = parsed_args.get_args_exact(1)?[0].clone();
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
-            let mock_api = parsed_args.get_flag(0).is_some();
+            let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap()).unwrap_or(Model::default());
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction, &project_name, mock_api)?;
+            init_working_dir(instruction, &project_name, model)?;
             Ok(())
         },
         Some("init") => {
             let parsed_args = ArgParser::new()
                 .optional_arg_flag("--instruction", ArgType::String)
-                .optional_flag(&["--mock-api"])
+                .optional_arg_flag("--model", ArgType::enum_(&Model::short_names()))
                 .args(ArgType::String, ArgCount::None)
                 .parse(&args, 2)?;
 
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
-            let mock_api = parsed_args.get_flag(0).is_some();
+            let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap()).unwrap_or(Model::default());
 
-            init_working_dir(instruction, ".", mock_api)?;
+            init_working_dir(instruction, ".", model)?;
             Ok(())
         },
         Some("headless") => {

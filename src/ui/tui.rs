@@ -1,11 +1,11 @@
-use super::{FeContext, Truncation, spawn_backend_process};
+use super::{FeContext, Truncation, spawn_be_process};
 use crate::{Error, TurnResultSummary, prettify_time};
 use std::thread::sleep;
 use std::time::Duration;
 
 pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
     if !no_backend {
-        spawn_backend_process(working_dir)?;
+        spawn_be_process(working_dir)?;
     }
 
     // Backend might dump error messages to stderr. So we wait here.
@@ -33,7 +33,7 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
             curr_buffer.push(format!(
                 "{truncation}{i:>3}. [{}] {}{}\n{}(LLM: {}, TOOL: {})",
                 preview.timestamp,
-                preview.preview_title,
+                preview.preview_title_truncated,
                 match preview.result {
                     TurnResultSummary::ParseError => " \x1b[101m(parse-error)\x1b[0m    ",
                     TurnResultSummary::ToolCallError => " \x1b[103m(tool-call-error)\x1b[0m",

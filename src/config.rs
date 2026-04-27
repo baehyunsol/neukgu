@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    pub model: String,
+    pub model: Model,
     pub sandbox_root: String,
     pub llm_context_max_len: u64,
     pub text_file_max_len: u64,
@@ -25,15 +25,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn model(&self) -> Result<Model, Error> {
-        match self.model.as_str() {
-            "sonnet" => Ok(Model::sonnet()),
-            "gpt" => Ok(Model::gpt()),
-            "mock" => Ok(Model::mock()),
-            _ => Err(Error::InvalidModelName(self.model.to_string())),
-        }
-    }
-
     pub fn load(working_dir: &str) -> Result<Self, Error> {
         let s = read_string(&join3(working_dir, ".neukgu", "config.json")?)?;
         Ok(serde_json::from_str(&s)?)
@@ -59,7 +50,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            model: String::from("gpt"),
+            model: Model::default(),
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
             llm_context_max_len: 204_800,
             text_file_max_len: 32_768,

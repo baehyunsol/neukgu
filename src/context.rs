@@ -197,7 +197,7 @@ impl Context {
         let (history, query) = self.fit_history_to_llm_context(config)?;
 
         Ok(Request {
-            model: config.model()?,
+            model: config.model,
             system_prompt: self.system_prompt.to_string(),
             history,
             query,

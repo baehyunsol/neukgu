@@ -1,12 +1,13 @@
-use super::{FeContext, Truncation, spawn_backend_process};
+use super::{FeContext, Truncation, spawn_be_process};
 use crate::Error;
-use iced::{Background, Color, Element, Font, Length, Subscription, Task, Theme};
+use iced::{Background, Color, Element, Event, Font, Length, Size, Subscription, Task, Theme};
 use iced::border::{Border, Radius};
-use iced::keyboard::{self, Event as KeyboardEvent, Key, key::Named as NamedKey};
+use iced::keyboard::{Event as KeyboardEvent, Key, key::Named as NamedKey};
 use iced::time::{self, Duration};
 use iced::widget::{Container, Space};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::Style;
+use iced::window::Event as WindowEvent;
 
 mod error;
 mod launcher;
@@ -34,8 +35,9 @@ pub fn run() -> Result<(), Error> {
         .default_font(DEFAULT_MONO_FONT)
         .subscription(|_| Subscription::batch([
             time::every(Duration::from_millis(1_000)).map(|_| IcedMessage::Tick),
-            keyboard::listen().map(|key| match key {
-                KeyboardEvent::KeyPressed { key: Key::Named(NamedKey::Escape), .. } => IcedMessage::PressedEscKey,
+            iced::event::listen().map(|event| match event {
+                Event::Keyboard(KeyboardEvent::KeyPressed { key: Key::Named(NamedKey::Escape), .. }) => IcedMessage::PressedEscKey,
+                Event::Window(WindowEvent::Opened { size, .. } | WindowEvent::Resized(size)) => IcedMessage::WindowResized(size),
                 _ => IcedMessage::None,
             }),
         ]))
@@ -44,11 +46,20 @@ pub fn run() -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Clone, Debug)]
 pub enum IcedContext {
     Launcher(LauncherContext),
     WorkingDir(WorkingDirContext),
     Error(ErrorContext),
+}
+
+impl IcedContext {
+    pub fn window_size(&self) -> Size {
+        match self {
+            IcedContext::Launcher(c) => c.window_size,
+            IcedContext::WorkingDir(c) => c.window_size,
+            IcedContext::Error(c) => c.window_size,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -58,54 +69,61 @@ pub enum IcedMessage {
     Error(ErrorMessage),
     Tick,
     PressedEscKey,
+    WindowResized(Size),
     None,
 }
 
 fn boot() -> IcedContext {
-    match launcher::try_boot() {
+    match launcher::try_boot(None) {
         Ok(c) => IcedContext::Launcher(c),
-        Err(e) => IcedContext::Error(error::boot(format!("{e:?}"))),
+        Err(e) => IcedContext::Error(error::boot(format!("{e:?}"), Size::new(0.0, 0.0))),
     }
 }
 
 fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match (context, message) {
         (context, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
-            *context = IcedContext::Error(error::boot(e));
+            *context = IcedContext::Error(error::boot(e, context.window_size()));
             Task::none()
         },
         (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
-            let IcedContext::Launcher(c) = context.clone() else { unreachable!() };
-
             // TODO: make `no_backend` configurable
-            match working_dir::try_boot(false, &path, c.window_size) {
+            match working_dir::try_boot(false, &path, context.window_size()) {
                 Ok(c) => {
                     *context = IcedContext::WorkingDir(c);
                 },
                 Err(e) => {
-                    *context = IcedContext::Error(error::boot(format!("{e:?}")));
+                    *context = IcedContext::Error(error::boot(format!("{e:?}"), context.window_size()));
                 },
             }
 
+            Task::none()
+        },
+        (IcedContext::Launcher(c), IcedMessage::PressedEscKey) => launcher::update(c, LauncherMessage::ClosePopup).map(|t| IcedMessage::Launcher(t)),
+        (IcedContext::Launcher(c), IcedMessage::WindowResized(s)) => {
+            c.window_size = s;
             Task::none()
         },
         (IcedContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
         (IcedContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
         (IcedContext::WorkingDir(c), IcedMessage::PressedEscKey) => working_dir::update(c, WorkingDirMessage::ClosePopup).map(|t| IcedMessage::WorkingDir(t)),
+        (IcedContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
+            c.window_size = s;
+            Task::none()
+        },
         (IcedContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (context, IcedMessage::Error(ErrorMessage::Okay)) => {
-            match launcher::try_boot() {
+            match launcher::try_boot(Some(context.window_size())) {
                 Ok(c) => {
                     *context = IcedContext::Launcher(c);
                 },
                 Err(e) => {
-                    *context = IcedContext::Error(error::boot(format!("{e:?}")));
+                    *context = IcedContext::Error(error::boot(format!("{e:?}"), context.window_size()));
                 },
             }
 
             Task::none()
         },
-        (IcedContext::Error(c), IcedMessage::Error(m)) => error::update(c, m).map(|t| IcedMessage::Error(t)),
         (_, IcedMessage::Tick | IcedMessage::PressedEscKey | IcedMessage::None) => Task::none(),
         _ => todo!(),
     }
