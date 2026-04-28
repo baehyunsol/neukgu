@@ -27,6 +27,7 @@ mod prettify;
 mod request;
 mod response;
 mod sandbox;
+mod snapshot;
 mod subprocess;
 mod tool;
 mod turn;
@@ -46,9 +47,10 @@ use prettify::{
     prettify_tokens,
 };
 pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
-use request::{reset_mock_state, revert_mock_state};
+use request::{MockState, reset_mock_state, revert_mock_state};
 pub use response::Response;
-pub use sandbox::{clean_dangling_sandboxes, clean_sandbox, export_to_sandbox, import_from_sandbox};
+use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to_sandbox, import_from_sandbox};
+use snapshot::{Snapshot, check_snapshot, clean_dangling_snapshots};
 pub use tool::{
     AskTo,
     ToolCall,
@@ -91,7 +93,7 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
     }
 
     clean_dangling_sandboxes(&context.working_dir)?;
-    let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
+    let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir, true /* copy index dir */)?;
 
     match step_inner(context, config).await {
         Ok(()) => {
@@ -203,6 +205,11 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
 
     context.sync_with_fe()?;
     context.store()?;
+
+    if !user_interrupt && context.has_to_create_snapshot() {
+        context.create_snapshot()?;
+    }
+
     Ok(())
 }
 
@@ -254,6 +261,8 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, model: M
     create_dir(&join3(working_dir, ".neukgu", "turns")?)?;
     create_dir(&join3(working_dir, ".neukgu", "logs")?)?;
     create_dir(&join3(working_dir, ".neukgu", "interruptions")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
+
     write_string(
         &join4(working_dir, ".neukgu", "logs", "log")?,
         "",
@@ -262,6 +271,11 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, model: M
     write_string(
         &join4(working_dir, ".neukgu", "logs", "tokens.json")?,
         "{}",
+        RagitFsWriteMode::AlwaysCreate,
+    )?;
+    write_string(
+        &join3(working_dir, ".neukgu", "snapshots.json")?,
+        "[]",
         RagitFsWriteMode::AlwaysCreate,
     )?;
 
@@ -332,13 +346,63 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
     Ok(())
 }
 
+pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error> {
+    let lock_file_at = join3(working_dir, ".neukgu", ".lock")?;
+    let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
+    let snapshot_at = join4(working_dir, ".neukgu", "snapshots", &id.0)?;
+    let snapshots_at = join3(working_dir, ".neukgu", "snapshots.json")?;
+    let snapshots: Vec<Snapshot> = load_json(&snapshots_at)?;
+    let snapshot = snapshots.into_iter().filter(|snapshot| &snapshot.turn == id).next();
+    let Some(snapshot) = snapshot else { return Err(Error::CannotFindSnapshot(id.clone())); };
+
+    clean_dangling_sandboxes(working_dir)?;
+    clean_dangling_snapshots(snapshot.seq, working_dir)?;
+    copy_recursive(&snapshot_at, working_dir, true, false /* copy index dir */)?;
+
+    write_string(
+        &join3(working_dir, ".neukgu", "context.json")?,
+        &serde_json::to_string_pretty(&snapshot.context)?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+    write_string(
+        &join3(working_dir, ".neukgu", "config.json")?,
+        &serde_json::to_string_pretty(&snapshot.config)?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+
+    if let Some(mock_state) = &snapshot.mock_state {
+        write_string(
+            &join3(working_dir, ".neukgu", "mock.json")?,
+            &serde_json::to_string_pretty(&mock_state)?,
+            RagitFsWriteMode::CreateOrTruncate,
+        )?;
+    }
+
+    write_string(
+        &join3(working_dir, ".neukgu", "be2fe.json")?,
+        &serde_json::to_string(&Be2Fe::default())?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+    write_string(
+        &join3(working_dir, ".neukgu", "fe2be.json")?,
+        &serde_json::to_string(&Fe2Be::default())?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
+
+    let logger = Logger::new(working_dir);
+    logger.log(LogEntry::RollBack(id.clone()))?;
+
+    drop(lock_file);
+    Ok(())
+}
+
 pub fn load_json<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
     let mut curr_error: Option<Error> = None;
 
-    // Maybe another process is writing the file, so we try this 3 times.
-    for i in 0..3 {
+    // Maybe another process is writing the file, so we try this 4 times.
+    for i in 0..4 {
         if i > 0 {
-            sleep(Duration::from_millis(i * i));
+            sleep(Duration::from_millis(i * i * 50));
         }
 
         let s = match read_string(path) {

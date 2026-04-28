@@ -9,7 +9,7 @@ mod anthropic;
 mod mock;
 mod openai;
 
-pub use mock::{reset_mock_state, revert_mock_state};
+pub use mock::{MockState, reset_mock_state, revert_mock_state};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Model {

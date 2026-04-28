@@ -26,12 +26,24 @@ use std::sync::LazyLock;
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct TurnId(pub String);
 
-pub static TURN_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+(pe|tce|tcs)\-(\d+)\-(\d+)$").unwrap());
+// TODO: now that `from_str` uses this regex, it needs to be more strict.
+pub static TURN_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+\-(pe|tce|tcs)\-(\d{6,})\-(\d{6,})$").unwrap());
+
 pub static TURN_TIMESTAMP_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+)\-(?:pe|tce|tcs)\-.+").unwrap());
 
 impl TurnId {
     pub fn dummy() -> TurnId {
         TurnId(String::new())
+    }
+
+    pub fn from_str(s: &str) -> Result<TurnId, Error> {
+        if TURN_ID_REGEX.is_match(s) {
+            Ok(TurnId(s.to_string()))
+        }
+
+        else {
+            Err(Error::InvalidTurnId(s.to_string()))
+        }
     }
 
     pub fn get_turn_summary(&self) -> TurnSummary {

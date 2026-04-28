@@ -5,6 +5,7 @@ use crate::{
     ToolCall,
     ToolCallError,
     ToolCallSuccess,
+    TurnId,
     load_json,
 };
 use flate2::Compression;
@@ -14,6 +15,7 @@ use ragit_fs::{
     exists,
     file_size,
     join,
+    join3,
     read_bytes,
     read_bytes_offset,
     read_string,
@@ -58,12 +60,15 @@ pub enum LogEntry {
     AskQuestionToWebBegin(String),
     AskQuestionToWebEnd,
     BackendError(String),
+    KillBackend,
+    RollBack(TurnId),
     UserInterruptWhileLLMRequest,
     UserInterruptWhileToolCall,
 }
 
 impl Logger {
-    pub fn new(log_dir: &str) -> Self {
+    pub fn new(working_dir: &str) -> Self {
+        let log_dir = join3(working_dir, ".neukgu", "logs").unwrap();
         let result = Logger { log_dir: log_dir.to_string() };
         result.log(LogEntry::InitLogger).unwrap();
         result
@@ -90,6 +95,8 @@ impl Logger {
             LogEntry::AskQuestionToWebBegin(q) => (format!("ask_question_to_web_begin({})", log_id.0), Some(q), "txt"),
             LogEntry::AskQuestionToWebEnd => (format!("ask_question_to_web_end"), None, ""),
             LogEntry::BackendError(e) => (format!("backend_error({})", log_id.0), Some(e), "rs"),
+            LogEntry::KillBackend => (format!("kill_backend"), None, ""),
+            LogEntry::RollBack(t) => (format!("roll_back({})", log_id.0), Some(t.0), "txt"),
             LogEntry::UserInterruptWhileLLMRequest => (format!("user_interrupt_while_llm_request"), None, ""),
             LogEntry::UserInterruptWhileToolCall => (format!("user_interrupt_while_tool_call"), None, ""),
         };

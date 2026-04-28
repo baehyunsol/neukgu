@@ -21,13 +21,14 @@ use ragit_fs::{
     parent,
     read_dir,
     remove_dir_all,
+    remove_file,
     write_string,
 };
 use std::collections::HashSet;
 
-pub fn export_to_sandbox(sandbox_root: &str, working_dir: &str) -> Result<String, Error> {
+pub fn export_to_sandbox(sandbox_root: &str, working_dir: &str, copy_index_dir: bool) -> Result<String, Error> {
     let sandbox_at = create_sandbox(sandbox_root, working_dir)?;
-    copy_recursive(working_dir, &sandbox_at, true, true)?;
+    copy_recursive(working_dir, &sandbox_at, true, copy_index_dir)?;
     Ok(sandbox_at)
 }
 
@@ -98,15 +99,18 @@ fn create_sandbox(sandbox_root: &str, working_dir: &str) -> Result<String, Error
     Ok(curr_dir)
 }
 
-fn copy_recursive(
+pub(crate) fn copy_recursive(
     src: &str,
     dst: &str,
     is_at_top_level: bool,
     copy_index_dir: bool,
 ) -> Result<(), FileError> {
+    let mut src_files = HashSet::new();
+
     for e in read_dir(src, false)? {
         let e_base = basename(&e)?;
         let dst_e = join(dst, &e_base)?;
+        src_files.insert(e_base.clone());
 
         if e_base == ".neukgu" && is_at_top_level && !copy_index_dir {
             continue;
@@ -123,6 +127,24 @@ fn copy_recursive(
 
         else {
             copy_file(&e, &dst_e)?;
+        }
+    }
+
+    for e in read_dir(dst, false)? {
+        let e_base = basename(&e)?;
+
+        if e_base == ".neukgu" && is_at_top_level {
+            continue;
+        }
+
+        if !src_files.contains(&e_base) {
+            if is_dir(&e) {
+                remove_dir_all(&e)?;
+            }
+
+            else {
+                remove_file(&e)?;
+            }
         }
     }
 

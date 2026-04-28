@@ -117,6 +117,11 @@
   - ClaudeCode: 다른 machine에서 도는 harness를 모바일에서 확인할 수 있대
   - ClaudeCode: inter-session으로 관리되는 memory가 있어서 사용자의 성향을 반영할 수 있대
   - ClaudeCode: instant rewind가 가능하대. 어찌됐든 rollback 기능은 꼭 넣어야 할 듯...
+67. 생각해보니까 copy_recursive 할 때 src에는 없고 dst에는 있는 directory 있으면 삭제해야하는 거 아님?
+  - top_level 뿐만 아니라 모든 level에서!!
+  - mock api에서 cargo new 한 다음에 첫 turn으로 roll back하면 확인할 수 있음!!
+68. 오래 걸리는 tool call에서 pause 하면 그 tool은 취소되잖아? 그리고 바로 다시 resume 하면 gui에서 과거의 tool이 계속 뜰 듯??
+  - 이거 해보면 앎. fe_context가 log 읽는 로직에 오류 있을 듯...
 
 ```nu
 cd ~/Documents/Rust/neukgu;

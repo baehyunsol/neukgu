@@ -19,7 +19,9 @@ use crate::{
     Error,
     ImageId,
     LLMToken,
+    LogEntry,
     LogId,
+    Logger,
     ToolCallSuccess,
     Turn,
     TurnId,
@@ -27,10 +29,12 @@ use crate::{
     TurnResult,
     TurnResultSummary,
     UserResponse,
+    check_snapshot,
     load_log,
     load_logs_tail,
     prettify_time,
     reset_working_dir,
+    roll_back_working_dir,
     stringify_llm_tokens,
 };
 use iced::{Background, Color, ContentFit, Element, Length, Size, Task};
@@ -219,6 +223,7 @@ impl IcedContext {
                 self.copy_buffer = None;
                 self.syntax_highlight = None;
             },
+            Popup::AskRollBack { .. } => {},
         }
 
         Ok(())
@@ -246,6 +251,8 @@ impl IcedContext {
             Some(be) => {
                 be.kill()?;
                 self.be_process = None;
+                let logger = Logger::new(&self.fe_context.working_dir);
+                logger.log(LogEntry::KillBackend)?;
             },
             None => {},
         }
@@ -279,6 +286,7 @@ pub enum IcedMessage {
     ResumeNeukgu,
     InterruptNeukgu,
     ResetNeukgu,
+    RollBackNeukgu(TurnId),
     AnswerLLMRequest,
     DismissLLMRequest,
     EditText(TextEditorAction),
@@ -298,6 +306,7 @@ pub enum Popup {
     Instruction,
     Config,
     Reset,
+    AskRollBack { id: TurnId, title: String },
 }
 
 pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size) -> Result<IcedContext, Error> {
@@ -447,8 +456,24 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             reset_working_dir(context.text_editor_content.text(), &context.fe_context.working_dir)?;
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
-            context.is_paused = context.fe_context.is_paused()?;
             context.close_popup();
+            return Ok(Task::done(IcedMessage::Tick));
+        },
+        IcedMessage::RollBackNeukgu(id) => {
+            context.kill_be_process()?;
+            context.close_popup();
+
+            // There's a chance that the snapshot is removed while the user was looking at `Popup::AskRollBack`.
+            if !check_snapshot(&id, &context.fe_context.working_dir)? {
+                return Err(Error::CannotFindSnapshot(id.clone()));
+            }
+
+            else {
+                roll_back_working_dir(&id, &context.fe_context.working_dir)?;
+            }
+
+            context.spawn_be_process()?;
+            context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::AnswerLLMRequest => {
@@ -591,6 +616,17 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::AskRollBack { id, title }) = &context.curr_popup {
+        let q = Column::from_vec(vec![
+            text!("Roll back to {title}?").into(),
+            button("Yes", IcedMessage::RollBackNeukgu(id.clone()), green()).padding(20).into(),
+        ]).spacing(20).align_x(Horizontal::Center).width(Length::Fill);
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(q.into(), context).into(),
+        ]).into();
+    }
+
     else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction | Popup::Config) = &context.curr_popup {
         let text_editor = TextEditor::new(&context.text_editor_content).highlight(
             &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
@@ -634,6 +670,24 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 }
 
 fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
+    let roll_back = {
+        let (color, text, mut enabled) = if context.fe_context.snapshots.contains(&p.id) {
+            (red(), "R", true)
+        } else {
+            (gray(0.2), " ", false)
+        };
+
+        if context.curr_popup.is_some() || context.llm_request.is_some() {
+            enabled = false;
+        }
+
+        if enabled {
+            button(text, IcedMessage::OpenPopup { curr: Popup::AskRollBack { id: p.id.clone(), title: format!("{index:>3}. [{}] {}", p.timestamp, p.preview_title_truncated) }, prev: None }, color)
+        } else {
+            disabled_button(text, color)
+        }
+    };
+
     let context_engineering = {
         let color = match context.fe_context.truncation.get(&p.id).unwrap() {
             Truncation::Hidden => red(),
@@ -693,7 +747,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         with_color.into()
     };
 
-    Row::from_vec(vec![context_engineering.into(), with_mouse_area])
+    Row::from_vec(vec![roll_back.into(), context_engineering.into(), with_mouse_area])
         .width(Length::Fixed(context.window_size.width))
         .align_y(Vertical::Center)
         .spacing(12)

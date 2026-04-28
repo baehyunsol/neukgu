@@ -39,7 +39,7 @@ impl Request {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct MockState {
+pub struct MockState {
     turns: Vec<Option<MockRequest>>,
 
     // in the next turn, it'll `self.turns.push(all_turns[self.seq])`

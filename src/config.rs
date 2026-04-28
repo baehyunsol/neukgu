@@ -59,7 +59,7 @@ impl Default for Config {
             dir_max_entries: 256,
             stdout_max_len: 5120,
             default_command_timeout: 600,
-            user_response_timeout: 200,
+            user_response_timeout: 300,
             command_max_timeout: 3 * 3600,
         }
     }

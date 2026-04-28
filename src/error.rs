@@ -15,7 +15,9 @@ pub enum Error {
 
     FrontendNotAvailable,
     InvalidModelName(String),
+    InvalidTurnId(String),
     CannotCalcDiff { path: String, turn_id: TurnId },
+    CannotFindSnapshot(TurnId),
     FailedToParseAPIResponse(String),
     MockApiExpectationFailure { expect: String },
     NotAllowedCharInProjectName { name: String, ch: char },

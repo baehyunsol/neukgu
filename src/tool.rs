@@ -23,6 +23,7 @@ use ragit_fs::{
     basename,
     create_dir_all,
     exists,
+    into_abs_path,
     is_dir,
     join,
     join3,
@@ -372,16 +373,14 @@ impl ToolCall {
                     }));
                 }
 
-                let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir)?;
+                let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir, false /* copy index dir */)?;
                 let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
                 let mut env: Vec<(&str, String)> = vec![];
 
                 if bin_path == "python3" || bin_path == "pip" {
                     let venv_dir = join3(&context.working_dir, ".neukgu", "py-venv")?;
                     let venv_bin = join(&venv_dir, "bin")?;
-                    let path = std::env::var("PATH")?;
-                    let new_path = format!("{venv_bin}:{path}");
-                    env.push(("PATH", new_path));
+                    env.push(("PATH", into_abs_path(&venv_bin)?));
                     env.push(("VIRTUAL_ENV", venv_dir));
 
                     check_python_venv(&env, &sandbox_at, &context.working_dir)?;

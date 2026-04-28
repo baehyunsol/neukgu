@@ -23,11 +23,13 @@ use crate::{
 use ragit_fs::{
     FileError,
     WriteMode,
+    basename,
     exists,
     into_abs_path,
     join,
     join3,
     join4,
+    read_dir,
     read_string,
     write_string,
 };
@@ -158,6 +160,7 @@ pub struct FeContext {
     pub last_backend_error: Option<String>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
+    pub snapshots: HashSet<TurnId>,
 
     // It indicates whether a turn is hidden, full-rendered or short-rendered in the LLM context.
     pub truncation: HashMap<TurnId, Truncation>,
@@ -213,6 +216,7 @@ impl FeContext {
 
     fn load_without_preview(working_dir: &str) -> Result<FeContext, Error> {
         let log_dir = join3(working_dir, ".neukgu", "logs")?;
+        let snapshot_dir = join3(working_dir, ".neukgu", "snapshots")?;
         let be_context: ContextJson = load_json(&join3(working_dir, ".neukgu", "context.json")?)?;
         let log_lines = load_logs_tail(&log_dir)?;
 
@@ -221,6 +225,7 @@ impl FeContext {
         ).collect();
         let mut curr_tool_call = None;
         let mut curr_tool_call_elapsed = None;
+        let mut snapshots = HashSet::new();
         let mut truncated_context = None;
         let mut last_api_error = None;
         let mut last_backend_error = None;
@@ -265,6 +270,10 @@ impl FeContext {
             }
         }
 
+        for snapshot in read_dir(&snapshot_dir, false)? {
+            snapshots.insert(TurnId::from_str(&basename(&snapshot)?)?);
+        }
+
         let truncation = match truncated_context {
             Some(truncated_context) => {
                 let mut truncation: HashMap<TurnId, Truncation> = truncated_context.into_iter().map(
@@ -293,6 +302,7 @@ impl FeContext {
             last_backend_error,
             hidden_turns: be_context.hidden_turns.clone(),
             pinned_turns: be_context.pinned_turns.clone(),
+            snapshots,
             config: Config::load(working_dir)?,
             initialized_at: Instant::now(),
             truncation,

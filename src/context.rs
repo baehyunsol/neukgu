@@ -62,7 +62,7 @@ impl Context {
             true,
         )?;
         let available_binaries = load_available_binaries(working_dir)?;
-        let logger = Logger::new(&join3(working_dir, ".neukgu", "logs")?);
+        let logger = Logger::new(working_dir);
 
         Ok(Context {
             working_dir: working_dir.to_string(),
@@ -96,7 +96,15 @@ impl Context {
     }
 
     pub fn store(&self) -> Result<(), Error> {
-        let context_json = ContextJson {
+        Ok(write_string(
+            &join3(&self.working_dir, ".neukgu", "context.json")?,
+            &serde_json::to_string_pretty(&self.to_json())?,
+            WriteMode::Atomic,
+        )?)
+    }
+
+    pub(crate) fn to_json(&self) -> ContextJson {
+        ContextJson {
             history: self.history.iter().map(
                 |h| h.id.clone()
             ).collect(),
@@ -104,13 +112,7 @@ impl Context {
             completed_questions_from_user: self.completed_questions_from_user.clone(),
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
-        };
-
-        Ok(write_string(
-            &join3(&self.working_dir, ".neukgu", "context.json")?,
-            &serde_json::to_string_pretty(&context_json)?,
-            WriteMode::Atomic,
-        )?)
+        }
     }
 
     pub fn start_turn(&mut self, raw_response: String, llm_elapsed_ms: u64) {
