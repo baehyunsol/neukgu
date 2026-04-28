@@ -26,6 +26,7 @@ use ragit_fs::{
     join,
     normalize as normalize_path,
     read_bytes,
+    read_bytes_offset,
     read_dir,
 };
 use std::sync::Arc;
@@ -82,33 +83,45 @@ impl IcedContext {
             },
             Popup::Preview { path } => {
                 let mut is_binary = false;
-                let content = match String::from_utf8(read_bytes(&path)?) {
-                    Ok(s) => {
-                        self.syntax_highlight = extension(&path)?;
-                        s
-                    },
-                    Err(e) => match image::load_from_memory(e.as_bytes()) {
-                        Ok(_) => {
-                            self.image_buffer = Some(ImageHandle::from_bytes(e.as_bytes().to_vec()));
-                            String::new()
+                let file_size = file_size(&path)? as usize;
+                let content = if file_size > 33554432 {
+                    is_binary = true;
+                    let pre = read_bytes_offset(&path, 0, 8192)?;
+                    let mut post_offset = file_size - 8192;
+                    post_offset -= post_offset % 32;
+                    let post = read_bytes_offset(&path, post_offset as u64, file_size as u64)?;
+                    vec![
+                        dump_hex(&pre, 0),
+                        dump_hex(&post, post_offset),
+                    ].concat()
+                } else {
+                    match String::from_utf8(read_bytes(&path)?) {
+                        Ok(s) => {
+                            self.syntax_highlight = extension(&path)?;
+                            s
                         },
-                        _ => {
-                            is_binary = true;
-                            dump_hex(e.as_bytes())
+                        Err(e) => match image::load_from_memory(e.as_bytes()) {
+                            Ok(_) => {
+                                self.image_buffer = Some(ImageHandle::from_bytes(e.as_bytes().to_vec()));
+                                String::new()
+                            },
+                            _ => {
+                                is_binary = true;
+                                dump_hex(e.as_bytes(), 0)
+                            },
                         },
-                    },
-                };
-                let preview = if content.chars().count() > 16384 {
-                    // hex_dump's line is 82 characters
-                    let pre = content.chars().take(3935).collect::<String>();
-                    let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(3936).rev().collect::<String>();
-                    let mut trunc = content.len() - pre.len() - post.len();
-
-                    // 16 bytes per line.
-                    if is_binary {
-                        trunc *= 16;
-                        trunc /= 82;
                     }
+                };
+
+                let preview = if content.chars().count() > 16384 {
+                    // hex_dump's line is 84 characters, so it shows 2KiB if the file is binary
+                    let pre = content.chars().take(5375).collect::<String>();
+                    let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(5376).rev().collect::<String>();
+                    let trunc = if is_binary {
+                        file_size - 2048
+                    } else {
+                        content.len() - pre.len() - post.len()
+                    };
 
                     self.syntax_highlight = None;
                     self.long_preview = Some((pre, trunc, post));
@@ -151,6 +164,7 @@ impl IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
+    Tick,
     EntryViewScrolled(AbsoluteOffset),
     HoverOnEntry(Option<String>),
     OpenPopup(Popup),
@@ -219,6 +233,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
+        IcedMessage::Tick => {
+            if context.curr_popup.is_none() {
+                context.entries = load_entries(&context.cwd)?;
+                context.has_neukgu_index = check_neukgu_index(&context.cwd)?;
+            }
+        },
         IcedMessage::EntryViewScrolled(o) => {
             context.entry_view_scrolled = o;
         },
@@ -280,7 +300,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ).collect();
 
     // It makes rooms for popups when there're not enough entries.
-    entries.push(text!("").width(context.window_size.width * 0.8).height(context.window_size.height * 0.8).into());
+    entries.push(text!("").width(context.window_size.width).height(context.window_size.height).into());
 
     let entries_stretched = Column::from_vec(entries)
         .padding(8)
@@ -321,9 +341,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 full_view_stacked,
                 popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
-                    Container::new(text!("{pre}")).style(|_| set_bg(gray(0.3))).into(),
+                    Container::new(text!("{pre}")).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
                     text!("... ({} truncated) ...", prettify_bytes(*trunc as u64)).into(),
-                    Container::new(text!("{post}")).style(|_| set_bg(gray(0.3))).into(),
+                    Container::new(text!("{post}")).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
                 ]).spacing(20).width(Length::Fill)).width(Length::Fill).into(), context),
             ]).into();
         }
@@ -331,10 +351,10 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         else if let Some(image_buffer) = &context.image_buffer {
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
-                popup(
+                popup(Scrollable::new(Column::from_vec(vec![
+                    title.into(),
                     ImageViewer::new(image_buffer.clone()).into(),
-                    context,
-                ),
+                ]).spacing(20).width(Length::Fill)).width(Length::Fill).into(), context),
             ]).into();
         }
 
@@ -626,7 +646,7 @@ fn popup<'e, 'c>(element: Element<'e, IcedMessage>, context: &'c IcedContext) ->
     .into()
 }
 
-fn dump_hex(bytes: &[u8]) -> String {
+fn dump_hex(bytes: &[u8], offset: usize) -> String {
     bytes.chunks(16).enumerate().map(
         |(i, bytes)| {
             let mut pre = bytes[..bytes.len().min(8)].iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
@@ -673,7 +693,7 @@ fn dump_hex(bytes: &[u8]) -> String {
                 post_ascii = format!("{post_ascii}{}", " ".repeat(8 - post_ascii.len()));
             }
 
-            format!("{:06x} | {pre}    {post} | {pre_ascii}  {post_ascii} \n", i * 16)
+            format!("{:08x} | {pre}    {post} | {pre_ascii}  {post_ascii} \n", i * 16 + offset)
         }
     ).collect::<Vec<_>>().concat()
 }

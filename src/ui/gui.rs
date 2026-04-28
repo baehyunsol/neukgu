@@ -99,6 +99,7 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
 
             Task::none()
         },
+        (IcedContext::Launcher(c), IcedMessage::Tick) => launcher::update(c, LauncherMessage::Tick).map(|t| IcedMessage::Launcher(t)),
         (IcedContext::Launcher(c), IcedMessage::PressedEscKey) => launcher::update(c, LauncherMessage::ClosePopup).map(|t| IcedMessage::Launcher(t)),
         (IcedContext::Launcher(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;

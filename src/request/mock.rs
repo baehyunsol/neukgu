@@ -198,6 +198,29 @@ edition = "2024"
             Some("<exit_code>101</exit_code>"),
         ),
 
+        // git test
+        MockRequest::new(
+            "<run>\n<command>git init</command>\n</run>",
+            Some("<exit_code>0</exit_code>"),
+        ),
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>foo/bar/baz</path>\n<content>\nHi! I am foo-bar-baz\n</content>\n</write>",
+            None,
+        ),
+        MockRequest::new(
+            "<read>\n<path>foo/bar/baz</path></read>",
+            Some("foo-bar-baz"),
+        ),
+        MockRequest::new(
+            "<run>\n<command>git clean -fd foo/bar</command>\n</run>",
+            Some("<exit_code>0</exit_code>"),
+        ),
+        MockRequest::new(
+            "<read>\n<path>foo/bar/baz</path></read>",
+            Some("no such file"),
+        ),
+        // git test end
+
         // browser test
         MockRequest::new(
             "<write>\n<mode>create</mode>\n<path>hello.html</path>\n<content>\n<h1>Hello, World!</h1><ul><li>Hello</li><li>World</li></ul>\n</content>\n</write>",
@@ -229,7 +252,7 @@ edition = "2024"
         ),
 
         // An arbitrary library to test python/pip.
-        // I chose this because I don't think many people have this library pre-installed on their machine.
+        // I chose this because I don't think it'd ever be on my machine, system-wide.
         MockRequest::new(
             "<run>\n<command>python3 -c \"import unicorn\"</command>\n</run>",
             Some("<exit_code>1</exit_code>"),

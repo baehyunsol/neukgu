@@ -484,7 +484,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     // It makes rooms for popups when there're not enough turns.
-    turns.push(text!("").width(context.window_size.width * 0.8).height(context.window_size.height * 0.8).into());
+    turns.push(text!("").width(context.window_size.width).height(context.window_size.height).into());
 
     let turns_stretched = Column::from_vec(turns)
         .padding(8)

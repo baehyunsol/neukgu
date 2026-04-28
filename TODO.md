@@ -18,16 +18,13 @@
   - 지금 당장은 고민할 필요가 없음. 애초에 AI가 저렇게 긴 파일을 한번에 쓸 능력이 안되거든!
 19. multi-agent
   - 코드 짜는 agent 따로, test하는 agent 따로, doc 쓰는 agent 따로... 하면 더 좋으려나?
+  - working-dir 안에서 여러 agent가 *동시에* 돌아가는게 가능하려나?? 지금의 flow로는 좀 힘들겠지? ㅠㅠ
 23. `` FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`) ``
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
 26. symlink가 있을 경우, import/export sandbox가 먹통이 됨 ㅠㅠ
   - dst를 그대로 살릴 수도 있고, dst에 적당한 보정을 할 수도 있음
   - dst가 working-dir의 내부일 수도 있고, 외부일 수도 있음
-28. 특정 파일에 제일 최근에 ReadText/WriteText를 한 기록과, 그 파일의 실제 내용 (파일을 읽어서)을 비교해서 둘이 다르면 경고를 날리기
-  - 일단, tool에 사용되는 모든 path는 normalize 돼 있으므로, primary key로 사용 가능
-  - ReadText나 WriteText가 성공하면 걔의 log_id를 저장하면 됨
-    - `HashMap<Path, Vec<LogId>>`처럼 저장하면 됨! log_id는 순서대로 저장되어 있으므로 diff를 뜰 때는 바로 이전의 내용과 비교하면 됨!
 34. reset session
   - reset session은 구현했고, 과거의 session을 어딘가에 기록해두고 싶음 (`neukgu-instruction.md` + `context.json`). -> 제목을 지을 수 있으면 더 좋은데... 늑구한테 제목 지으라고 할까? ㅋㅋㅋ
     - 과거의 session을 보는 view도 만들어야하긴 한데, working-dir-view를 재활용하기에는 다른게 너무 많고 from-scratch로 만들기에는 working-dir-view을 재활용하고 싶고...
@@ -40,10 +37,7 @@
     - `FeContext::curr_status()`만 한번에 보여줘도 괜찮을 듯!
   - 여러 tab을 관리하는 agent??
   - gui 구현은 생각보다 쉬움. context를 `Vec<IcedContext>`로 만들어버리면 되지... ㅋㅋㅋ
-39. 한 be에 여러 fe 붙이기?
-  - fe가 read-only면 상관이 없는데 fe가 be한테 정보를 줄 수가 있어서 문제 (e.g. user2llm, llm2user, pause, ...)
-  - read-only fe를 만들까?
-    - 아니면, fe가 여럿인지 아닌지를 자동으로 감지해서 interrupt를 어떻게 걸지 결정해도 되고... ㅋㅋㅋ
+  - tab 기능이 더 필요해졌음 -> 늑구가 도는 동안 실시간으로 working-dir을 보고 싶음
 41. testbench
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문에 정상적으로 대답한 다음에 잘 진행되는지 확인
@@ -66,21 +60,6 @@
       - 근데 mac이랑 linux에서 지금은 잘 돎... 브라우저를 더 많이 띄워봐야하나? 아니면 시간 간격을 좀 두고 띄워볼까?
 43. anthropic에서 web-search-tool 쓰면 너무 느림 ㅠㅠ
   - main LLM이랑 search LLM이랑 다르게 쓸 수 있으면 좋을 텐데...
-44. Python venv -> 이걸 열어주면 대부분의 작업을 할 수 있을텐데... 예를 들어서, pdf 작업도 굳이 tool 안 쓰고 pdfium 갖고 바로 할 수 있음!!
-  - perplexity한테 물어보니까
-  - 1, `working-dir/.venv/bin/python`을 실행하면 venv와 동일한 효과가 난다
-  - 2, `.venv/`의 absolute path가 이곳저곳에 hard-code 돼 있기 때문에 sandbox로 갖고 가면 문제가 생길 거다
-  - 그럼, `.neukgu/` 안에다가 venv를 만들어두고 command-run에서 python/pip을 쓰면 저 안에 있는 binary를 가져다가 쓰자!
-  - 하고 있는데 자꾸 이상한 오류 남 ㅠㅠ
-    - 일단, `.neukgu/py-venv/`를 만들었음
-    - suprocess::run할 때 bin_path로 sandbox대신 working-dir을 줬는데 안됨
-    - PATH에다가 `.neukgu/py-venv/bin/`을 넣어서 env_var에 넣어줬는데도 안됨
-    - `python3 -m venv py-venv --copies`를 해보니까 이 버전의 python은 `--copies`가 아예 안된다고 빠꾸먹음...
-  - 해보니까 ubuntu에서는 잘 됨. macOS에서 `py -m venv`로 만든 venv에 문제가 있는 듯?
-  - Let's go with the current setting
-    - It works on Linux, and not on MacOS.
-    - I can check the python environment if something's suspicious.
-    - Everything's fine because neukgu is exclusive for me.
 48. Keybindings... for everything in GUI!
   - Ctrl +/- to change the font sizes
     - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
@@ -95,16 +74,15 @@
   - 제일 직관적인 거는, TextEditor를 띄울 때 기존의 `neukgu-instruction.md`의 내용을 채워놓고 띄우는 거임
   - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
-52. global neukgu
-  - 이 컴퓨터에 있는 모든 neukgu dir의 목록을 한번에 보기... -> 좀 과한가?
 53. rollback
-  - 늑구한테 "export_layer에 group layer도 구현해줘"라고 시켰는데 하다보니까 노답인 거같아서 아예 초기화하고 싶은 경우
-  - git을 쓰기는... 쉽지 않음. harness가 git을 제어해버리면 늑구가 git을 못 쓰잖아?
-  - 그나마 간단한 거는 늑구가 첫 turn을 돌기 전에 sandbox에 working dir을 통째로 복사해뒀다가, 나중에 rollback 용도로 쓰는 거지
-    - 그럼 WAL에다가 "이 dir은 롤백용이니까 건들지 마세요"라고 적어둬야함...
-    - 늑구가 오래 돌면 그 사이에 sandbox가 날아갈 확률이 높음
-  - How about adding a "snapshot" button?
-    - It copies the entire working-dir to somewhere, and it's stored in somewhere else (not in sandbox_root). We can rollback to snapshots.
+  - 5 turn에 한번씩 snapshot을 만듦. snapshot은 가장 첫 turn의 snapshot과 최근 25turn의 snapshot (5개)을 유지
+  - snapshot이 있으면 GUI에 rollback button이 생김.
+  - snapshot은 `.neukgu/snapshots/<turn-id>/`에 저장. working-dir만 snapshot을 만들고, index-dir에서는 `context.json`, `config.json`, `mock.json`만 기록함.
+    - is_paused는 기록하는게 의미가 없음 (pause 돼있으면 snapshot을 안 뜰테니까...). rollback을 하고나면 무조건 pause돼 있거나 무조건 resume돼 있도록 만들자!
+  - `IcedMessage::ResetNeukgu`랑 거의 비슷하게 `IcedMessage::RollBackNeukgu`를 구현해야함
+    - `reset_working_dir`만 `roll_back_working_dir`로 바꾸면 됨
+    - 더이상 필요없어진 snapshot 다 삭제하기
+    - working_dir은 다 복붙해오고, context.json이랑 config.json 복구하고, `logs/log`에 롤백했다고 적고, be2fe랑 fe2be reset 하기
 56. search
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
   - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
@@ -121,14 +99,24 @@
   - Change configs while neukgu is running
     - change AI model
     - enable/disable  tools/binariess
-60. archive/extract `.neukgu/`
-  - It's different from ragit. Ragit can run perfectly fine without data files, but neukgu cannot run without working-dir.
-  - Better way is to just archive/extract the entire working-dir.
-61. File viewer
-  - In order to do *everything* in neukgu GUI, we need a file viewer...
-  - I want to watch the live file system.
 62. 제일 첫 turn에 `neukgu-instruction.md`를 읽음 (당연). 그리고 바로 다음 턴에 `neukgu-instruction.md`를 또 읽음... -> gpt가 이럴 때가 많음. 도대체 왜 그러지?? harness 차원에서 코드로 막을 수 있기는 한데 너무 지엽적인 거 같기도 하고...
-63. When the binary reader has to read a very large file (> 100KiB), it doesn't have to read the entire file...
+64. Remote 늑구
+  - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
+  - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
+    - 현재의 be는 engine이 되고, engine과 fe 사이에 be가 들어감
+    - fe는 engine과 직접 소통하지 않음. 무조건 be를 통해서만 소통
+    - fe/be는 http로만 소통함. 단, be는 stateful함
+65. `Tick` for Launcher
+  - I want the file/dir viewer to be updated periodically
+66. perplexity한테 OpenCode/Codex/ClaudeCode 비교 시켰음. 몇몇 noticeable한 기능들 나열해봄
+  - OpenCode: 다양한 언어의 LSP가 내장되어 있어서, AI가 작성한 코드에 lint error나 compile error 있으면 즉시 (AI한테) 피드백
+  - OpenCode: git으로 snapshot을 관리. 근데 commit을 안하기 때문에 history는 안 건드린대
+  - Codex: sandbox를 잘 만든대
+  - Codex: 특정 repo를 감시하면서 그 repo에 무슨 일이 생기면 (issue, pr, commit, ...) 자동으로 codex가 돌도록 할 수 있대!
+  - ClaudeCode: 여러 agent (2~16)가 동시에 돈대. 각각은 git worktree로 관리한대
+  - ClaudeCode: 다른 machine에서 도는 harness를 모바일에서 확인할 수 있대
+  - ClaudeCode: inter-session으로 관리되는 memory가 있어서 사용자의 성향을 반영할 수 있대
+  - ClaudeCode: instant rewind가 가능하대. 어찌됐든 rollback 기능은 꼭 넣어야 할 듯...
 
 ```nu
 cd ~/Documents/Rust/neukgu;
@@ -138,3 +126,71 @@ rm -r ttt;
 ~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock;
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
 ```
+
+---
+
+설문을 돌리자!
+
+0. 응답자님의 현재 상태를 알려주세요.
+  - 학부생
+  - 석사생
+  - 박사생
+  - 학부 졸업 후 취직
+  - 석사 졸업 후 취직
+  - 박사 졸업 후 취직
+0. 주로 사용하는 harness를 모두 골라주세요.
+  - Codex
+  - Claude Code
+  - Claude Cowork
+  - OpenCode
+  - Pi
+  - Gemini CLI
+  - Hermes Agent
+  - 기타
+  - 없음 (더 이상 이 설문조사를 하시지 않으셔도 됩니다.)
+0. 해당 harness를 사용하면서 "이런 기능이 있었다면 더 좋았을텐데" 했던 기능들을 자세히 적어주세요.
+0. 해당 harness를 사용하면서 "이런 기능은 정말 좋은 것 같아" 했던 기능들을 자세히 적어주세요.
+0. 최근 일주일동안 작성한 코드 중, 직접 작성한 코드와 AI가 작성한 코드의 비율이 어느정도 되나요?
+  - 90% 이상 손으로 작성
+  - 70% 정도 손으로 작성
+  - 50% 정도 손으로 작성
+  - 70% 정도 AI가 작성
+  - 90% 이상 AI가 작성
+0. 코딩을 제외하고 harness를 이용해서 다른 작업을 하신 적이 있나요? (e.g. 발표자료 만들기, 가계부 관리하기, 엑셀 파일 정리하기) (단, ChatGPT나 Perplexity같은 채팅 플랫폼으로는 하기 어려운 작업들만 적어주세요)
+0. harness를 사용할 때, AI의 작업 과정을 얼마나 꼼꼼하게 보시나요?
+  - AI가 어떻게 작업하는지 관심없고, 최종 결과물만 가져다 쓴다. 최종 결과물도 따로 검증 안하고 그대로 가져다가 쓴다.
+  - AI가 어떻게 작업하는지 관심없고, 최종 결과물만 가져다 쓴다. 단, 최종 결과물을 가져다 쓰기 전에 제대로 만들어졌는지 직접 확인해본다.
+  - AI의 작업 과정을 적당히 감시하면서, 가끔씩 개입한다.
+  - AI가 하는 모든 작업을 다 감시하면서, 조금이라도 이상한 행동을 하면 즉시 개입한다.
+0. AI가 하는 작업/결과물이 마음에 들지 않아서 개입하고 싶은 경우 주로 어떻게 하시나요?
+  - AI한테 추가적으로 프롬프트를 준다.
+  - 직접 코드 에디터를 열고 작업물을 수정한다.
+  - 진행 중인 작업을 중지시키고 완전 새로운 세션을 시작한다.
+  - AI가 알아서 잘 할테니 믿고 기다린다.
+0. harness가 성공적으로 해낸 작업 중 가장 어려웠던 작업은 뭐였나요? (e.g. 논문 한편 뚝딱 써줘)
+0. harness가 실패했던 작업 중 가장 쉬웠던 작업은 뭐였나요?
+0. 현재 사용하는 harness의 수준이 어느정도라고 생각하시나요?
+  - 아주 간단한 코딩 프로젝트는 할 수 있는데 그 이상은 무리이다.
+  - 학부생 수준에서 만들 수 있는 소프트웨어는 다 만들 수 있다.
+  - 박사급 연구도 할 수 있다. 단, 인간 석/박사가 옆에서 같이 보조를 해줘야한다.
+  - 인간 보조없이 박사급 연구를 할 수 있다.
+0. harness에게 오래 걸리는 일을 시키고 퇴근한 다음에 다음날 출근해서 결과를 확인해보신 적이 있나요? 있으시다면 어떤 작업이었는지 간단하게 설명해주세요. 8시간 동안 AI가 스스로 작업을 잘 했나요?
+0. 다음 기능에 대해서 어떻게 생각하시나요: "여러 AI agent가 서로 의견을 조율해가면서 한 프로젝트에서 동시에 작업하기"
+  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
+  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
+  - 있으면 조금 더 편리할 거 같긴하다.
+  - 별 생각 없다.
+0. 다음 기능에 대해서 어떻게 생각하시나요: "여러 독립적인 AI agent가 별개의 프로젝트에서 동시에 돌아가고 있고, 각 agent의 상태를 한 눈에 보기"
+  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
+  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
+  - 있으면 조금 더 편리할 거 같긴하다.
+  - 별 생각 없다.
+0. 다음 기능에 대해서 어떻게 생각하시나요: "AI agent한테 일을 시켰는데 작업 과정을 보니 영 아닌 것 같음. 5분전 상황으로 모든 걸 롤백"
+  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
+  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
+  - 있으면 조금 더 편리할 거 같긴하다.
+  - 별 생각 없다.
+0. 기능이 많지만 사용법이 복잡한 harness에 대해서 어떻게 생각하시나요?
+  - harness는 아주 중요한 도구이기 때문에 내 시간을 투자해서 harness의 사용법을 공부할 의향이 있다.
+  - harness 사용법을 따로 공부하기는 귀찮다. 그냥 직관적으로 바로 사용가능했으면 좋겠다.
+0. 기타 하시고 싶은 말씀이 있으시면 적어주세요.
