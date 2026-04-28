@@ -83,6 +83,7 @@
     - `reset_working_dir`만 `roll_back_working_dir`로 바꾸면 됨
     - 더이상 필요없어진 snapshot 다 삭제하기
     - working_dir은 다 복붙해오고, context.json이랑 config.json 복구하고, `logs/log`에 롤백했다고 적고, be2fe랑 fe2be reset 하기
+  - 생각해보니까 `.neukgu/py-venv/`도 snapshot을 떠야함...
 56. search
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
   - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
@@ -119,7 +120,7 @@
   - ClaudeCode: instant rewind가 가능하대. 어찌됐든 rollback 기능은 꼭 넣어야 할 듯...
 67. 생각해보니까 copy_recursive 할 때 src에는 없고 dst에는 있는 directory 있으면 삭제해야하는 거 아님?
   - top_level 뿐만 아니라 모든 level에서!!
-  - mock api에서 cargo new 한 다음에 첫 turn으로 roll back하면 확인할 수 있음!!
+  - mock api에서 cargo new 한 다음에 첫 turn으로 roll back하면 확인할 수 있음!! -> ??? 다시 하니까 잘 되는데??
 68. 오래 걸리는 tool call에서 pause 하면 그 tool은 취소되잖아? 그리고 바로 다시 resume 하면 gui에서 과거의 tool이 계속 뜰 듯??
   - 이거 해보면 앎. fe_context가 log 읽는 로직에 오류 있을 듯...
 
