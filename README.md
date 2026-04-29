@@ -1,5 +1,7 @@
 # Neukgu
 
+![](screenshot.png)
+
 Neukgu is an opinionated coding agent. Currently, it only works with Anthropic API (you need an env var `ANTHROPIC_API_KEY`).
 
 It works like this:
