@@ -10,6 +10,7 @@
   - B. 몇몇 tool (e.g. write code)은 thinking을 켜는게 quality가 훨씬 좋대
   - C. 몇몇 tool은 thinking이 전혀 필요없음
     - 보통 아무 영양가 없는 thinking token 좀 만들고 넘어가더라. 예를 들어서, 첫 turn에 instruction.md를 읽기 전에 "먼저 instruction.md를 읽어봐야겠군"라고 생각하고 바로 instruction.md를 읽음
+  - 많이 과격한 아이디어: 기본적으로는 thinking 없이 돌리되, 돌아온 결과물이 `<write>`이면 그 결과물 버리고 thinking 켜서 다시 돌리기?
 11. 무지 긴 파일을 한번에 쓰려고 할 경우... AI가 500KiB짜리 파일을 쓰려고 시도했다고 치자
   - 당연히 TextTooLongToWrite를 내뱉겠지?
   - 그다음턴에 500KiB짜리 파일을 통째로 context에 집어넣으면... 너무 손해인데??
@@ -22,6 +23,7 @@
 23. `` FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`) ``
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
+  - 이거 생각할수록 이상함. fe에서 문제가 터졌으면 에러가 GUI에 보여야하거든? 근데 저 에러는 터미널에 보임. 즉, be에서 문제가 터진 거임. 근데 저 파일은 `WriteMode::Atomic`일 때만 생기는데 be에서 저 위치에 write를 할 일이 없음...
 26. symlink가 있을 경우, import/export sandbox가 먹통이 됨 ㅠㅠ
   - dst를 그대로 살릴 수도 있고, dst에 적당한 보정을 할 수도 있음
   - dst가 working-dir의 내부일 수도 있고, 외부일 수도 있음
@@ -59,7 +61,8 @@
     - 한 세션에서 브라우저 여러번 띄우면 문제 생기는 거같은데?? -> 이거는 테스트하기 쉬움!!
       - 근데 mac이랑 linux에서 지금은 잘 돎... 브라우저를 더 많이 띄워봐야하나? 아니면 시간 간격을 좀 두고 띄워볼까?
 43. anthropic에서 web-search-tool 쓰면 너무 느림 ㅠㅠ
-  - main LLM이랑 search LLM이랑 다르게 쓸 수 있으면 좋을 텐데...
+  - main agent랑 search agent랑 다르게 쓸 수 있으면 좋을 텐데...
+  - search agent를 별개로 쓰면, search-tool이 없는 API들도 다 사용할 수 있게됨! deepseek을 main agent로 붙이고 GPT를 search agent로 쓸 수 있는 거지...
 48. Keybindings... for everything in GUI!
   - Ctrl +/- to change the font sizes
     - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
@@ -68,6 +71,8 @@
     - (R)esume, (P)ause, (I)nterrupt, See (L)ogs, (T)oken Usage, (H)elp, i(N)struction, (C)onfig, re(S)et
     - Spacebar also resumes/pauses.
   - Left/Right to browse turns
+  - 스크롤 맨아래/맨위로 한번에 가기
+  - popup 안에서 diff 보는 거 -> 은근 자주 함!
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
   - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
   - 늑구와 관계없는 프로그램이 저 파일을 만드는 경우는... 없다고 하자!
@@ -123,6 +128,22 @@
   - mock api에서 cargo new 한 다음에 첫 turn으로 roll back하면 확인할 수 있음!! -> ??? 다시 하니까 잘 되는데??
 68. 오래 걸리는 tool call에서 pause 하면 그 tool은 취소되잖아? 그리고 바로 다시 resume 하면 gui에서 과거의 tool이 계속 뜰 듯??
   - 이거 해보면 앎. fe_context가 log 읽는 로직에 오류 있을 듯...
+69. 지금은 diff를 edit마다 따로 봐야하잖아? 더 긴 기간에 걸친 diff를 한눈에 보고 싶음!!
+  - 구현은 쉬움. 첫번째 write의 content와 diff가 있잖아? 저 content에 diff를 rev-apply하면 첫번째 write 이전의 content가 나옴. 그럼 그 content랑 현재의 content를 diff를 떠버리면 됨.
+    - 현재의 content를 가져올 때는 반드시 파일을 직접 읽어야함! `<run>`같은 걸로 수정했을 수도 있으니까...
+  - 파일이 여러개여도... diff 뜨는 거는 쉽지!
+  - UI에 붙이는게 문제임!
+    - viewer는 간단함. 지금의 diff viewer랑 똑같이 만든 다음에 파일 구분자만 적당히 넣어주면 됨. 아니면 file마다 별개의 widget으로 만들면 더 효율적일 수도 있고!
+      - 파일마다 collapsible widget으로 만들자!
+    - "어디부터 어디까지 diff를 보여줘"라는 버튼을 만들어야 하는데... 어디에 만들지? ㅠㅠ
+70. `my-project/.neukgu/`가 존재하는 상황에서 `my-project/foo/bar/.neukgu/`를 또 만들 경우
+  - 둘이 동시에 돌리면 온갖 이상한 오류가 쏟아짐.
+  - 둘이 동시에 안 돌린다는 가정 하에 저런 식의 작업이 도움이 되는 경우도 있음
+  - working_dir을 하는 시점에서 검사가 가능함
+    - 계속 parent로 올라가면서 `.neukgu/`를 확인할 수도 있고
+    - 모든 children을 recursive하게 뒤져서 `.neukgu/`를 확인할 수도 있음
+      - 이거는 엄청 비쌀텐데?
+71. OpenCode 보니까 오른쪽에 column 하나 있고 (screen의 50% 정도 차지), 현재 session에서 수정된 파일의 목록을 쭉 보여줌. 클릭하면 그 파일의 diff가 collapsible로 나옴.
 
 ```nu
 cd ~/Documents/Rust/neukgu;
@@ -145,13 +166,17 @@ rm -r ttt;
   - 석사 졸업 후 취직
   - 박사 졸업 후 취직
 0. 주로 사용하는 harness를 모두 골라주세요.
-  - Codex
+  - Antigravity
   - Claude Code
   - Claude Cowork
-  - OpenCode
-  - Pi
+  - Codex
+  - Cursor
   - Gemini CLI
   - Hermes Agent
+  - OpenCode
+  - Pi
+  - Windsurf
+  - Zed
   - 기타
   - 없음 (더 이상 이 설문조사를 하시지 않으셔도 됩니다.)
 0. 해당 harness를 사용하면서 "이런 기능이 있었다면 더 좋았을텐데" 했던 기능들을 자세히 적어주세요.
@@ -192,6 +217,11 @@ rm -r ttt;
   - 있으면 조금 더 편리할 거 같긴하다.
   - 별 생각 없다.
 0. 다음 기능에 대해서 어떻게 생각하시나요: "AI agent한테 일을 시켰는데 작업 과정을 보니 영 아닌 것 같음. 5분전 상황으로 모든 걸 롤백"
+  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
+  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
+  - 있으면 조금 더 편리할 거 같긴하다.
+  - 별 생각 없다.
+0. 다음 기능에 대해서 어떻게 생각하시나요: "AI agent는 회사/연구실의 컴퓨터에서 돌고 있고, 난 집에서 핸드폰으로 agent의 진행상황을 실시간으로 확인"
   - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
   - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
   - 있으면 조금 더 편리할 거 같긴하다.
