@@ -198,9 +198,10 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
 
             Task::none()
         },
-        (LocalContext::Error(_), IcedMessage::Tick | IcedMessage::KeyPressed { .. }) => Task::none(),
+        (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Error(t)),
+        (LocalContext::Error(_), IcedMessage::Tick) => Task::none(),
         (_, IcedMessage::None) => Task::none(),
-        _ => todo!(),
+        _ => unreachable!(),
     }
 }
 

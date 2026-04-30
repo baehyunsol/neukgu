@@ -1,4 +1,4 @@
-use super::{black, blue, button, gray, green, horizontal_bar, pink, red, set_bg, white};
+use super::{black, blue, button, disabled_button, gray, green, horizontal_bar, pink, red, set_bg, white};
 use crate::{Error, Model, init_working_dir, prettify_bytes, validate_project_name};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -100,8 +100,8 @@ impl IcedContext {
                 let file_size = file_size(&path)? as usize;
                 let content = if file_size > 33554432 {
                     is_binary = true;
-                    let pre = read_bytes_offset(&path, 0, 8192)?;
-                    let mut post_offset = file_size - 8192;
+                    let pre = read_bytes_offset(&path, 0, 16384)?;
+                    let mut post_offset = file_size - 16384;
                     post_offset -= post_offset % 32;
                     let post = read_bytes_offset(&path, post_offset as u64, file_size as u64)?;
                     vec![
@@ -127,12 +127,12 @@ impl IcedContext {
                     }
                 };
 
-                let preview = if content.chars().count() > 16384 {
-                    // hex_dump's line is 84 characters, so it shows 2KiB if the file is binary
-                    let pre = content.chars().take(5375).collect::<String>();
-                    let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(5376).rev().collect::<String>();
+                let preview = if content.chars().count() > 32768 {
+                    // hex_dump's line is 84 characters, so it shows 4KiB if the file is binary
+                    let pre = content.chars().take(10751).collect::<String>();
+                    let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(10752).rev().collect::<String>();
                     let trunc = if is_binary {
-                        file_size - 2048
+                        file_size - 4096
                     } else {
                         content.len() - pre.len() - post.len()
                     };
@@ -564,6 +564,10 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
 
     if let Some(e) = &entry.error {
         row.push(button("(!)", IcedMessage::OpenPopup(Popup::EntryError(e.to_string())), red(), context.zoom).into());
+    }
+
+    if entry.has_neukgu_index {
+        row.push(disabled_button("  ", green(), context.zoom).into());
     }
 
     Row::from_vec(row).align_y(Vertical::Center).into()

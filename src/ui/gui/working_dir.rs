@@ -504,6 +504,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
                 }
             },
+            (Key::Character("y"), false, false, false) => {
+                if let Some(Popup::AskRollBack { id, .. }) = &context.curr_popup && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::RollBackNeukgu(id.clone())));
+                }
+
+                if let Some(Popup::AskQuit) = context.curr_popup && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::Quit));
+                }
+            },
             (Key::Character("-"), true, false, false) => {
                 context.zoom = context.zoom.max(0.2) - 0.1;
             },
@@ -751,7 +760,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     else if let Some(Popup::AskRollBack { id, title }) = &context.curr_popup {
         let q = Column::from_vec(vec![
             text!("Roll back to {title}?").size(context.zoom * 14.0).into(),
-            button("Yes", IcedMessage::RollBackNeukgu(id.clone()), green(), context.zoom).padding(context.zoom * 20.0).into(),
+            button("(Y)es", IcedMessage::RollBackNeukgu(id.clone()), green(), context.zoom).padding(context.zoom * 20.0).into(),
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -762,7 +771,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     else if let Some(Popup::AskQuit) = context.curr_popup {
         let q = Column::from_vec(vec![
             text!("Quit session?").size(context.zoom * 14.0).into(),
-            button("Yes", IcedMessage::Quit, green(), context.zoom).padding(context.zoom * 20.0).into(),
+            button("(Y)es", IcedMessage::Quit, green(), context.zoom).padding(context.zoom * 20.0).into(),
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
