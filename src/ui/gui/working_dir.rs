@@ -114,7 +114,12 @@ pub struct IcedContext {
     pub logs_view_id: Id,
     pub text_editor_id: Id,
     pub turn_view_scrolled: AbsoluteOffset,
+
+    // hovered_turn: mouse
+    // selected_turn: arrow keys
     pub hovered_turn: Option<TurnId>,
+    pub selected_turn: Option<usize>,
+
     pub loaded_turn: Option<(usize, Turn)>,
     pub loaded_logs: Option<Vec<String>>,
     pub loaded_image: Option<ImageId>,
@@ -139,6 +144,13 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
+    // It returns a scroll-offset of the turn view.
+    pub fn select_turn(&mut self, offset: i32) -> f32 {
+        let new_selection = (self.selected_turn.map(|i| i as i32).unwrap_or(-1) + offset).min(self.fe_context.history.len() as i32 - 1).max(0) as usize;
+        self.selected_turn = Some(new_selection);
+        self.zoom * (new_selection.max(3) - 3) as f32 * 61.0
+    }
+
     pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
         self.close_popup();
         self.curr_popup = Some(popup.clone());
@@ -170,6 +182,7 @@ impl IcedContext {
                     stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
                 ));
                 self.loaded_turn = Some((index, turn));
+                self.selected_turn = Some(index);
             },
             // There's nothing to load
             Popup::Interrupt => {},
@@ -227,6 +240,7 @@ impl IcedContext {
                 self.syntax_highlight = None;
             },
             Popup::AskRollBack { .. } => {},
+            Popup::AskQuit => {},
         }
 
         Ok(())
@@ -295,6 +309,7 @@ pub enum IcedMessage {
     DismissLLMRequest,
     EditText(TextEditorAction),
     Error(String),
+    Quit,
 }
 
 #[derive(Clone, Debug)]
@@ -311,6 +326,7 @@ pub enum Popup {
     Config,
     Reset,
     AskRollBack { id: TurnId, title: String },
+    AskQuit,
 }
 
 pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size, zoom: f32) -> Result<IcedContext, Error> {
@@ -325,6 +341,7 @@ pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size, zoom: f3
         text_editor_id: Id::unique(),
         turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
         hovered_turn: None,
+        selected_turn: None,
         loaded_turn: None,
         loaded_logs: None,
         loaded_image: None,
@@ -404,7 +421,53 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Named(NamedKey::Escape), false, false, false) => {
                 // It shouldn't close the llm request popup.
                 if context.llm_request.is_none() {
-                    return Ok(Task::done(IcedMessage::ClosePopup));
+                    if context.curr_popup.is_some() {
+                        return Ok(Task::done(IcedMessage::ClosePopup));
+                    }
+
+                    else {
+                        return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
+                    }
+                }
+            },
+            (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    let scroll_index = context.select_turn(if ctrl { -10 } else { -1 });
+                    return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                }
+            },
+            (Key::Named(NamedKey::ArrowDown), ctrl, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    let scroll_index = context.select_turn(if ctrl { 10 } else { 1 });
+                    return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                }
+            },
+            (Key::Named(NamedKey::ArrowLeft), false, false, false) => {
+                if let Some(Popup::Turn(index, _)) = context.curr_popup {
+                    context.select_turn(-1);
+
+                    if let Some(new_index) = context.selected_turn && new_index != index {
+                        return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(new_index, context.fe_context.history[new_index].id.clone()), prev: None }));
+                    }
+                }
+            },
+            (Key::Named(NamedKey::ArrowRight), false, false, false) => {
+                if let Some(Popup::Turn(index, _)) = context.curr_popup {
+                    context.select_turn(1);
+
+                    if let Some(new_index) = context.selected_turn && new_index != index {
+                        return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(new_index, context.fe_context.history[new_index].id.clone()), prev: None }));
+                    }
+                }
+            },
+            (Key::Named(NamedKey::Enter), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() && let Some(i) = context.selected_turn {
+                    match context.fe_context.history.get(i) {
+                        Some(turn) => {
+                            return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(i, turn.id.clone()), prev: None }));
+                        },
+                        None => {},
+                    }
                 }
             },
             (Key::Named(NamedKey::Space), false, false, false) => {
@@ -434,6 +497,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("r"), false, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }));
+                }
+            },
+            (Key::Character("q"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
                 }
             },
             (Key::Character("-"), true, false, false) => {
@@ -548,6 +616,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.text_editor_content.perform(a);
         },
         IcedMessage::Error(_) => unreachable!(),
+        IcedMessage::Quit => {
+            context.kill_be_process()?;
+            // TODO: close tab
+        },
     }
 
     Ok(Task::none())
@@ -687,6 +759,17 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::AskQuit) = context.curr_popup {
+        let q = Column::from_vec(vec![
+            text!("Quit session?").size(context.zoom * 14.0).into(),
+            button("Yes", IcedMessage::Quit, green(), context.zoom).padding(context.zoom * 20.0).into(),
+        ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(q.into(), context).into(),
+        ]).into();
+    }
+
     else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction | Popup::Config) = &context.curr_popup {
         let text_editor = TextEditor::new(&context.text_editor_content).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
@@ -714,6 +797,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     };
     let mut buttons_row2: Vec<Element<IcedMessage>> = vec![];
 
+    buttons_row1.push(button("(Q)uit", IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }, red(), context.zoom).into());
     buttons_row1.push(button("(I)nterrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue(), context.zoom).into());
     buttons_row1.push(button("See logs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, blue(), context.zoom).into());
     buttons_row1.push(button("Token usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, blue(), context.zoom).into());
@@ -807,7 +891,15 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         with_color.into()
     };
 
-    Row::from_vec(vec![roll_back.into(), context_engineering.into(), with_mouse_area])
+    let mut result = vec![];
+
+    if let Some(i) = context.selected_turn && i == index {
+        result.push(text!(">> ").size(context.zoom * 14.0).into());
+    }
+
+    result.extend(vec![roll_back.into(), context_engineering.into(), with_mouse_area]);
+
+    Row::from_vec(result)
         .width(Length::Fixed(context.window_size.width))
         .align_y(Vertical::Center)
         .spacing(context.zoom * 12.0)
@@ -893,6 +985,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
             text!("{}", context.llm_request.as_ref().unwrap().1).size(context.zoom * 14.0).into(),
             TextEditor::new(&context.text_editor_content)
                 .placeholder("Answer neukgu's question")
+                .size(context.zoom * 14.0)
                 .width(context.window_size.width - context.zoom * 128.0)
                 .on_action(|action| IcedMessage::EditText(action))
                 .into(),

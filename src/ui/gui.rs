@@ -154,23 +154,44 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
                             context.global.cwd = parent.to_string();
                             *c = LocalContext::Launcher(l);
                         },
-                        Err(_) => match std::env::var("HOME") {
+                        Err(e1) => match std::env::var("HOME") {
                             Ok(home) => match launcher::try_boot(Some(c.window_size()), &home) {
                                 Ok(l) => {
+                                    eprintln!("e1: {e1:?}");
                                     context.global.cwd = home.to_string();
                                     *c = LocalContext::Launcher(l);
                                 },
-                                Err(_) => {
+                                Err(e2) => {
+                                    eprintln!("e1: {e1:?}");
+                                    eprintln!("e2: {e2:?}");
                                     *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
                                 },
                             },
-                            Err(_) => {
+                            Err(e3) => {
+                                eprintln!("e1: {e1:?}");
+                                eprintln!("e3: {e3:?}");
                                 *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
                             },
                         },
                     },
-                    Err(_) => {
-                        *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
+                    Err(e4) => match std::env::var("HOME") {
+                        Ok(home) => match launcher::try_boot(Some(c.window_size()), &home) {
+                            Ok(l) => {
+                                eprintln!("e4: {e4:?}");
+                                context.global.cwd = home.to_string();
+                                *c = LocalContext::Launcher(l);
+                            },
+                            Err(e5) => {
+                                eprintln!("e4: {e4:?}");
+                                eprintln!("e5: {e5:?}");
+                                *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
+                            },
+                        },
+                        Err(e6) => {
+                            eprintln!("e4: {e4:?}");
+                            eprintln!("e6: {e6:?}");
+                            *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
+                        },
                     },
                 },
             }

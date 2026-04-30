@@ -52,7 +52,12 @@ pub struct IcedContext {
     pub window_size: Size,
     pub entry_view_id: Id,
     pub entry_view_scrolled: AbsoluteOffset,
+
+    // hovered_entry: mouse
+    // selected_entry: arrow keys
     pub hovered_entry: Option<String>,
+    pub selected_entry: Option<usize>,
+
     pub curr_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
     pub image_buffer: Option<ImageHandle>,
@@ -71,6 +76,13 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
+    // It returns a scroll-offset of the entry view.
+    pub fn select_entry(&mut self, offset: i32) -> f32 {
+        let new_selection = (self.selected_entry.map(|i| i as i32).unwrap_or(-1) + offset).min(self.entries.len() as i32 - 1).max(0) as usize;
+        self.selected_entry = Some(new_selection);
+        self.zoom * (new_selection.max(3) - 3) as f32 * 42.3
+    }
+
     pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
         self.close_popup();
         self.curr_popup = Some(popup.clone());
@@ -213,6 +225,7 @@ pub fn try_boot(window_size: Option<Size>, cwd: &str) -> Result<IcedContext, Err
         entry_view_id: Id::unique(),
         entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
         hovered_entry: None,
+        selected_entry: None,
         curr_popup: None,
         copy_buffer: None,
         image_buffer: None,
@@ -245,8 +258,33 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Named(NamedKey::Escape), false, false, false) => {
                 return Ok(Task::done(IcedMessage::ClosePopup));
             },
-            (Key::Named(NamedKey::ArrowUp), true, _, _) => {
+            (Key::Named(NamedKey::ArrowUp), false, true, false) => {
                 return Ok(Task::done(IcedMessage::ChDir(parent(&context.cwd)?)));
+            },
+            (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
+                if context.curr_popup.is_none() {
+                    let scroll_index = context.select_entry(if ctrl { -10 } else { -1 });
+                    return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                }
+            },
+            (Key::Named(NamedKey::ArrowDown), ctrl, false, false) => {
+                if context.curr_popup.is_none() {
+                    let scroll_index = context.select_entry(if ctrl { 10 } else { 1 });
+                    return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                }
+            },
+            (Key::Named(NamedKey::Enter), false, false, false) => {
+                if context.curr_popup.is_none() && let Some(i) = context.selected_entry {
+                    match context.entries.get(i) {
+                        Some(entry) if entry.is_dir => {
+                            return Ok(Task::done(IcedMessage::ChDir(entry.path.to_string())));
+                        },
+                        Some(entry) => {
+                            return Ok(Task::done(IcedMessage::OpenPopup(Popup::Preview { path: entry.path.to_string() })));
+                        },
+                        None => {},
+                    }
+                }
             },
             (Key::Character("c"), false, false, false) => {
                 if context.curr_popup.is_none() {
@@ -299,6 +337,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.entries = load_entries(&path)?;
             context.has_neukgu_index = check_neukgu_index(&path)?;
             context.entry_view_scrolled = AbsoluteOffset { x: 0.0, y: 0.0 };
+            context.selected_entry = None;
             return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
         },
         IcedMessage::Create { path } => {
@@ -332,8 +371,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let mut entries: Vec<Element<IcedMessage>> = context.entries.iter().map(
-        |entry| render_entry(entry, context)
+    let mut entries: Vec<Element<IcedMessage>> = context.entries.iter().enumerate().map(
+        |(i, entry)| render_entry(i, entry, context)
     ).collect();
 
     // It makes rooms for popups when there're not enough entries.
@@ -441,8 +480,13 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     Row::from_vec(buttons).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into()
 }
 
-fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> Element<'m, IcedMessage> {
+fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let mut row = vec![];
+
+    if let Some(i) = context.selected_entry && i == index {
+        row.push(text!(">> ").size(context.zoom * 14.0).into());
+    }
+
     let char_count = entry.name.chars().map(
         |ch| match ch {
             '가'..='힣' => 10,

@@ -63,16 +63,6 @@
 43. anthropic에서 web-search-tool 쓰면 너무 느림 ㅠㅠ
   - main agent랑 search agent랑 다르게 쓸 수 있으면 좋을 텐데...
   - search agent를 별개로 쓰면, search-tool이 없는 API들도 다 사용할 수 있게됨! deepseek을 main agent로 붙이고 GPT를 search agent로 쓸 수 있는 거지...
-48. Keybindings... for everything in GUI!
-  - Ctrl +/- to change the font sizes
-    - `text!`랑 button이랑 TextEditor에만 다 붙이면 되나..??
-  - Every buttons in the top bar
-    - (C)reate new, (L)aunch, (I)nit here, (H)elp
-    - (R)esume, (P)ause, (I)nterrupt, See (L)ogs, (T)oken Usage, (H)elp, i(N)struction, (C)onfig, re(S)et
-    - Spacebar also resumes/pauses.
-  - Left/Right to browse turns
-  - 스크롤 맨아래/맨위로 한번에 가기
-  - popup 안에서 diff 보는 거 -> 은근 자주 함!
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
   - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
   - 늑구와 관계없는 프로그램이 저 파일을 만드는 경우는... 없다고 하자!
@@ -80,14 +70,6 @@
   - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
 53. rollback
-  - 5 turn에 한번씩 snapshot을 만듦. snapshot은 가장 첫 turn의 snapshot과 최근 25turn의 snapshot (5개)을 유지
-  - snapshot이 있으면 GUI에 rollback button이 생김.
-  - snapshot은 `.neukgu/snapshots/<turn-id>/`에 저장. working-dir만 snapshot을 만들고, index-dir에서는 `context.json`, `config.json`, `mock.json`만 기록함.
-    - is_paused는 기록하는게 의미가 없음 (pause 돼있으면 snapshot을 안 뜰테니까...). rollback을 하고나면 무조건 pause돼 있거나 무조건 resume돼 있도록 만들자!
-  - `IcedMessage::ResetNeukgu`랑 거의 비슷하게 `IcedMessage::RollBackNeukgu`를 구현해야함
-    - `reset_working_dir`만 `roll_back_working_dir`로 바꾸면 됨
-    - 더이상 필요없어진 snapshot 다 삭제하기
-    - working_dir은 다 복붙해오고, context.json이랑 config.json 복구하고, `logs/log`에 롤백했다고 적고, be2fe랑 fe2be reset 하기
   - 생각해보니까 `.neukgu/py-venv/`도 snapshot을 떠야함...
 56. search
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
