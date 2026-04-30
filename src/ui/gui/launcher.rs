@@ -29,6 +29,8 @@ use ragit_fs::{
     read_bytes,
     read_bytes_offset,
     read_dir,
+    remove_dir_all,
+    remove_file,
 };
 use std::sync::Arc;
 
@@ -148,6 +150,7 @@ impl IcedContext {
                 self.set_text_editor_content(preview.to_string());
                 self.copy_buffer = Some(content.to_string());
             },
+            Popup::AskDelete { .. } => {},
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_text_editor_content(HELP_MESSAGE.to_string());
@@ -186,6 +189,8 @@ pub enum IcedMessage {
     ClosePopup,
     CopyToClipboard,
     ChDir(String),
+    DeleteFile(String),
+    DeleteDirectory(String),
     Create { path: String },
     Init { path: String },
     Launch { path: String },
@@ -213,6 +218,7 @@ pub enum Popup {
     Init { path: String },
     EntryError(String),
     Preview { path: String },
+    AskDelete { is_dir: bool, path: String },
     Help,
 }
 
@@ -286,6 +292,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
+            (Key::Named(NamedKey::Delete), false, false, false) => {
+                if context.curr_popup.is_none() && let Some(i) = context.selected_entry {
+                    match context.entries.get(i) {
+                        Some(entry) => {
+                            return Ok(Task::done(IcedMessage::OpenPopup(Popup::AskDelete { is_dir: entry.is_dir, path: entry.path.to_string() })));
+                        },
+                        None => {},
+                    }
+                }
+            },
             (Key::Character("c"), false, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() })));
@@ -304,6 +320,17 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("l"), false, false, false) => {
                 if context.curr_popup.is_none() && context.has_neukgu_index {
                     return Ok(Task::done(IcedMessage::Launch { path: context.cwd.clone() }));
+                }
+            },
+            (Key::Character("y"), false, false, false) => {
+                if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
+                    if *is_dir {
+                        return Ok(Task::done(IcedMessage::DeleteDirectory(path.to_string())));
+                    }
+
+                    else {
+                        return Ok(Task::done(IcedMessage::DeleteFile(path.to_string())));
+                    }
                 }
             },
             (Key::Character("-"), true, false, false) => {
@@ -339,6 +366,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.entry_view_scrolled = AbsoluteOffset { x: 0.0, y: 0.0 };
             context.selected_entry = None;
             return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
+        },
+        IcedMessage::DeleteFile(path) => {
+            context.close_popup();
+            remove_file(&path)?;
+            context.entries = load_entries(&context.cwd)?;
+        },
+        IcedMessage::DeleteDirectory(path) => {
+            context.close_popup();
+            remove_dir_all(&path)?;
+            context.entries = load_entries(&context.cwd)?;
         },
         IcedMessage::Create { path } => {
             let project_name = context.short_text_editor_content.text();
@@ -453,6 +490,23 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             popup(text!("{e}").size(context.zoom * 14.0).into(), context).into(),
         ]).into();
+    } else if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
+        let ask = if *is_dir {
+            Column::from_vec(vec![
+                text!("Delete directory `{path}`?").size(context.zoom * 14.0).into(),
+                button("(Y)es", IcedMessage::DeleteDirectory(path.to_string()), green(), context.zoom).into(),
+            ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill)
+        } else {
+            Column::from_vec(vec![
+                text!("Delete file `{path}`?").size(context.zoom * 14.0).into(),
+                button("(Y)es", IcedMessage::DeleteFile(path.to_string()), green(), context.zoom).into(),
+            ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill)
+        };
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            popup(ask.into(), context).into(),
+        ]).into();
     } else if let Some(Popup::Help) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -486,6 +540,8 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     if let Some(i) = context.selected_entry && i == index {
         row.push(text!(">> ").size(context.zoom * 14.0).into());
     }
+
+    row.push(button("Delete", IcedMessage::OpenPopup(Popup::AskDelete { is_dir: entry.is_dir, path: entry.path.to_string() }), red(), context.zoom).into());
 
     let char_count = entry.name.chars().map(
         |ch| match ch {
@@ -570,7 +626,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         row.push(disabled_button("  ", green(), context.zoom).into());
     }
 
-    Row::from_vec(row).align_y(Vertical::Center).into()
+    Row::from_vec(row).spacing(context.zoom * 12.0).align_y(Vertical::Center).into()
 }
 
 fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element<'c, IcedMessage> {

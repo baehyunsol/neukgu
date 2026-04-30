@@ -99,6 +99,8 @@ If a turn is marked green or blue, the turn is in the neukgu's context. If it's 
 turn, including LLM's thoughts are included in the context. If it's blue, LLM's thoughts are not
 in the context. You can't control this. Only harness can do.
 
+You can also use C key to toggle a turn's visibility.
+
 ## Done
 
 When neukgu finishes his job, he'll create `logs/done` file and go to sleep. If you're
@@ -479,6 +481,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
+            (Key::Character("c"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    if let Some(i) = context.selected_turn && let Some(turn) = &context.fe_context.history.get(i) {
+                        return Ok(Task::done(IcedMessage::ToggleTurnVisibility(turn.id.clone())));
+                    }
+                }
+            },
             (Key::Character("d"), false, false, false) => {
                 if let Some(Popup::Turn(_, _)) = &context.curr_popup && context.text_diff.is_some() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Diff, prev: context.curr_popup.clone() }));
@@ -494,6 +503,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }));
                 }
             },
+            (Key::Character("l"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }));
+                }
+            },
             (Key::Character("r"), false, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }));
@@ -502,6 +516,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("q"), false, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
+                }
+            },
+            (Key::Character("t"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
                 }
             },
             (Key::Character("y"), false, false, false) => {
@@ -808,8 +827,8 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 
     buttons_row1.push(button("(Q)uit", IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }, red(), context.zoom).into());
     buttons_row1.push(button("(I)nterrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue(), context.zoom).into());
-    buttons_row1.push(button("See logs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, blue(), context.zoom).into());
-    buttons_row1.push(button("Token usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, blue(), context.zoom).into());
+    buttons_row1.push(button("See (l)ogs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, blue(), context.zoom).into());
+    buttons_row1.push(button("(T)oken usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, blue(), context.zoom).into());
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom).into());
 
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, green(), context.zoom).into());

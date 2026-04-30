@@ -181,6 +181,8 @@ pub static GOT_RESPONSE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+
 pub static TOOL_CALL_START_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+tool_call_start\((\d+\-\d+)\).*").unwrap());
 pub static TOOL_CALL_END_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+tool_call_end\((\d+\-\d+)\).*").unwrap());
 pub static BACKEND_ERROR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+backend_error\((\d+\-\d+)\).*").unwrap());
+pub static INTERRUPT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+user_interrupt.+").unwrap());
+pub static KILL_BACKEND_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+kill_backend.*").unwrap());
 
 impl FeContext {
     pub fn sync_with_be(&self) -> Result<(), Error> {
@@ -234,15 +236,15 @@ impl FeContext {
 
         for log_line in log_lines.iter().rev() {
             // This is the end of a turn.
-            if TOOL_CALL_END_RE.is_match(log_line) {
+            if TOOL_CALL_END_RE.is_match(log_line) || INTERRUPT_RE.is_match(log_line) {
                 in_turn = false;
             }
 
-            else if INIT_LOGGER_RE.is_match(log_line) {
+            else if INIT_LOGGER_RE.is_match(log_line) || KILL_BACKEND_RE.is_match(log_line) {
                 in_session = false;
             }
 
-            else if in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
+            else if in_session && in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
                 let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
                 let tool_call: ToolCall = serde_json::from_str(&load_log(&log_id, &log_dir)?.0)?;
                 curr_tool_call = Some(tool_call);

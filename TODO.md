@@ -106,8 +106,6 @@
 67. 생각해보니까 copy_recursive 할 때 src에는 없고 dst에는 있는 directory 있으면 삭제해야하는 거 아님?
   - top_level 뿐만 아니라 모든 level에서!!
   - mock api에서 cargo new 한 다음에 첫 turn으로 roll back하면 확인할 수 있음!! -> ??? 다시 하니까 잘 되는데??
-68. 오래 걸리는 tool call에서 pause 하면 그 tool은 취소되잖아? 그리고 바로 다시 resume 하면 gui에서 과거의 tool이 계속 뜰 듯??
-  - 이거 해보면 앎. fe_context가 log 읽는 로직에 오류 있을 듯...
 69. 지금은 diff를 edit마다 따로 봐야하잖아? 더 긴 기간에 걸친 diff를 한눈에 보고 싶음!!
   - 구현은 쉬움. 첫번째 write의 content와 diff가 있잖아? 저 content에 diff를 rev-apply하면 첫번째 write 이전의 content가 나옴. 그럼 그 content랑 현재의 content를 diff를 떠버리면 됨.
     - 현재의 content를 가져올 때는 반드시 파일을 직접 읽어야함! `<run>`같은 걸로 수정했을 수도 있으니까...
