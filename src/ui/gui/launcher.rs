@@ -19,7 +19,6 @@ use iced::widget::text_editor::{
 use ragit_fs::{
     basename,
     create_dir,
-    current_dir,
     extension,
     file_size,
     is_dir,
@@ -201,13 +200,11 @@ pub enum Popup {
     Help,
 }
 
-pub fn try_boot(window_size: Option<Size>) -> Result<IcedContext, Error> {
-    let current_dir = current_dir()?;
-
+pub fn try_boot(window_size: Option<Size>, cwd: &str) -> Result<IcedContext, Error> {
     Ok(IcedContext {
-        cwd: current_dir.to_string(),
-        entries: load_entries(&current_dir)?,
-        has_neukgu_index: check_neukgu_index(&current_dir)?,
+        cwd: cwd.to_string(),
+        entries: load_entries(cwd)?,
+        has_neukgu_index: check_neukgu_index(cwd)?,
         window_size: window_size.unwrap_or(Size::new(0.0, 0.0)),
         entry_view_id: Id::unique(),
         entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },

@@ -8,6 +8,7 @@ use iced::widget::{Container, Space};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::Style;
 use iced::window::Event as WindowEvent;
+use ragit_fs::{current_dir, parent};
 
 mod error;
 mod launcher;
@@ -46,18 +47,27 @@ pub fn run() -> Result<(), Error> {
     Ok(())
 }
 
-pub enum IcedContext {
+pub struct IcedContext {
+    global: GlobalContext,
+    local: LocalContext,
+}
+
+pub struct GlobalContext {
+    cwd: String,
+}
+
+pub enum LocalContext {
     Launcher(LauncherContext),
     WorkingDir(WorkingDirContext),
     Error(ErrorContext),
 }
 
-impl IcedContext {
+impl LocalContext {
     pub fn window_size(&self) -> Size {
         match self {
-            IcedContext::Launcher(c) => c.window_size,
-            IcedContext::WorkingDir(c) => c.window_size,
-            IcedContext::Error(c) => c.window_size,
+            LocalContext::Launcher(c) => c.window_size,
+            LocalContext::WorkingDir(c) => c.window_size,
+            LocalContext::Error(c) => c.window_size,
         }
     }
 }
@@ -74,52 +84,86 @@ pub enum IcedMessage {
 }
 
 fn boot() -> IcedContext {
-    match launcher::try_boot(None) {
-        Ok(c) => IcedContext::Launcher(c),
-        Err(e) => IcedContext::Error(error::boot(format!("{e:?}"), Size::new(0.0, 0.0))),
+    let cwd = current_dir().unwrap();
+    let local_context = match launcher::try_boot(None, &cwd) {
+        Ok(c) => LocalContext::Launcher(c),
+        Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), Size::new(0.0, 0.0))),
+    };
+
+    IcedContext {
+        global: GlobalContext {
+            cwd: cwd.to_string(),
+        },
+        local: local_context,
     }
 }
 
 fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
-    match (context, message) {
+    match (&mut context.local, message) {
         (context, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
-            *context = IcedContext::Error(error::boot(e, context.window_size()));
+            *context = LocalContext::Error(error::boot(e, context.window_size()));
             Task::none()
         },
         (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
             match working_dir::try_boot(false, &path, context.window_size()) {
                 Ok(c) => {
-                    *context = IcedContext::WorkingDir(c);
+                    *context = LocalContext::WorkingDir(c);
                 },
                 Err(e) => {
-                    *context = IcedContext::Error(error::boot(format!("{e:?}"), context.window_size()));
+                    *context = LocalContext::Error(error::boot(format!("{e:?}"), context.window_size()));
                 },
             }
 
             Task::none()
         },
-        (IcedContext::Launcher(c), IcedMessage::Tick) => launcher::update(c, LauncherMessage::Tick).map(|t| IcedMessage::Launcher(t)),
-        (IcedContext::Launcher(c), IcedMessage::PressedEscKey) => launcher::update(c, LauncherMessage::ClosePopup).map(|t| IcedMessage::Launcher(t)),
-        (IcedContext::Launcher(c), IcedMessage::WindowResized(s)) => {
+        (LocalContext::Launcher(c), IcedMessage::Tick) => launcher::update(c, LauncherMessage::Tick).map(|t| IcedMessage::Launcher(t)),
+        (LocalContext::Launcher(c), IcedMessage::PressedEscKey) => launcher::update(c, LauncherMessage::ClosePopup).map(|t| IcedMessage::Launcher(t)),
+        (LocalContext::Launcher(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
         },
-        (IcedContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
-        (IcedContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
-        (IcedContext::WorkingDir(c), IcedMessage::PressedEscKey) => working_dir::update(c, WorkingDirMessage::ClosePopup).map(|t| IcedMessage::WorkingDir(t)),
-        (IcedContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
+        (LocalContext::Launcher(c), IcedMessage::Launcher(LauncherMessage::ChDir(path))) => {
+            context.global.cwd = path.to_string();
+            launcher::update(c, LauncherMessage::ChDir(path)).map(|t| IcedMessage::Launcher(t))
+        },
+        (LocalContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
+        (LocalContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
+        (LocalContext::WorkingDir(c), IcedMessage::PressedEscKey) => working_dir::update(c, WorkingDirMessage::ClosePopup).map(|t| IcedMessage::WorkingDir(t)),
+        (LocalContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
         },
-        (IcedContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
-        (context, IcedMessage::Error(ErrorMessage::Okay)) => {
-            match launcher::try_boot(Some(context.window_size())) {
-                Ok(c) => {
-                    *context = IcedContext::Launcher(c);
+        (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
+        (c, IcedMessage::Error(ErrorMessage::Okay)) => {
+            match launcher::try_boot(Some(c.window_size()), &context.global.cwd) {
+                Ok(l) => {
+                    *c = LocalContext::Launcher(l);
                 },
-                Err(e) => {
-                    *context = IcedContext::Error(error::boot(format!("{e:?}"), context.window_size()));
+                Err(e) => match parent(&context.global.cwd) {
+                    Ok(parent) => match launcher::try_boot(Some(c.window_size()), &parent) {
+                        Ok(l) => {
+                            context.global.cwd = parent.to_string();
+                            *c = LocalContext::Launcher(l);
+                        },
+                        Err(_) => match std::env::var("HOME") {
+                            Ok(home) => match launcher::try_boot(Some(c.window_size()), &home) {
+                                Ok(l) => {
+                                    context.global.cwd = home.to_string();
+                                    *c = LocalContext::Launcher(l);
+                                },
+                                Err(_) => {
+                                    *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size()));
+                                },
+                            },
+                            Err(_) => {
+                                *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size()));
+                            },
+                        },
+                    },
+                    Err(_) => {
+                        *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size()));
+                    },
                 },
             }
 
@@ -131,10 +175,10 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
 }
 
 fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    match context {
-        IcedContext::Launcher(c) => launcher::view(c).map(|m| IcedMessage::Launcher(m)),
-        IcedContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
-        IcedContext::Error(e) => error::view(e).map(|m| IcedMessage::Error(m)),
+    match &context.local {
+        LocalContext::Launcher(c) => launcher::view(c).map(|m| IcedMessage::Launcher(m)),
+        LocalContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
+        LocalContext::Error(e) => error::view(e).map(|m| IcedMessage::Error(m)),
     }
 }
 

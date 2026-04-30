@@ -112,8 +112,6 @@
     - 현재의 be는 engine이 되고, engine과 fe 사이에 be가 들어감
     - fe는 engine과 직접 소통하지 않음. 무조건 be를 통해서만 소통
     - fe/be는 http로만 소통함. 단, be는 stateful함
-65. `Tick` for Launcher
-  - I want the file/dir viewer to be updated periodically
 66. perplexity한테 OpenCode/Codex/ClaudeCode 비교 시켰음. 몇몇 noticeable한 기능들 나열해봄
   - OpenCode: 다양한 언어의 LSP가 내장되어 있어서, AI가 작성한 코드에 lint error나 compile error 있으면 즉시 (AI한테) 피드백
   - OpenCode: git으로 snapshot을 관리. 근데 commit을 안하기 때문에 history는 안 건드린대
@@ -144,6 +142,26 @@
     - 모든 children을 recursive하게 뒤져서 `.neukgu/`를 확인할 수도 있음
       - 이거는 엄청 비쌀텐데?
 71. OpenCode 보니까 오른쪽에 column 하나 있고 (screen의 50% 정도 차지), 현재 session에서 수정된 파일의 목록을 쭉 보여줌. 클릭하면 그 파일의 diff가 collapsible로 나옴.
+72. SQL
+  - backend를 만들 때: postgresql 하나 띄워놓고 소통할 수 있게 만들어야함!
+  - 방대한 자료를 정리할 때: sqlite 하나 만들고 그 안에다가 알아서 정리하라고 하기!
+  - 이미 만들어진 backend에서 작업할 때: ... 이건 변수가 너무 많은데?? ㅠㅠ
+  - (sqlite를 제외하면) roll_back이 더이상 작동하지 않는다는 치명적인 문제가 있음...
+    - SQL이 아니더라도 `<run>`에도 잠재적으로 있는 문제이기는 함...
+  - 결과물을 엑셀로 받고 싶다고 치면,
+    - 엑셀을 직접 다루는 tool을 추가하기
+    - python 이용해서 엑셀 만들라고 하기
+    - SQL로 만들어 달라고 한 다음에 내가 손으로 엑셀로 바꾸기
+      - rust_xlsxwriter가 괜찮아 보임!
+  - python으로 sqlite3 쓰면 되는데 굳이 별개의 tool을 만들 필요가 있나??
+    - 의미가 조금은 있음. python으로 하려면 `<run>`에다가 `python3 -c` 해서 엄청 긴 코드를 적거나 (escape 하는 과정에서 오류날 확률이 높음), `<write>` + `<run>`의 조합으로 해야하는데, 이것보다는 한 명령어를 쓰는게 더 편하지!
+73. `<read>`에 옵션을 좀더 다양하게 주기?
+  - hex view 추가: hex_dump랑 비슷하게 던지기!
+  - 지금은 확장자 보고 어떻게 렌더링할지 자동으로 결정하잖아? 이거를 llm한테 결정하게 하는 거임! png 파일을 이미지로 볼지 hex로 볼지 고를 수 있음
+  - 온갖 문서 파일들 다 렌더링할까? docx, hwpx등등도 pdf처럼 다루면 좋을 듯...
+74. remember previous cwd
+  - 지금은 error 창 나가면 `.`로 돌아오잖아? 그러지 말고, 가장 최근 cwd를 기억했다가 거기로 돌아가자!
+  - 만약에 최근 cwd가 문제가 있을 수도 있잖아? (삭제됐거나, 권한이 없거나) 그럼 `<cwd>/..`로 한번 시도해보고 `~`로 시도해보기!
 
 ```nu
 cd ~/Documents/Rust/neukgu;
