@@ -3,6 +3,7 @@ use crate::{Error, Model, init_working_dir, prettify_bytes, validate_project_nam
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
+use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
 use iced::widget::{Column, Id, MouseArea, Radio, Row, Scrollable, Stack, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{
@@ -24,6 +25,7 @@ use ragit_fs::{
     is_dir,
     join,
     normalize as normalize_path,
+    parent,
     read_bytes,
     read_bytes_offset,
     read_dir,
@@ -57,6 +59,7 @@ pub struct IcedContext {
     pub syntax_highlight: Option<String>,
     pub long_preview: Option<(String, usize, String)>,
     pub popup_title: Option<String>,
+    pub zoom: f32,
 
     // for `neukgu-instruction.md`
     pub long_text_editor_content: TextEditorContent,
@@ -164,6 +167,7 @@ impl IcedContext {
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     Tick,
+    KeyPressed { key: Key, modifiers: Modifiers },
     EntryViewScrolled(AbsoluteOffset),
     HoverOnEntry(Option<String>),
     OpenPopup(Popup),
@@ -215,6 +219,7 @@ pub fn try_boot(window_size: Option<Size>, cwd: &str) -> Result<IcedContext, Err
         syntax_highlight: None,
         long_preview: None,
         popup_title: None,
+        zoom: 1.0,
         long_text_editor_content: TextEditorContent::new(),
         short_text_editor_content: TextEditorContent::new(),
         selected_model: Model::default(),
@@ -235,6 +240,41 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.entries = load_entries(&context.cwd)?;
                 context.has_neukgu_index = check_neukgu_index(&context.cwd)?;
             }
+        },
+        IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
+            (Key::Named(NamedKey::Escape), false, false, false) => {
+                return Ok(Task::done(IcedMessage::ClosePopup));
+            },
+            (Key::Named(NamedKey::ArrowUp), true, _, _) => {
+                return Ok(Task::done(IcedMessage::ChDir(parent(&context.cwd)?)));
+            },
+            (Key::Character("c"), false, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() })));
+                }
+            },
+            (Key::Character("h"), false, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
+                }
+            },
+            (Key::Character("i"), false, false, false) => {
+                if context.curr_popup.is_none() && !context.has_neukgu_index {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() })));
+                }
+            },
+            (Key::Character("l"), false, false, false) => {
+                if context.curr_popup.is_none() && context.has_neukgu_index {
+                    return Ok(Task::done(IcedMessage::Launch { path: context.cwd.clone() }));
+                }
+            },
+            (Key::Character("-"), true, false, false) => {
+                context.zoom = context.zoom.max(0.2) - 0.1;
+            },
+            (Key::Character("="), true, false, false) => {
+                context.zoom = context.zoom.min(2.4) + 0.1;
+            },
+            _ => {},
         },
         IcedMessage::EntryViewScrolled(o) => {
             context.entry_view_scrolled = o;
@@ -300,8 +340,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     entries.push(text!("").width(context.window_size.width).height(context.window_size.height).into());
 
     let entries_stretched = Column::from_vec(entries)
-        .padding(8)
-        .spacing(8);
+        .padding(context.zoom * 8.0)
+        .spacing(context.zoom * 8.0);
 
     let mut entries_scrollable = Scrollable::new(entries_stretched).id(context.entry_view_id.clone());
 
@@ -311,7 +351,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let entries_colored = Container::new(entries_scrollable).style(|_| set_bg(black()));
     let full_view = Column::from_vec(vec![
-        Container::new(text!("{}", context.cwd)).padding(8).into(),
+        Container::new(text!("{}", context.cwd).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
         horizontal_bar(context.window_size.width),
         render_buttons(context),
         horizontal_bar(context.window_size.width),
@@ -331,17 +371,17 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             render_create_popup(path, context),
         ]).into();
     } else if let Some(Popup::EntryError(_) | Popup::Preview { .. } | Popup::Help) = &context.curr_popup {
-        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()));
+        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 14.0);
 
         if let Some((pre, trunc, post)) = &context.long_preview {
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
                 popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
-                    Container::new(text!("{pre}")).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
-                    text!("... ({} truncated) ...", prettify_bytes(*trunc as u64)).into(),
-                    Container::new(text!("{post}")).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
-                ]).spacing(20).width(Length::Fill)).width(Length::Fill).into(), context),
+                    Container::new(text!("{pre}").size(context.zoom * 14.0)).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
+                    text!("... ({} truncated) ...", prettify_bytes(*trunc as u64)).size(context.zoom * 14.0).into(),
+                    Container::new(text!("{post}").size(context.zoom * 14.0)).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
+                ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
             ]).into();
         }
 
@@ -351,12 +391,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
                     ImageViewer::new(image_buffer.clone()).into(),
-                ]).spacing(20).width(Length::Fill)).width(Length::Fill).into(), context),
+                ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
             ]).into();
         }
 
         else {
-            let text_editor = TextEditor::new(&context.long_text_editor_content).highlight(
+            let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
                 &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
                 iced::highlighter::Theme::SolarizedDark,
             );
@@ -366,18 +406,18 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
                     text_editor.into(),
-                ]).spacing(20).width(Length::Fill)).width(Length::Fill).into(), context),
+                ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
             ]).into();
         }
     } else if let Some(Popup::EntryError(e)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(text!("{e}").into(), context).into(),
+            popup(text!("{e}").size(context.zoom * 14.0).into(), context).into(),
         ]).into();
     } else if let Some(Popup::Help) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(Scrollable::new(text!("{HELP_MESSAGE}")).into(), context).into(),
+            popup(Scrollable::new(text!("{HELP_MESSAGE}").size(context.zoom * 14.0)).into(), context).into(),
         ]).into();
     }
 
@@ -386,19 +426,19 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
     if context.curr_popup.is_some() {
-        return Container::new(text!("")).padding(8).into();
+        return Container::new(text!("")).padding(context.zoom * 8.0).into();
     }
 
-    let mut buttons: Vec<Element<IcedMessage>> = vec![button("Create new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green()).into()];
+    let mut buttons: Vec<Element<IcedMessage>> = vec![button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into()];
 
     if context.has_neukgu_index {
-        buttons.push(button("Launch", IcedMessage::Launch { path: context.cwd.clone() }, green()).into());
+        buttons.push(button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom).into());
     } else {
-        buttons.push(button("Init here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green()).into());
+        buttons.push(button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom).into());
     }
 
-    buttons.push(button("Help", IcedMessage::OpenPopup(Popup::Help), pink()).into());
-    Row::from_vec(buttons).padding(8).spacing(8).into()
+    buttons.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
+    Row::from_vec(buttons).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into()
 }
 
 fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> Element<'m, IcedMessage> {
@@ -433,7 +473,7 @@ fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> E
         None => " ".repeat(14),
     };
 
-    let mut truncated_name = text!("{truncated_name} {size}");
+    let mut truncated_name = text!("{truncated_name} {size}").size(context.zoom * 14.0);
 
     if is_hovered {
         truncated_name = truncated_name.color(black());
@@ -451,7 +491,7 @@ fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> E
         gray(0.5)
     };
 
-    let name_container = Container::new(truncated_name).padding(8).style(
+    let name_container = Container::new(truncated_name).padding(context.zoom * 8.0).style(
         move |_| Style {
             background: Some(Background::Color(name_bg_color)),
             border: Border {
@@ -479,7 +519,7 @@ fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> E
     row.push(name_container.into());
 
     if let Some(e) = &entry.error {
-        row.push(button("(!)", IcedMessage::OpenPopup(Popup::EntryError(e.to_string())), red()).into());
+        row.push(button("(!)", IcedMessage::OpenPopup(Popup::EntryError(e.to_string())), red(), context.zoom).into());
     }
 
     Row::from_vec(row).align_y(Vertical::Center).into()
@@ -487,6 +527,7 @@ fn render_entry<'e, 'c, 'm>(entry: &'e FileEntry, context: &'c IcedContext) -> E
 
 fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let text_editor = TextEditor::new(&context.long_text_editor_content)
+        .size(context.zoom * 14.0)
         .placeholder("What do you want neukgu to do?")
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
@@ -500,9 +541,9 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
             Column::from_vec(vec![
                 text_editor.into(),
                 model_selector.into(),
-                button("Init", IcedMessage::Init { path: path.to_string() }, green()).padding(20).into(),
+                button("Init", IcedMessage::Init { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
-                .spacing(20)
+                .spacing(context.zoom * 20.0)
                 .align_x(Horizontal::Center)
                 .width(Length::Fill),
         )
@@ -514,11 +555,13 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
 
 fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let short_text_editor = TextEditor::new(&context.short_text_editor_content)
+        .size(context.zoom * 14.0)
         .placeholder("Name of the project")
         .on_action(|action| IcedMessage::EditShortText(action));
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
         .placeholder("What do you want neukgu to do?")
+        .size(context.zoom * 14.0)
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 
@@ -532,9 +575,9 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
                 short_text_editor.into(),
                 long_text_editor.into(),
                 model_selector.into(),
-                button("Create", IcedMessage::Create { path: path.to_string() }, green()).padding(20).into(),
+                button("Create", IcedMessage::Create { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
-                .spacing(20)
+                .spacing(context.zoom * 20.0)
                 .align_x(Horizontal::Center)
                 .width(Length::Fill),
         )
@@ -612,15 +655,15 @@ fn check_neukgu_index(path: &str) -> Result<bool, Error> {
 
 fn popup<'e, 'c>(element: Element<'e, IcedMessage>, context: &'c IcedContext) -> Element<'e, IcedMessage> {
     let mut buttons: Vec<Element<IcedMessage>> = vec![];
-    buttons.push(button("Close", IcedMessage::ClosePopup, red()).into());
+    buttons.push(button("Close", IcedMessage::ClosePopup, red(), context.zoom).into());
 
     if context.copy_buffer.is_some() {
-        buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue()).into());
+        buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue(), context.zoom).into());
     }
 
     Container::new(
         Container::new(Column::from_vec(vec![
-            Row::from_vec(buttons).padding(8).spacing(8).into(),
+            Row::from_vec(buttons).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
             element,
         ]).width(Length::Fill)).style(
             |_| Style {
@@ -633,13 +676,13 @@ fn popup<'e, 'c>(element: Element<'e, IcedMessage>, context: &'c IcedContext) ->
                 ..Style::default()
             }
         )
-        .padding(8.0)
+        .padding(context.zoom * 8.0)
         .width(Length::Fill)
     )
     .style(|_| set_bg(Color::from_rgba(0.0, 0.0, 0.0, 0.5)))
     .width(Length::Fill)
     .height(Length::Fill)
-    .padding(32.0)
+    .padding(context.zoom * 32.0)
     .into()
 }
 

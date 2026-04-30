@@ -2,9 +2,9 @@ use super::{FeContext, Truncation, spawn_be_process};
 use crate::Error;
 use iced::{Background, Color, Element, Event, Font, Length, Size, Subscription, Task, Theme};
 use iced::border::{Border, Radius};
-use iced::keyboard::{Event as KeyboardEvent, Key, key::Named as NamedKey};
+use iced::keyboard::{Event as KeyboardEvent, Key, Modifiers};
 use iced::time::{self, Duration};
-use iced::widget::{Container, Space};
+use iced::widget::{Container, Space, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::Style;
 use iced::window::Event as WindowEvent;
@@ -37,7 +37,7 @@ pub fn run() -> Result<(), Error> {
         .subscription(|_| Subscription::batch([
             time::every(Duration::from_millis(1_000)).map(|_| IcedMessage::Tick),
             iced::event::listen().map(|event| match event {
-                Event::Keyboard(KeyboardEvent::KeyPressed { key: Key::Named(NamedKey::Escape), .. }) => IcedMessage::PressedEscKey,
+                Event::Keyboard(KeyboardEvent::KeyPressed { key, modifiers, .. }) => IcedMessage::KeyPressed { key, modifiers },
                 Event::Window(WindowEvent::Opened { size, .. } | WindowEvent::Resized(size)) => IcedMessage::WindowResized(size),
                 _ => IcedMessage::None,
             }),
@@ -70,6 +70,14 @@ impl LocalContext {
             LocalContext::Error(c) => c.window_size,
         }
     }
+
+    pub fn zoom(&self) -> f32 {
+        match self {
+            LocalContext::Launcher(c) => c.zoom,
+            LocalContext::WorkingDir(c) => c.zoom,
+            LocalContext::Error(c) => c.zoom,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -78,7 +86,7 @@ pub enum IcedMessage {
     WorkingDir(WorkingDirMessage),
     Error(ErrorMessage),
     Tick,
-    PressedEscKey,
+    KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
     None,
 }
@@ -87,7 +95,7 @@ fn boot() -> IcedContext {
     let cwd = current_dir().unwrap();
     let local_context = match launcher::try_boot(None, &cwd) {
         Ok(c) => LocalContext::Launcher(c),
-        Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), Size::new(0.0, 0.0))),
+        Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), Size::new(0.0, 0.0), 1.0)),
     };
 
     IcedContext {
@@ -101,24 +109,24 @@ fn boot() -> IcedContext {
 fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match (&mut context.local, message) {
         (context, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
-            *context = LocalContext::Error(error::boot(e, context.window_size()));
+            *context = LocalContext::Error(error::boot(e, context.window_size(), context.zoom()));
             Task::none()
         },
         (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
-            match working_dir::try_boot(false, &path, context.window_size()) {
+            match working_dir::try_boot(false, &path, context.window_size(), context.zoom()) {
                 Ok(c) => {
                     *context = LocalContext::WorkingDir(c);
                 },
                 Err(e) => {
-                    *context = LocalContext::Error(error::boot(format!("{e:?}"), context.window_size()));
+                    *context = LocalContext::Error(error::boot(format!("{e:?}"), context.window_size(), context.zoom()));
                 },
             }
 
             Task::none()
         },
         (LocalContext::Launcher(c), IcedMessage::Tick) => launcher::update(c, LauncherMessage::Tick).map(|t| IcedMessage::Launcher(t)),
-        (LocalContext::Launcher(c), IcedMessage::PressedEscKey) => launcher::update(c, LauncherMessage::ClosePopup).map(|t| IcedMessage::Launcher(t)),
+        (LocalContext::Launcher(c), IcedMessage::KeyPressed { key, modifiers }) => launcher::update(c, LauncherMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Launcher(t)),
         (LocalContext::Launcher(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
@@ -129,7 +137,7 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
         },
         (LocalContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
         (LocalContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
-        (LocalContext::WorkingDir(c), IcedMessage::PressedEscKey) => working_dir::update(c, WorkingDirMessage::ClosePopup).map(|t| IcedMessage::WorkingDir(t)),
+        (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
@@ -153,23 +161,24 @@ fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> 
                                     *c = LocalContext::Launcher(l);
                                 },
                                 Err(_) => {
-                                    *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size()));
+                                    *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
                                 },
                             },
                             Err(_) => {
-                                *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size()));
+                                *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
                             },
                         },
                     },
                     Err(_) => {
-                        *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size()));
+                        *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
                     },
                 },
             }
 
             Task::none()
         },
-        (_, IcedMessage::Tick | IcedMessage::PressedEscKey | IcedMessage::None) => Task::none(),
+        (LocalContext::Error(_), IcedMessage::Tick | IcedMessage::KeyPressed { .. }) => Task::none(),
+        (_, IcedMessage::None) => Task::none(),
         _ => todo!(),
     }
 }
@@ -182,12 +191,12 @@ fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 }
 
-fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color) -> Button<'s, Message> {
-    disabled_button(name, bg_color).on_press(message)
+fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color, zoom: f32) -> Button<'s, Message> {
+    disabled_button(name, bg_color, zoom).on_press(message)
 }
 
-fn disabled_button<'s, Message>(name: &'s str, bg_color: Color) -> Button<'s, Message> {
-    Button::new(name)
+fn disabled_button<'s, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Button<'s, Message> {
+    Button::new(text!("{name}").size(zoom * 14.0))
         .style(move |_, status| {
             let (r, g, b) = (bg_color.r, bg_color.g, bg_color.b);
             let bg_color = match status {
@@ -206,7 +215,7 @@ fn disabled_button<'s, Message>(name: &'s str, bg_color: Color) -> Button<'s, Me
                 border: Border {
                     color: black(),
                     width: 0.0,
-                    radius: Radius::new(4.0),
+                    radius: Radius::new(6.0),
                 },
                 ..ButtonStyle::default()
             }
