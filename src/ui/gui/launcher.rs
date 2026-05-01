@@ -1,4 +1,4 @@
-use super::{black, blue, button, disabled_button, gray, green, horizontal_bar, pink, red, set_bg, white};
+use super::{black, blue, button, disabled_button, gray, green, pink, red, set_bg, white};
 use crate::{Error, Model, init_working_dir, prettify_bytes, validate_project_name};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -222,12 +222,12 @@ pub enum Popup {
     Help,
 }
 
-pub fn try_boot(window_size: Option<Size>, cwd: &str) -> Result<IcedContext, Error> {
+pub fn try_boot(window_size: Size, cwd: &str) -> Result<IcedContext, Error> {
     Ok(IcedContext {
         cwd: cwd.to_string(),
         entries: load_entries(cwd)?,
         has_neukgu_index: check_neukgu_index(cwd)?,
-        window_size: window_size.unwrap_or(Size::new(0.0, 0.0)),
+        window_size,
         entry_view_id: Id::unique(),
         entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
         hovered_entry: None,
@@ -428,9 +428,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let entries_colored = Container::new(entries_scrollable).style(|_| set_bg(black()));
     let full_view = Column::from_vec(vec![
         Container::new(text!("{}", context.cwd).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
-        horizontal_bar(context.window_size.width),
         render_buttons(context),
-        horizontal_bar(context.window_size.width),
         entries_colored.into(),
     ]);
 

@@ -7,7 +7,6 @@ use super::{
     disabled_button,
     gray,
     green,
-    horizontal_bar,
     pink,
     red,
     set_bg,
@@ -680,9 +679,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
     let full_view = Column::from_vec(vec![
         Container::new(text!("{}", context.fe_context.top_bar()).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
-        horizontal_bar(context.window_size.width),
         render_buttons(context),
-        horizontal_bar(context.window_size.width),
         turns_colored.into(),
     ]);
 
