@@ -222,8 +222,13 @@ pub enum Popup {
     Help,
 }
 
-pub fn try_boot(window_size: Size, cwd: &str) -> Result<IcedContext, Error> {
-    Ok(IcedContext {
+pub fn try_boot(window_size: Size, cwd: &str, file: &Option<String>) -> Result<IcedContext, Error> {
+    let file = match file {
+        Some(file) => Some(basename(file)?),
+        None => None,
+    };
+
+    let mut context = IcedContext {
         cwd: cwd.to_string(),
         entries: load_entries(cwd)?,
         has_neukgu_index: check_neukgu_index(cwd)?,
@@ -242,7 +247,13 @@ pub fn try_boot(window_size: Size, cwd: &str) -> Result<IcedContext, Error> {
         long_text_editor_content: TextEditorContent::new(),
         short_text_editor_content: TextEditorContent::new(),
         selected_model: Model::default(),
-    })
+    };
+
+    if let Some(file) = &file {
+        context.open_popup(Popup::Preview { path: join(cwd, file)? })?;
+    }
+
+    Ok(context)
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {

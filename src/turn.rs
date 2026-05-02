@@ -179,6 +179,16 @@ impl Turn {
             timestamp: TURN_TIMESTAMP_REGEX.captures(&self.id.0).unwrap().get(1).unwrap().as_str().to_string(),
         }
     }
+
+    // <read><path>src/</path></read> -> Some(("src/", None))
+    // <read><path>src/main.rs</path></read> -> Some(("src/", Some("main.rs")))
+    pub fn get_result_path(&self) -> Result<Option<(String, Option<String>)>, Error> {
+        match &self.turn_result {
+            TurnResult::ParseError(_) => Ok(None),
+            TurnResult::ToolCallError(te) => te.get_result_path(),
+            TurnResult::ToolCallSuccess(tcs) => tcs.get_result_path(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

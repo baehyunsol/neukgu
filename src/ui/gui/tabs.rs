@@ -9,6 +9,7 @@ use super::tab::{
     IcedContext as TabContext,
     IcedMessage as TabMessage,
 };
+use super::working_dir::IcedMessage as WorkingDirMessage;
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
@@ -16,8 +17,12 @@ use iced::keyboard::{Key, Modifiers};
 use iced::widget::{Column, Row, Space, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::{Container, Style as ContainerStyle};
+use iced::widget::operation::scroll_to;
+use iced::widget::scrollable::AbsoluteOffset;
+use ragit_fs::current_dir;
 
 pub struct IcedContext {
+    pub home_dir: String,
     pub window_size: Size,
 
     // If it's `None`, the index tab is selected.
@@ -34,19 +39,30 @@ pub enum IcedMessage {
     Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
-    NewTab,
+    NewTab(Tab),
     SelectTab(usize),
     CloseTab(usize),
     SelectIndex,
     None,
 }
 
+#[derive(Clone, Debug)]
+pub enum Tab {
+    Browser { dir: String, file: Option<String> },
+}
+
 pub fn boot() -> IcedContext {
+    let home_dir = match std::env::var("HOME") {
+        Ok(d) => d,
+        Err(_) => current_dir().unwrap(),
+    };
+
     IcedContext {
+        home_dir: home_dir.to_string(),
         window_size: Size::new(0.0, 0.0),
         selected_tab: Some(0),
         index: index::boot(),
-        tabs: vec![tab::boot(Size::new(0.0, 0.0))],
+        tabs: vec![tab::boot(Tab::Browser { dir: home_dir, file: None }, Size::new(0.0, 0.0))],
     }
 }
 
@@ -55,6 +71,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => unreachable!(),
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
+        },
+        IcedMessage::Tab(TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file })) => {
+            Task::done(IcedMessage::NewTab(Tab::Browser { dir, file }))
         },
         IcedMessage::Tab(m) => match context.selected_tab {
             Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], m).map(|m| IcedMessage::Tab(m)),
@@ -70,7 +89,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::batch(tasks)
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
-            (Key::Character("t"), true, false, false) => Task::done(IcedMessage::NewTab),
+            (Key::Character("t"), true, false, false) => Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None })),
             (Key::Character("w"), true, false, false) => match context.selected_tab {
                 Some(selected_tab) => Task::done(IcedMessage::CloseTab(selected_tab)),
                 None => Task::none(),  // cannot close this
@@ -113,10 +132,17 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             Task::batch(tasks)
         },
-        IcedMessage::NewTab => {
+        IcedMessage::NewTab(tab) => {
             context.selected_tab = Some(context.tabs.len());
-            context.tabs.push(tab::boot(context.window_size));
-            Task::none()
+            let new_tab = tab::boot(tab, context.window_size);
+            let scroll_id = new_tab.get_scroll_id();
+            context.tabs.push(new_tab);
+
+            if let Some(scroll_id) = scroll_id {
+                scroll_to(scroll_id, AbsoluteOffset { x: 0.0, y: 0.0 })
+            } else {
+                Task::none()
+            }
         },
         IcedMessage::SelectTab(i) => {
             context.selected_tab = Some(i);
@@ -206,7 +232,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 ..ButtonStyle::default()
             },
         }
-    ).on_press(IcedMessage::NewTab);
+    ).on_press(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None }));
 
     row.push(Space::new().width(8.0).into());
     row.push(new_tab.into());

@@ -50,7 +50,7 @@ use iced::widget::text_editor::{
     Edit as TextEditorEdit,
     TextEditor,
 };
-use ragit_fs::join3;
+use ragit_fs::{join, join3};
 use regex::Regex;
 use std::collections::HashSet;
 use std::process::Child;
@@ -135,6 +135,9 @@ pub struct IcedContext {
     // If it's set, it'll display "diff" button in the turn popup.
     pub text_diff: Option<String>,
 
+    // If it's set, it'll display "Open in browser" button in the turn popup.
+    pub turn_result_path: Option<(String, Option<String>)>,  // (dir, basename of file)
+
     // user interaction
     pub is_paused: bool,
     pub pause: Option<bool>,
@@ -168,6 +171,8 @@ impl IcedContext {
                     self.text_diff = None;
                 }
 
+                self.turn_result_path = turn.get_result_path()?;
+                self.turn_result_path = self.turn_result_path.as_ref().map(|(dir, file)| (join(&self.fe_context.working_dir, dir).unwrap(), file.clone()));
                 self.copy_buffer = Some(format!(
 "# {index}. {}
 
@@ -183,7 +188,6 @@ impl IcedContext {
                     stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
                 ));
                 self.loaded_turn = Some((index, turn));
-                self.selected_turn = Some(index);
             },
             // There's nothing to load
             Popup::Interrupt => {},
@@ -309,6 +313,7 @@ pub enum IcedMessage {
     AnswerLLMRequest,
     DismissLLMRequest,
     EditText(TextEditorAction),
+    OpenBrowser { dir: String, file: Option<String> },
     Error(String),
     Quit,
 }
@@ -354,6 +359,7 @@ pub fn try_boot(no_backend: bool, working_dir: &str, window_size: Size, zoom: f3
         text_editor_content: TextEditorContent::new(),
         syntax_highlight: None,
         text_diff: None,
+        turn_result_path: None,
         is_paused: fe_context.is_paused()?,
         pause: None,
         question_from_user: None,
@@ -444,19 +450,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::ArrowLeft), false, false, false) => {
-                if let Some(Popup::Turn(index, _)) = context.curr_popup {
-                    context.select_turn(-1);
-
-                    if let Some(new_index) = context.selected_turn && new_index != index {
-                        return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(new_index, context.fe_context.history[new_index].id.clone()), prev: None }));
-                    }
+                if let Some(Popup::Turn(index @ 1.., _)) = context.curr_popup {
+                    let new_index = index - 1;
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(new_index, context.fe_context.history[new_index].id.clone()), prev: None }));
                 }
             },
             (Key::Named(NamedKey::ArrowRight), false, false, false) => {
                 if let Some(Popup::Turn(index, _)) = context.curr_popup {
-                    context.select_turn(1);
+                    let new_index = index + 1;
 
-                    if let Some(new_index) = context.selected_turn && new_index != index {
+                    if new_index < context.fe_context.history.len() {
                         return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(new_index, context.fe_context.history[new_index].id.clone()), prev: None }));
                     }
                 }
@@ -505,6 +508,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("l"), false, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }));
+                }
+            },
+            (Key::Character("o"), false, false, false) => {
+                if let Some(Popup::Turn(_, _)) = &context.curr_popup && let Some((dir, file)) = &context.turn_result_path {
+                    return Ok(Task::done(IcedMessage::OpenBrowser { dir: dir.to_string(), file: file.clone() }));
                 }
             },
             (Key::Character("r"), false, false, false) => {
@@ -642,6 +650,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditText(a) => {
             context.text_editor_content.perform(a);
         },
+        IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::Quit => {
             context.kill_be_process()?;
@@ -944,13 +953,28 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
     ];
 
+    let mut buttons = vec![];
+
     if context.text_diff.is_some() {
-        turn_content.push(button(
-            "Diff",
+        buttons.push(button(
+            "(D)iff",
             IcedMessage::OpenPopup { curr: Popup::Diff, prev: context.curr_popup.clone() },
             green(),
             context.zoom,
         ).into());
+    }
+
+    if let Some((dir, file)) = &context.turn_result_path {
+        buttons.push(button(
+            "(O)pen in browser",
+            IcedMessage::OpenBrowser { dir: dir.to_string(), file: file.clone() },
+            green(),
+            context.zoom,
+        ).into());
+    }
+
+    if !buttons.is_empty() {
+        turn_content.push(Row::from_vec(buttons).into());
     }
 
     let turn_content = Scrollable::new(Column::from_vec(turn_content).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).width(Length::Fill)).width(Length::Fill);

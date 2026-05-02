@@ -9,6 +9,7 @@ use super::launcher::{
     IcedContext as LauncherContext,
     IcedMessage as LauncherMessage,
 };
+use super::tabs::Tab;
 use super::working_dir::{
     self,
     IcedContext as WorkingDirContext,
@@ -16,7 +17,8 @@ use super::working_dir::{
 };
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
-use ragit_fs::{basename, current_dir, parent};
+use iced::widget::Id;
+use ragit_fs::{basename, parent};
 
 pub struct IcedContext {
     pub global: GlobalContext,
@@ -44,6 +46,14 @@ impl IcedContext {
                 (format!("Working Dir {}/", basename(&c.fe_context.working_dir).unwrap()), flag)
             },
             LocalContext::Error(c) => (c.message.to_string(), red()),
+        }
+    }
+
+    pub fn get_scroll_id(&self) -> Option<Id> {
+        match &self.local {
+            LocalContext::Launcher(c) => Some(c.entry_view_id.clone()),
+            LocalContext::WorkingDir(c) => Some(c.turn_view_id.clone()),
+            LocalContext::Error(_) => None,
         }
     }
 }
@@ -86,18 +96,19 @@ pub enum IcedMessage {
     WindowResized(Size),
 }
 
-pub fn boot(window_size: Size) -> IcedContext {
-    let cwd = current_dir().unwrap();
-    let local_context = match launcher::try_boot(window_size, &cwd) {
-        Ok(c) => LocalContext::Launcher(c),
-        Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), window_size, 1.0)),
-    };
+pub fn boot(tab: Tab, window_size: Size) -> IcedContext {
+    match tab {
+        Tab::Browser { dir, file } => {
+            let local_context = match launcher::try_boot(window_size, &dir, &file) {
+                Ok(c) => LocalContext::Launcher(c),
+                Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), window_size, 1.0)),
+            };
 
-    IcedContext {
-        global: GlobalContext {
-            cwd: cwd.to_string(),
+            IcedContext {
+                global: GlobalContext { cwd: dir },
+                local: local_context,
+            }
         },
-        local: local_context,
     }
 }
 
@@ -139,18 +150,18 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (c, IcedMessage::Error(ErrorMessage::Okay)) => {
-            match launcher::try_boot(c.window_size(), &context.global.cwd) {
+            match launcher::try_boot(c.window_size(), &context.global.cwd, &None) {
                 Ok(l) => {
                     *c = LocalContext::Launcher(l);
                 },
                 Err(e) => match parent(&context.global.cwd) {
-                    Ok(parent) => match launcher::try_boot(c.window_size(), &parent) {
+                    Ok(parent) => match launcher::try_boot(c.window_size(), &parent, &None) {
                         Ok(l) => {
                             context.global.cwd = parent.to_string();
                             *c = LocalContext::Launcher(l);
                         },
                         Err(_) => match std::env::var("HOME") {
-                            Ok(home) => match launcher::try_boot(c.window_size(), &home) {
+                            Ok(home) => match launcher::try_boot(c.window_size(), &home, &None) {
                                 Ok(l) => {
                                     context.global.cwd = home.to_string();
                                     *c = LocalContext::Launcher(l);
@@ -165,7 +176,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                         },
                     },
                     Err(_) => match std::env::var("HOME") {
-                        Ok(home) => match launcher::try_boot(c.window_size(), &home) {
+                        Ok(home) => match launcher::try_boot(c.window_size(), &home, &None) {
                             Ok(l) => {
                                 context.global.cwd = home.to_string();
                                 *c = LocalContext::Launcher(l);

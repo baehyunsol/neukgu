@@ -751,6 +751,18 @@ impl ToolCallSuccess {
             ],
         }
     }
+
+    pub fn get_result_path(&self) -> Result<Option<(String, Option<String>)>, Error> {
+        match self {
+            ToolCallSuccess::ReadText { path, .. } |
+            ToolCallSuccess::ReadPdf { path, .. } |
+            ToolCallSuccess::ReadImage { path, .. } |
+            ToolCallSuccess::Write { path, .. } |
+            ToolCallSuccess::Render { input: path, .. } => Ok(Some((parent(path)?, Some(basename(path)?)))),
+            ToolCallSuccess::ReadDir { path, .. } => Ok(Some((path.to_string(), None))),
+            _ => Ok(None),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -915,6 +927,19 @@ impl ToolCallError {
                 )),
             ],
             _ => panic!("TODO: {self:?}"),
+        }
+    }
+
+    pub fn get_result_path(&self) -> Result<Option<(String, Option<String>)>, Error> {
+        match self {
+            ToolCallError::InvalidFileType { path } |
+            ToolCallError::TextTooLongToRead { path, .. } |
+            ToolCallError::TooManyTextLinesToRead { path, .. } |
+            ToolCallError::TooManyPdfPagesToRead { path, .. } |
+            ToolCallError::BrokenFile { path, .. } |
+            ToolCallError::WriteModeError { path, .. } => Ok(Some((parent(path)?, Some(basename(path)?)))),
+            ToolCallError::TooManyDirEntriesToRead { path, .. } => Ok(Some((path.to_string(), None))),
+            _ => Ok(None),
         }
     }
 }

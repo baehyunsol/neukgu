@@ -141,6 +141,7 @@
   - 온갖 문서 파일들 다 렌더링할까? docx, hwpx등등도 pdf처럼 다루면 좋을 듯...
 75. 쓰다보니 또 불편한 거: 새로운 일을 시키고 싶을 때, 은근 과정이 귀찮음.
   - 지금은, 1) gui를 열고 2) project dir을 찾고 3) new project를 누르고 4) instruction을 입력하고 ...
+76. launcher라는 용어 다 없애고 browser로 고치기!
 
 ```nu
 cd ~/Documents/Rust/neukgu;
