@@ -68,6 +68,7 @@ pub fn boot() -> IcedContext {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
+        IcedMessage::Index(IndexMessage::NewTab) => todo!(),
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => unreachable!(),
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
@@ -125,6 +126,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::WindowResized(size) => {
             context.window_size = size;
             let mut tasks = vec![];
+            tasks.push(index::update(&mut context.index, IndexMessage::WindowResized(size)).map(|m| IcedMessage::Index(m)));
 
             for t in context.tabs.iter_mut() {
                 tasks.push(tab::update(t, TabMessage::WindowResized(size)).map(|m| IcedMessage::Tab(m)));
