@@ -9,6 +9,7 @@ use ragit_fs::{
     write_string,
 };
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PdfId(pub u64);
@@ -72,4 +73,45 @@ pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error
         WriteMode::Atomic,
     )?;
     Ok(id)
+}
+
+pub fn render_first_5_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, Error> {
+    match Pdf::new(bytes.to_vec()) {
+        // hayro sometimes treats non-pdf files as a zero-page pdf file
+        Ok(pdf) if pdf.pages().len() > 0 => {
+            let total_pages = pdf.pages().len();
+            let mut pages = vec![];
+
+            for page in pdf.pages().iter().take(5) {
+                let pixmap = render(
+                    page,
+                    &Default::default(),
+                    &Default::default(),
+                    &RenderSettings {
+                        // hayro's default resolution is too small...
+                        x_scale: 2.0,
+                        y_scale: 2.0,
+        
+                        bg_color: WHITE,
+                        ..Default::default()
+                    },
+                );
+                let png_bytes = pixmap.into_png()?;
+                let mut image_buffer = image::load_from_memory(&png_bytes)?;
+
+                if image_buffer.width() > 1200 || image_buffer.height() > 1200 {
+                    image_buffer = image_buffer.resize(1200, 1200, image::imageops::FilterType::Triangle);
+                }
+
+                let bytes = vec![];
+                let mut writer = Cursor::new(bytes);
+                image_buffer.write_to(&mut writer, image::ImageFormat::Png)?;
+                let bytes = writer.into_inner();
+                pages.push(bytes);
+            }
+
+            Ok(Some((pages, total_pages)))
+        },
+        _ => Ok(None),
+    }
 }

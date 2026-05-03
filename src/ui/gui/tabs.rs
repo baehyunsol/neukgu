@@ -96,6 +96,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 tasks.push(tab::update(t, TabMessage::Tick).map(|m| IcedMessage::Tab(m)));
             }
 
+            tasks.push(index::update(&mut context.index, IndexMessage::Tick).map(|m| IcedMessage::Index(m)));
             context.index.current_tabs = context.tabs.iter().enumerate().map(
                 |(i, t)| t.get_preview(i)
             ).collect();

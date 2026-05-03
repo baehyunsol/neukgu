@@ -40,7 +40,7 @@ pub use image::{ImageId, normalize_and_get_id};
 use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
-use pdf::{PdfId, render_and_get_id};
+use pdf::{PdfId, render_and_get_id, render_first_5_pages};
 use prettify::{
     prettify_bytes,
     prettify_time,

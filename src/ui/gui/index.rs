@@ -1,5 +1,6 @@
 use super::{black, button, circle, green, red, white};
 use super::tab::{TabId, TabPreview};
+use chrono::Local;
 use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
@@ -13,10 +14,12 @@ pub struct IcedContext {
     pub current_tabs: Vec<TabPreview>,
     pub curr_popup: Option<(/* TODO */)>,
     pub zoom: f32,
+    pub now: String,
 }
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
+    Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
     NewTab,
@@ -31,11 +34,15 @@ pub fn boot() -> IcedContext {
         current_tabs: vec![],
         curr_popup: None,
         zoom: 1.0,
+        now: Local::now().to_rfc2822(),
     }
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
+        IcedMessage::Tick => {
+            context.now = Local::now().to_rfc2822();
+        },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Character("p"), false, false, false) => {
                 if context.curr_popup.is_none() {
@@ -67,7 +74,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Column::from_vec(vec![
+    let c = Column::from_vec(vec![
+        text!("{}", context.now).size(context.zoom * 14.0).into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
                 text!("Recent projects").size(context.zoom * 14.0).into(),
@@ -92,7 +100,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .padding(context.zoom * 8.0)
             .spacing(context.zoom * 8.0)
             .width(context.window_size.width)
-            .height(context.window_size.height * 0.43)
+            .height(context.window_size.height * 0.5)
             .into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
@@ -118,13 +126,16 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .padding(context.zoom * 8.0)
             .spacing(context.zoom * 8.0)
             .width(context.window_size.width)
-            .height(context.window_size.height * 0.43)
+            .height(context.window_size.height * 0.5)
             .into(),
-    ]).spacing(context.zoom * 8.0).into()
+    ]).spacing(context.zoom * 8.0);
+
+    Scrollable::new(c).into()
 }
 
+// <full-path> (39 minutes ago) [Launch] [Browse] [Instruction]
 fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Column::from_vec((0..20).map(|_| text!("PLACEHOLDER").into()).collect()).into()
+    Column::from_vec((0..50).map(|_| text!("PLACEHOLDER").into()).collect()).into()
 }
 
 fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
@@ -150,7 +161,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 text!("{}. ", i + 2).size(context.zoom * 14.0).into(),
                 circle(context.zoom * 6.0, tab.flag),
                 if texts.len() == 1 { texts.remove(0).into() } else { Column::from_vec(texts).into() },
-                button("Open", IcedMessage::OpenTab { id: tab.id, index: i }, green(), context.zoom).into(),
+                button("Open", IcedMessage::OpenTab { id: tab.id, index: tab.index }, green(), context.zoom).into(),
             ]).spacing(context.zoom * 4.0).align_y(Vertical::Center).into()
         }
     ));

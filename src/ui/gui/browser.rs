@@ -12,7 +12,7 @@ use super::{
     take_chars,
     white,
 };
-use crate::{Error, Model, init_working_dir, prettify_bytes, validate_project_name};
+use crate::{Error, Model, init_working_dir, prettify_bytes, render_first_5_pages, validate_project_name};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
@@ -75,7 +75,7 @@ pub struct IcedContext {
 
     pub curr_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
-    pub image_buffer: Option<ImageHandle>,
+    pub image_buffer: Vec<(String, ImageHandle)>,
     pub syntax_highlight: Option<String>,
     pub long_preview: Option<(String, usize, String)>,
     pub popup_title: Option<String>,
@@ -113,55 +113,69 @@ impl IcedContext {
             Popup::Preview { path } => {
                 let mut is_binary = false;
                 let file_size = file_size(&path)? as usize;
-                let content = if file_size > 33554432 {
+                let content: Option<String> = if file_size > 33554432 {
                     is_binary = true;
                     let pre = read_bytes_offset(&path, 0, 16384)?;
                     let mut post_offset = file_size - 16384;
                     post_offset -= post_offset % 32;
                     let post = read_bytes_offset(&path, post_offset as u64, file_size as u64)?;
-                    vec![
+                    Some(vec![
                         dump_hex(&pre, 0),
                         dump_hex(&post, post_offset),
-                    ].concat()
+                    ].concat())
                 } else {
                     match String::from_utf8(read_bytes(&path)?) {
                         Ok(s) => {
                             self.syntax_highlight = extension(&path)?;
-                            s
+                            Some(s)
                         },
                         Err(e) => match image::load_from_memory(e.as_bytes()) {
-                            Ok(_) => {
-                                self.image_buffer = Some(ImageHandle::from_bytes(e.as_bytes().to_vec()));
-                                String::new()
+                            Ok(img) => {
+                                self.image_buffer = vec![(format!("{}x{}", img.width(), img.height()), ImageHandle::from_bytes(e.as_bytes().to_vec()))];
+                                None
                             },
-                            _ => {
-                                is_binary = true;
-                                dump_hex(e.as_bytes(), 0)
+                            _ => match render_first_5_pages(e.as_bytes()) {
+                                Ok(Some((pages, total_pages))) => {
+                                    self.image_buffer = pages.into_iter().enumerate().map(|(i, buffer)| (format!("{}/{total_pages}", i + 1), ImageHandle::from_bytes(buffer))).collect();
+                                    None
+                                },
+                                _ => {
+                                    is_binary = true;
+                                    Some(dump_hex(e.as_bytes(), 0))
+                                },
                             },
                         },
                     }
                 };
 
-                let preview = if content.chars().count() > 32768 {
-                    // hex_dump's line is 84 characters, so it shows 4KiB if the file is binary
-                    let pre = content.chars().take(10751).collect::<String>();
-                    let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(10752).rev().collect::<String>();
-                    let trunc = if is_binary {
-                        file_size - 4096
-                    } else {
-                        content.len() - pre.len() - post.len()
-                    };
+                let preview = match &content {
+                    Some(content) if content.chars().count() > 32768 => {
+                        // hex_dump's line is 84 characters, so it shows 4KiB if the file is binary
+                        let pre = content.chars().take(10751).collect::<String>();
+                        let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(10752).rev().collect::<String>();
+                        let trunc = if is_binary {
+                            file_size - 4096
+                        } else {
+                            content.len() - pre.len() - post.len()
+                        };
 
-                    self.syntax_highlight = None;
-                    self.long_preview = Some((pre, trunc, post));
-                    String::new()
-                } else {
-                    content.to_string()
+                        self.syntax_highlight = None;
+                        self.long_preview = Some((pre, trunc, post));
+                        None
+                    },
+                    Some(content) => Some(content.to_string()),
+                    None => None,
                 };
 
                 self.popup_title = Some(path);
-                self.set_text_editor_content(preview.to_string());
-                self.copy_buffer = Some(content.to_string());
+
+                if let Some(content) = content {
+                    self.copy_buffer = Some(content);
+                }
+
+                if let Some(preview) = preview {
+                    self.set_text_editor_content(preview);
+                }
             },
             Popup::AskDelete { .. } => {},
             Popup::Help => {
@@ -178,7 +192,7 @@ impl IcedContext {
         self.hovered_entry = None;
         self.curr_popup = None;
         self.copy_buffer = None;
-        self.image_buffer = None;
+        self.image_buffer = vec![];
         self.long_preview = None;
         self.popup_title = None;
         self.long_text_editor_content = TextEditorContent::with_text("");
@@ -253,7 +267,7 @@ pub fn try_boot(window_size: Size, home_dir: &str, cwd: &str, file: &Option<Stri
         selected_entry: None,
         curr_popup: None,
         copy_buffer: None,
-        image_buffer: None,
+        image_buffer: vec![],
         syntax_highlight: None,
         long_preview: None,
         popup_title: None,
@@ -484,13 +498,21 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             ]).into();
         }
 
-        else if let Some(image_buffer) = &context.image_buffer {
+        else if !context.image_buffer.is_empty() {
+            let mut column: Vec<Element<IcedMessage>> = vec![title.into()];
+
+            for (caption, image) in context.image_buffer.iter() {
+                column.push(text!("{caption}").size(context.zoom * 14.0).into());
+                column.push(ImageViewer::new(image.clone()).into());
+            }
+
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
-                popup(Scrollable::new(Column::from_vec(vec![
-                    title.into(),
-                    ImageViewer::new(image_buffer.clone()).into(),
-                ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
+                popup(Scrollable::new(
+                    Column::from_vec(column)
+                        .spacing(context.zoom * 20.0)
+                        .width(Length::Fill)
+                ).width(Length::Fill).into(), context),
             ]).into();
         }
 

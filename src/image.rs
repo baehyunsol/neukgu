@@ -34,8 +34,8 @@ pub fn normalize_and_get_id(bytes: &[u8], working_dir: &str) -> Result<ImageId, 
 
     let mut image_buffer = image::load_from_memory(bytes)?;
 
-    if image_buffer.width() > 1024 || image_buffer.height() > 1024 {
-        image_buffer = image_buffer.resize(1024, 1024, image::imageops::FilterType::Triangle);
+    if image_buffer.width() > 1200 || image_buffer.height() > 1200 {
+        image_buffer = image_buffer.resize(1200, 1200, image::imageops::FilterType::Triangle);
     }
 
     let bytes = vec![];
