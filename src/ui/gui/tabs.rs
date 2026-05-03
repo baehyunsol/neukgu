@@ -62,7 +62,7 @@ pub fn boot() -> IcedContext {
         window_size: Size::new(0.0, 0.0),
         selected_tab: Some(0),
         index: index::boot(),
-        tabs: vec![tab::boot(Tab::Browser { dir: home_dir, file: None }, Size::new(0.0, 0.0))],
+        tabs: vec![tab::boot(&home_dir.clone(), Tab::Browser { dir: home_dir, file: None }, Size::new(0.0, 0.0))],
     }
 }
 
@@ -134,7 +134,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::NewTab(tab) => {
             context.selected_tab = Some(context.tabs.len());
-            let new_tab = tab::boot(tab, context.window_size);
+            let new_tab = tab::boot(&context.home_dir, tab, context.window_size);
             let scroll_id = new_tab.get_scroll_id();
             context.tabs.push(new_tab);
 

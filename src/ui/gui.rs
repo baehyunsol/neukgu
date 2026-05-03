@@ -9,9 +9,9 @@ use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle}
 use iced::widget::container::Style;
 use iced::window::Event as WindowEvent;
 
+mod browser;
 mod error;
 mod index;
-mod launcher;
 mod tab;
 mod tabs;
 mod working_dir;

@@ -1,13 +1,13 @@
 use super::{blue, green, red, yellow, white};
+use super::browser::{
+    self,
+    IcedContext as BrowserContext,
+    IcedMessage as BrowserMessage,
+};
 use super::error::{
     self,
     IcedContext as ErrorContext,
     IcedMessage as ErrorMessage,
-};
-use super::launcher::{
-    self,
-    IcedContext as LauncherContext,
-    IcedMessage as LauncherMessage,
 };
 use super::tabs::Tab;
 use super::working_dir::{
@@ -28,9 +28,9 @@ pub struct IcedContext {
 impl IcedContext {
     pub fn get_title_and_flag(&self) -> (String, Color) {
         match &self.local {
-            LocalContext::Launcher(c) => {
+            LocalContext::Browser(c) => {
                 let title = match &c.curr_popup {
-                    Some(launcher::Popup::Preview { path }) => format!("Reading {}", basename(path).unwrap()),
+                    Some(browser::Popup::Preview { path }) => format!("Reading {}", basename(path).unwrap()),
                     _ => format!("Browse {}/", basename(&c.cwd).unwrap()),
                 };
                 (title, white())
@@ -51,7 +51,7 @@ impl IcedContext {
 
     pub fn get_scroll_id(&self) -> Option<Id> {
         match &self.local {
-            LocalContext::Launcher(c) => Some(c.entry_view_id.clone()),
+            LocalContext::Browser(c) => Some(c.entry_view_id.clone()),
             LocalContext::WorkingDir(c) => Some(c.turn_view_id.clone()),
             LocalContext::Error(_) => None,
         }
@@ -59,11 +59,12 @@ impl IcedContext {
 }
 
 pub struct GlobalContext {
+    pub home_dir: String,
     pub cwd: String,
 }
 
 pub enum LocalContext {
-    Launcher(LauncherContext),
+    Browser(BrowserContext),
     WorkingDir(WorkingDirContext),
     Error(ErrorContext),
 }
@@ -71,7 +72,7 @@ pub enum LocalContext {
 impl LocalContext {
     pub fn window_size(&self) -> Size {
         match self {
-            LocalContext::Launcher(c) => c.window_size,
+            LocalContext::Browser(c) => c.window_size,
             LocalContext::WorkingDir(c) => c.window_size,
             LocalContext::Error(c) => c.window_size,
         }
@@ -79,7 +80,7 @@ impl LocalContext {
 
     pub fn zoom(&self) -> f32 {
         match self {
-            LocalContext::Launcher(c) => c.zoom,
+            LocalContext::Browser(c) => c.zoom,
             LocalContext::WorkingDir(c) => c.zoom,
             LocalContext::Error(c) => c.zoom,
         }
@@ -88,7 +89,7 @@ impl LocalContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
-    Launcher(LauncherMessage),
+    Browser(BrowserMessage),
     WorkingDir(WorkingDirMessage),
     Error(ErrorMessage),
     Tick,
@@ -96,16 +97,16 @@ pub enum IcedMessage {
     WindowResized(Size),
 }
 
-pub fn boot(tab: Tab, window_size: Size) -> IcedContext {
+pub fn boot(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
     match tab {
         Tab::Browser { dir, file } => {
-            let local_context = match launcher::try_boot(window_size, &dir, &file) {
-                Ok(c) => LocalContext::Launcher(c),
+            let local_context = match browser::try_boot(window_size, home_dir, &dir, &file) {
+                Ok(c) => LocalContext::Browser(c),
                 Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), window_size, 1.0)),
             };
 
             IcedContext {
-                global: GlobalContext { cwd: dir },
+                global: GlobalContext { home_dir: home_dir.to_string(), cwd: dir },
                 local: local_context,
             }
         },
@@ -114,11 +115,11 @@ pub fn boot(tab: Tab, window_size: Size) -> IcedContext {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match (&mut context.local, message) {
-        (context, IcedMessage::Launcher(LauncherMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
+        (context, IcedMessage::Browser(BrowserMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
             *context = LocalContext::Error(error::boot(e, context.window_size(), context.zoom()));
             Task::none()
         },
-        (context, IcedMessage::Launcher(LauncherMessage::Launch { path })) => {
+        (context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
             match working_dir::try_boot(false, &path, context.window_size(), context.zoom()) {
                 Ok(c) => {
@@ -131,17 +132,17 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             Task::none()
         },
-        (LocalContext::Launcher(c), IcedMessage::Tick) => launcher::update(c, LauncherMessage::Tick).map(|t| IcedMessage::Launcher(t)),
-        (LocalContext::Launcher(c), IcedMessage::KeyPressed { key, modifiers }) => launcher::update(c, LauncherMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Launcher(t)),
-        (LocalContext::Launcher(c), IcedMessage::WindowResized(s)) => {
+        (LocalContext::Browser(c), IcedMessage::Tick) => browser::update(c, BrowserMessage::Tick).map(|t| IcedMessage::Browser(t)),
+        (LocalContext::Browser(c), IcedMessage::KeyPressed { key, modifiers }) => browser::update(c, BrowserMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Browser(t)),
+        (LocalContext::Browser(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
         },
-        (LocalContext::Launcher(c), IcedMessage::Launcher(LauncherMessage::ChDir(path))) => {
+        (LocalContext::Browser(c), IcedMessage::Browser(BrowserMessage::ChDir(path))) => {
             context.global.cwd = path.to_string();
-            launcher::update(c, LauncherMessage::ChDir(path)).map(|t| IcedMessage::Launcher(t))
+            browser::update(c, BrowserMessage::ChDir(path)).map(|t| IcedMessage::Browser(t))
         },
-        (LocalContext::Launcher(c), IcedMessage::Launcher(m)) => launcher::update(c, m).map(|t| IcedMessage::Launcher(t)),
+        (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
         (LocalContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
@@ -150,21 +151,21 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (c, IcedMessage::Error(ErrorMessage::Okay)) => {
-            match launcher::try_boot(c.window_size(), &context.global.cwd, &None) {
+            match browser::try_boot(c.window_size(), &context.global.home_dir, &context.global.cwd, &None) {
                 Ok(l) => {
-                    *c = LocalContext::Launcher(l);
+                    *c = LocalContext::Browser(l);
                 },
                 Err(e) => match parent(&context.global.cwd) {
-                    Ok(parent) => match launcher::try_boot(c.window_size(), &parent, &None) {
+                    Ok(parent) => match browser::try_boot(c.window_size(), &context.global.home_dir, &parent, &None) {
                         Ok(l) => {
                             context.global.cwd = parent.to_string();
-                            *c = LocalContext::Launcher(l);
+                            *c = LocalContext::Browser(l);
                         },
                         Err(_) => match std::env::var("HOME") {
-                            Ok(home) => match launcher::try_boot(c.window_size(), &home, &None) {
+                            Ok(home) => match browser::try_boot(c.window_size(), &home, &home, &None) {
                                 Ok(l) => {
                                     context.global.cwd = home.to_string();
-                                    *c = LocalContext::Launcher(l);
+                                    *c = LocalContext::Browser(l);
                                 },
                                 Err(_) => {
                                     *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
@@ -176,10 +177,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                         },
                     },
                     Err(_) => match std::env::var("HOME") {
-                        Ok(home) => match launcher::try_boot(c.window_size(), &home, &None) {
+                        Ok(home) => match browser::try_boot(c.window_size(), &home, &home, &None) {
                             Ok(l) => {
                                 context.global.cwd = home.to_string();
-                                *c = LocalContext::Launcher(l);
+                                *c = LocalContext::Browser(l);
                             },
                             Err(_) => {
                                 *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
@@ -202,7 +203,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     match &context.local {
-        LocalContext::Launcher(c) => launcher::view(c).map(|m| IcedMessage::Launcher(m)),
+        LocalContext::Browser(c) => browser::view(c).map(|m| IcedMessage::Browser(m)),
         LocalContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
         LocalContext::Error(e) => error::view(e).map(|m| IcedMessage::Error(m)),
     }

@@ -37,7 +37,6 @@ use ragit_fs::{
     file_size,
     is_dir,
     join,
-    normalize as normalize_path,
     parent,
     read_bytes,
     read_bytes_offset,
@@ -61,6 +60,7 @@ There are multiple ways to work with neukgu.
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
+    pub home_dir: String,
     pub cwd: String,
     pub entries: Vec<FileEntry>,
     pub has_neukgu_index: bool,
@@ -235,13 +235,14 @@ pub enum Popup {
     Help,
 }
 
-pub fn try_boot(window_size: Size, cwd: &str, file: &Option<String>) -> Result<IcedContext, Error> {
+pub fn try_boot(window_size: Size, home_dir: &str, cwd: &str, file: &Option<String>) -> Result<IcedContext, Error> {
     let file = match file {
         Some(file) => Some(basename(file)?),
         None => None,
     };
 
     let mut context = IcedContext {
+        home_dir: home_dir.to_string(),
         cwd: cwd.to_string(),
         entries: load_entries(cwd)?,
         has_neukgu_index: check_neukgu_index(cwd)?,
@@ -544,16 +545,31 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
         return Container::new(text!("")).padding(context.zoom * 8.0).into();
     }
 
-    let mut buttons: Vec<Element<IcedMessage>> = vec![button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into()];
-
-    if context.has_neukgu_index {
-        buttons.push(button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom).into());
+    let mut buttons_row1: Vec<Element<IcedMessage>> = if context.has_neukgu_index {
+        vec![
+            button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom).into(),
+        ]
     } else {
-        buttons.push(button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom).into());
+        vec![
+            button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom).into(),
+        ]
+    };
+    let mut buttons_row2: Vec<Element<IcedMessage>> = vec![];
+
+    buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
+
+    if let Ok(parent) = parent(&context.cwd) && !parent.is_empty() {
+        buttons_row2.push(button("Up", IcedMessage::ChDir(parent), green(), context.zoom).into());
     }
 
-    buttons.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
-    Row::from_vec(buttons).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into()
+    buttons_row2.push(button("Home", IcedMessage::ChDir(context.home_dir.to_string()), green(), context.zoom).into());
+
+    Column::from_vec(vec![
+        Row::from_vec(buttons_row1).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
+        Row::from_vec(buttons_row2).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
+    ]).into()
 }
 
 fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c IcedContext) -> Element<'m, IcedMessage> {
@@ -709,14 +725,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
 }
 
 fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
-    let mut dirs = vec![FileEntry {
-        name: String::from(".."),
-        path: normalize_path(&join(path, "..")?)?,
-        is_dir: true,
-        has_neukgu_index: false,
-        size: None,
-        error: None,
-    }];
+    let mut dirs = vec![];
     let mut files = vec![];
 
     for e in read_dir(path, true)? {
