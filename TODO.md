@@ -32,14 +32,6 @@
     - 과거의 session을 보는 view도 만들어야하긴 한데, working-dir-view를 재활용하기에는 다른게 너무 많고 from-scratch로 만들기에는 working-dir-view을 재활용하고 싶고...
     - 과거의 session을 보는 view를 따로 만들면, 과거의 session을 보는 동안 현재 working-dir의 be_process가 못 도는데??
     - 그럼 tab 기능을 만들어서 현재 session 하고 과거 session 하고 별개의 tab에 올려놔? ㅋㅋㅋ
-38. multi-session neukgu?
-  - tab을 여러개 띄워두고 동시에 여러 작업을 시키면... 편하겠지?
-  - 근데 또 window manager가 할 수 있는 걸 굳이 내가 구현해야하나 싶기도 하고
-  - tab이 여러개일 때 각 tab의 상황을 동시에 보여주는 상황판이 있으면 더 편할 수도?
-    - `FeContext::curr_status()`만 한번에 보여줘도 괜찮을 듯!
-  - 여러 tab을 관리하는 agent??
-  - gui 구현은 생각보다 쉬움. context를 `Vec<IcedContext>`로 만들어버리면 되지... ㅋㅋㅋ
-  - tab 기능이 더 필요해졌음 -> 늑구가 도는 동안 실시간으로 working-dir을 보고 싶음
 41. testbench
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문에 정상적으로 대답한 다음에 잘 진행되는지 확인
@@ -141,6 +133,7 @@
   - 온갖 문서 파일들 다 렌더링할까? docx, hwpx등등도 pdf처럼 다루면 좋을 듯...
 75. 쓰다보니 또 불편한 거: 새로운 일을 시키고 싶을 때, 은근 과정이 귀찮음.
   - 지금은, 1) gui를 열고 2) project dir을 찾고 3) new project를 누르고 4) instruction을 입력하고 ...
+  - index tab에다가 1) 최근 project 2) quick create를 만들자! 이걸 하려면 global neukgu dir이 있어야할 듯 ㅠㅠ
 76. launcher라는 용어 다 없애고 browser로 고치기!
 
 ```nu
