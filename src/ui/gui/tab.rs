@@ -1,4 +1,4 @@
-use super::{blue, green, red, yellow, white};
+use super::{blue, green, red, skyblue, yellow};
 use super::browser::{
     self,
     IcedContext as BrowserContext,
@@ -20,20 +20,34 @@ use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
 use ragit_fs::{basename, parent};
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TabId(u64);
+
+pub struct TabPreview {
+    pub id: TabId,
+    pub index: usize,
+    pub flag: Color,
+    pub title: String,
+    pub status: Option<String>,
+    pub error: Option<String>,
+}
+
 pub struct IcedContext {
-    pub global: GlobalContext,
+    pub id: TabId,
+    pub home_dir: String,
+    pub cwd: String,
     pub local: LocalContext,
 }
 
 impl IcedContext {
-    pub fn get_title_and_flag(&self) -> (String, Color) {
+    pub fn get_title_and_flag(&self, full_path: bool) -> (String, Color) {
         match &self.local {
             LocalContext::Browser(c) => {
                 let title = match &c.curr_popup {
-                    Some(browser::Popup::Preview { path }) => format!("Reading {}", basename(path).unwrap()),
-                    _ => format!("Browse {}/", basename(&c.cwd).unwrap()),
+                    Some(browser::Popup::Preview { path }) => format!("Reading {}", if full_path { path.to_string() } else { basename(path).unwrap() }),
+                    _ => format!("Browse {}/", if full_path { c.cwd.to_string() } else { basename(&c.cwd).unwrap() }),
                 };
-                (title, white())
+                (title, skyblue())
             },
             LocalContext::WorkingDir(c) => {
                 let flag = match 0 {
@@ -43,7 +57,7 @@ impl IcedContext {
                     _ => green(),
                 };
 
-                (format!("Working Dir {}/", basename(&c.fe_context.working_dir).unwrap()), flag)
+                (format!("Working Dir {}/", if full_path { c.fe_context.working_dir.to_string() } else { basename(&c.fe_context.working_dir).unwrap() }), flag)
             },
             LocalContext::Error(c) => (c.message.to_string(), red()),
         }
@@ -56,11 +70,26 @@ impl IcedContext {
             LocalContext::Error(_) => None,
         }
     }
-}
 
-pub struct GlobalContext {
-    pub home_dir: String,
-    pub cwd: String,
+    pub fn get_preview(&self, index: usize) -> TabPreview {
+        let (title, flag) = self.get_title_and_flag(true);
+        let (status, error) = match &self.local {
+            LocalContext::WorkingDir(c) => (
+                Some(c.fe_context.curr_status()),
+                c.fe_context.curr_error(),
+            ),
+            LocalContext::Browser(_) | LocalContext::Error(_) => (None, None),
+        };
+
+        TabPreview {
+            id: self.id,
+            index,
+            flag,
+            title,
+            status,
+            error,
+        }
+    }
 }
 
 pub enum LocalContext {
@@ -106,7 +135,9 @@ pub fn boot(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
             };
 
             IcedContext {
-                global: GlobalContext { home_dir: home_dir.to_string(), cwd: dir },
+                id: TabId(rand::random::<u64>()),
+                home_dir: home_dir.to_string(),
+                cwd: dir,
                 local: local_context,
             }
         },
@@ -139,7 +170,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::none()
         },
         (LocalContext::Browser(c), IcedMessage::Browser(BrowserMessage::ChDir(path))) => {
-            context.global.cwd = path.to_string();
+            context.cwd = path.to_string();
             browser::update(c, BrowserMessage::ChDir(path)).map(|t| IcedMessage::Browser(t))
         },
         (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
@@ -151,20 +182,20 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (c, IcedMessage::Error(ErrorMessage::Okay)) => {
-            match browser::try_boot(c.window_size(), &context.global.home_dir, &context.global.cwd, &None) {
+            match browser::try_boot(c.window_size(), &context.home_dir, &context.cwd, &None) {
                 Ok(l) => {
                     *c = LocalContext::Browser(l);
                 },
-                Err(e) => match parent(&context.global.cwd) {
-                    Ok(parent) => match browser::try_boot(c.window_size(), &context.global.home_dir, &parent, &None) {
+                Err(e) => match parent(&context.cwd) {
+                    Ok(parent) => match browser::try_boot(c.window_size(), &context.home_dir, &parent, &None) {
                         Ok(l) => {
-                            context.global.cwd = parent.to_string();
+                            context.cwd = parent.to_string();
                             *c = LocalContext::Browser(l);
                         },
                         Err(_) => match std::env::var("HOME") {
                             Ok(home) => match browser::try_boot(c.window_size(), &home, &home, &None) {
                                 Ok(l) => {
-                                    context.global.cwd = home.to_string();
+                                    context.cwd = home.to_string();
                                     *c = LocalContext::Browser(l);
                                 },
                                 Err(_) => {
@@ -179,7 +210,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                     Err(_) => match std::env::var("HOME") {
                         Ok(home) => match browser::try_boot(c.window_size(), &home, &home, &None) {
                             Ok(l) => {
-                                context.global.cwd = home.to_string();
+                                context.cwd = home.to_string();
                                 *c = LocalContext::Browser(l);
                             },
                             Err(_) => {

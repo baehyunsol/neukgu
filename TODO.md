@@ -136,6 +136,8 @@
   - index tab에다가 1) 최근 project 2) quick create를 만들자! 이걸 하려면 global neukgu dir이 있어야할 듯 ㅠㅠ
 77. brainstorming mode
   - chat with AI to brainstorm, and can launch a new project from this ui
+78. summary agent
+  - 그냥 fake turn으로 "니가 지금까지 한 거 요약해서 logs/summary.md에 저장해"라고 하면 될 듯? 이거는 verify가 더 쉬움! tool-call-success가 될 때까지 계속 시키면 됨 ㅋㅋ
 
 ```nu
 cd ~/Documents/Rust/neukgu;

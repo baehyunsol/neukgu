@@ -1,4 +1,4 @@
-use super::{black, count_chars, gray, set_bg, take_chars, white};
+use super::{black, circle, count_chars, gray, set_bg, take_chars, white};
 use super::index::{
     self,
     IcedContext as IndexContext,
@@ -68,7 +68,16 @@ pub fn boot() -> IcedContext {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
-        IcedMessage::Index(IndexMessage::NewTab) => todo!(),
+        IcedMessage::Index(IndexMessage::NewTab) => {
+            Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None }))
+        },
+        IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
+            if let Some(tab) = context.tabs.get(index) && tab.id == id {
+                context.selected_tab = Some(index);
+            }
+
+            Task::none()
+        },
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => unreachable!(),
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
@@ -87,6 +96,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 tasks.push(tab::update(t, TabMessage::Tick).map(|m| IcedMessage::Tab(m)));
             }
 
+            context.index.current_tabs = context.tabs.iter().enumerate().map(
+                |(i, t)| t.get_preview(i)
+            ).collect();
             Task::batch(tasks)
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
@@ -210,7 +222,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ));
 
     for (i, tab) in context.tabs.iter().enumerate() {
-        let (title, flag) = tab.get_title_and_flag();
+        let (title, flag) = tab.get_title_and_flag(true);
         let (curr_selected, select_action, title_width) = if let Some(s) = context.selected_tab && s == i {
             (true, IcedMessage::None, selected_tab_width)
         } else {
@@ -264,16 +276,8 @@ fn render_tab_title<'t, 'm>(
     close_action: Option<IcedMessage>,
     width: f32,
 ) -> Element<'m, IcedMessage> {
-    let flag = Container::new(Space::new()).padding(6.0).style(move |_| ContainerStyle {
-        background: Some(Background::Color(flag)),
-        border: Border {
-            color: black(),
-            width: 0.0,
-            radius: Radius::new(12.0),
-        },
-        ..ContainerStyle::default()
-    });
-    let title_limit = (width * 0.07).round() as usize;
+    let flag = circle(6.0, flag);
+    let title_limit = (width * 0.075).round() as usize;
     let title = if title_limit < 4 {
         String::new()
     } else if count_chars(title) > title_limit {

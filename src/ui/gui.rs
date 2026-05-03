@@ -1,12 +1,12 @@
 use super::{FeContext, Truncation, spawn_be_process};
 use crate::Error;
-use iced::{Background, Color, Event, Font, Subscription, Theme};
+use iced::{Background, Color, Element, Event, Font, Subscription, Theme};
 use iced::border::{Border, Radius};
 use iced::keyboard::Event as KeyboardEvent;
 use iced::time::{self, Duration};
-use iced::widget::text;
+use iced::widget::{Space, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
-use iced::widget::container::Style;
+use iced::widget::container::{Container, Style};
 use iced::window::Event as WindowEvent;
 
 mod browser;
@@ -26,7 +26,7 @@ pub fn run() -> Result<(), Error> {
         .font(include_bytes!("../../resources/SpaceMono-Regular.ttf"))
         .default_font(DEFAULT_MONO_FONT)
         .subscription(|_| Subscription::batch([
-            time::every(Duration::from_millis(1_000)).map(|_| TabsMessage::Tick),
+            time::every(Duration::from_millis(500)).map(|_| TabsMessage::Tick),
             iced::event::listen().map(|event| match event {
                 Event::Keyboard(KeyboardEvent::KeyPressed { key, modifiers, .. }) => TabsMessage::KeyPressed { key, modifiers },
                 Event::Window(WindowEvent::Opened { size, .. } | WindowEvent::Resized(size)) => TabsMessage::WindowResized(size),
@@ -70,6 +70,18 @@ fn disabled_button<'s, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Bu
         .padding(8)
 }
 
+fn circle<'m, Message: 'm>(radius: f32, color: Color) -> Element<'m, Message> {
+    Container::new(Space::new()).padding(radius).style(move |_| Style {
+        background: Some(Background::Color(color)),
+        border: Border {
+            color: black(),
+            width: 0.0,
+            radius: Radius::new(radius),
+        },
+        ..Style::default()
+    }).into()
+}
+
 fn set_bg(color: Color) -> Style {
     Style {
         background: Some(Background::Color(color)),
@@ -107,6 +119,10 @@ fn yellow() -> Color {
 
 fn pink() -> Color {
     Color::from_rgb(0.9, 0.6, 0.7)
+}
+
+fn skyblue() -> Color {
+    Color::from_rgb(0.5, 0.7, 0.9)
 }
 
 fn count_chars(s: &str) -> usize {
