@@ -1,4 +1,4 @@
-use super::{black, gray, set_bg, white};
+use super::{black, count_chars, gray, set_bg, take_chars, white};
 use super::index::{
     self,
     IcedContext as IndexContext,
@@ -119,7 +119,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             },
             _ => match context.selected_tab {
                 Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], TabMessage::KeyPressed { key, modifiers }).map(|m| IcedMessage::Tab(m)),
-                None => todo!(),
+                None => index::update(&mut context.index, IndexMessage::KeyPressed { key, modifiers }).map(|m| IcedMessage::Index(m)),
             },
         },
         IcedMessage::WindowResized(size) => {
@@ -191,21 +191,36 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut row: Vec<Element<'_, IcedMessage>> = vec![];
-    row.push(render_tab_title("Index", white(), context.selected_tab.is_none(), IcedMessage::SelectIndex, None));
+    let (mut selected_tab_width, mut unselected_tab_width) = match context.tabs.len() {
+        l @ ..7 => (1.8 / (l as f32 + 2.0), 1.0 / (l as f32 + 2.0)),
+        l => (0.18, 0.8 / l as f32),
+    };
+    selected_tab_width *= context.window_size.width;
+    unselected_tab_width *= context.window_size.width;
+
+    row.push(render_tab_title(
+        "Index",
+        white(),
+        context.selected_tab.is_none(),
+        IcedMessage::SelectIndex,
+        None,
+        if context.selected_tab.is_none() { selected_tab_width } else { unselected_tab_width },
+    ));
 
     for (i, tab) in context.tabs.iter().enumerate() {
         let (title, flag) = tab.get_title_and_flag();
-        let (curr_selected, select_action) = if let Some(s) = context.selected_tab && s == i {
-            (true, IcedMessage::None)
+        let (curr_selected, select_action, title_width) = if let Some(s) = context.selected_tab && s == i {
+            (true, IcedMessage::None, selected_tab_width)
         } else {
-            (false, IcedMessage::SelectTab(i))
+            (false, IcedMessage::SelectTab(i), unselected_tab_width)
         };
         row.push(render_tab_title(
             &title,
             flag,
             curr_selected,
             select_action,
-            Some(IcedMessage::CloseTab(i)),
+            if context.tabs.len() < 4 || curr_selected { Some(IcedMessage::CloseTab(i)) } else { None },
+            title_width,
         ));
     }
 
@@ -245,6 +260,7 @@ fn render_tab_title<'t, 'm>(
     curr_selected: bool,
     select_action: IcedMessage,
     close_action: Option<IcedMessage>,
+    width: f32,
 ) -> Element<'m, IcedMessage> {
     let flag = Container::new(Space::new()).padding(6.0).style(move |_| ContainerStyle {
         background: Some(Background::Color(flag)),
@@ -255,6 +271,14 @@ fn render_tab_title<'t, 'm>(
         },
         ..ContainerStyle::default()
     });
+    let title_limit = (width * 0.07).round() as usize;
+    let title = if title_limit < 4 {
+        String::new()
+    } else if count_chars(title) > title_limit {
+        format!("{}...", take_chars(title, title_limit - 3))
+    } else {
+        title.to_string()
+    };
     let title = Button::new(
         Row::from_vec(vec![
             flag.into(),
@@ -299,7 +323,7 @@ fn render_tab_title<'t, 'm>(
             .on_press(action)
             .into()
     } else {
-        text!(" ").into()
+        Space::new().into()
     };
 
     Container::new(
@@ -309,6 +333,7 @@ fn render_tab_title<'t, 'm>(
             close.into(),
         ])
             .align_y(Vertical::Center)
+            .width(width)
             .padding(4.0)
             .spacing(8.0)
     )

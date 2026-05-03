@@ -108,3 +108,32 @@ fn yellow() -> Color {
 fn pink() -> Color {
     Color::from_rgb(0.9, 0.6, 0.7)
 }
+
+fn count_chars(s: &str) -> usize {
+    s.chars().map(
+        |ch| match ch {
+            '가'..='힣' => 10,
+            _ => 7,
+        }
+    ).sum::<usize>() / 7
+}
+
+fn take_chars(s: &str, n: usize) -> String {
+    let mut weight = 0;
+    let mut chars = vec![];
+
+    for ch in s.chars() {
+        weight += match ch {
+            '가'..='힣' => 10,
+            _ => 7,
+        };
+
+        if weight > n * 7 {
+            break;
+        }
+
+        chars.push(ch);
+    }
+
+    chars.into_iter().collect()
+}

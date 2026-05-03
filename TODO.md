@@ -135,6 +135,8 @@
   - 지금은, 1) gui를 열고 2) project dir을 찾고 3) new project를 누르고 4) instruction을 입력하고 ...
   - index tab에다가 1) 최근 project 2) quick create를 만들자! 이걸 하려면 global neukgu dir이 있어야할 듯 ㅠㅠ
 76. launcher라는 용어 다 없애고 browser로 고치기!
+77. brainstorming mode
+  - chat with AI to brainstorm, and can launch a new project from this ui
 
 ```nu
 cd ~/Documents/Rust/neukgu;

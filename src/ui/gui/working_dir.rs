@@ -974,7 +974,7 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
     }
 
     if !buttons.is_empty() {
-        turn_content.push(Row::from_vec(buttons).into());
+        turn_content.push(Row::from_vec(buttons).spacing(context.zoom * 8.0).into());
     }
 
     let turn_content = Scrollable::new(Column::from_vec(turn_content).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).width(Length::Fill)).width(Length::Fill);

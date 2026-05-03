@@ -1,4 +1,17 @@
-use super::{black, blue, button, disabled_button, gray, green, pink, red, set_bg, white};
+use super::{
+    black,
+    blue,
+    button,
+    count_chars,
+    disabled_button,
+    gray,
+    green,
+    pink,
+    red,
+    set_bg,
+    take_chars,
+    white,
+};
 use crate::{Error, Model, init_working_dir, prettify_bytes, validate_project_name};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -552,12 +565,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
 
     row.push(button("Delete", IcedMessage::OpenPopup(Popup::AskDelete { is_dir: entry.is_dir, path: entry.path.to_string() }), red(), context.zoom).into());
 
-    let char_count = entry.name.chars().map(
-        |ch| match ch {
-            '가'..='힣' => 10,
-            _ => 7,
-        }
-    ).sum::<usize>() / 7;
+    let char_count = count_chars(&entry.name);
     let is_dir = entry.is_dir;
     let is_hovered = if let Some(e) = &context.hovered_entry { e == &entry.name } else { false };
     let truncated_name = if char_count < 42 {
@@ -570,7 +578,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     } else {
         format!(
             "{}...{}",
-            entry.name.chars().take(39).collect::<String>(),
+            take_chars(&entry.name, 39),
             if is_dir { "/" } else { " " },
         )
     };
