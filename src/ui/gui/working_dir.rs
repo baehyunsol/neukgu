@@ -315,7 +315,14 @@ pub enum IcedMessage {
     EditText(TextEditorAction),
     OpenBrowser { dir: String, file: Option<String> },
     Error(String),
-    Quit,
+
+    // Kill: The caller wants to kill this tab. This tab will show a popup "quit session?".
+    // KillBeProcess: If the user clicked "yes" for "quit session?", this message is produced.
+    //                It'll kill the backend process and produce `IcedMessage::Dead`.
+    // Dead: Tell the caller that this tab is okay to be closed.
+    Kill,
+    KillBeProcess,
+    Dead,
 }
 
 #[derive(Clone, Debug)]
@@ -536,7 +543,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
 
                 if let Some(Popup::AskQuit) = context.curr_popup && context.llm_request.is_none() {
-                    return Ok(Task::done(IcedMessage::Quit));
+                    return Ok(Task::done(IcedMessage::KillBeProcess));
                 }
             },
             (Key::Character("-"), true, false, false) => {
@@ -652,10 +659,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
-        IcedMessage::Quit => {
-            context.kill_be_process()?;
-            // TODO: close tab
+        IcedMessage::Kill => {
+            return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
         },
+        IcedMessage::KillBeProcess => {
+            context.kill_be_process()?;
+            return Ok(Task::done(IcedMessage::Dead));
+        },
+        IcedMessage::Dead => unreachable!(),
     }
 
     Ok(Task::none())
@@ -796,7 +807,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     else if let Some(Popup::AskQuit) = context.curr_popup {
         let q = Column::from_vec(vec![
             text!("Quit session?").size(context.zoom * 14.0).into(),
-            button("(Y)es", IcedMessage::Quit, green(), context.zoom).padding(context.zoom * 20.0).into(),
+            button("(Y)es", IcedMessage::KillBeProcess, green(), context.zoom).padding(context.zoom * 20.0).into(),
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,

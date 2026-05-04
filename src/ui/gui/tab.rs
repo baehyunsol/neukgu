@@ -18,7 +18,7 @@ use super::working_dir::{
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
-use ragit_fs::{basename, parent};
+use ragit_fs::basename;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TabId(u64);
@@ -34,7 +34,6 @@ pub struct TabPreview {
 
 pub struct IcedContext {
     pub id: TabId,
-    pub home_dir: String,
     pub cwd: String,
     pub local: LocalContext,
 }
@@ -124,6 +123,11 @@ pub enum IcedMessage {
     Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
+
+    // Kill: The caller wants to kill this tab.
+    // Dead: Tell the caller that this tab is okay to be closed.
+    Kill,
+    Dead,
 }
 
 pub fn boot(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
@@ -136,7 +140,19 @@ pub fn boot(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
 
             IcedContext {
                 id: TabId(rand::random::<u64>()),
-                home_dir: home_dir.to_string(),
+                cwd: dir,
+                local: local_context,
+            }
+        },
+        Tab::WorkingDir(dir) => {
+            // TODO: make `no_backend` configurable
+            let local_context = match working_dir::try_boot(false, &dir, window_size, 1.0) {
+                Ok(c) => LocalContext::WorkingDir(c),
+                Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), window_size, 1.0)),
+            };
+
+            IcedContext {
+                id: TabId(rand::random::<u64>()),
                 cwd: dir,
                 local: local_context,
             }
@@ -149,6 +165,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         (context, IcedMessage::Browser(BrowserMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
             *context = LocalContext::Error(error::boot(e, context.window_size(), context.zoom()));
             Task::none()
+        },
+        (_, IcedMessage::Browser(BrowserMessage::Dead) | IcedMessage::WorkingDir(WorkingDirMessage::Dead) | IcedMessage::Error(ErrorMessage::Dead)) => {
+            Task::done(IcedMessage::Dead)
         },
         (context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
@@ -181,53 +200,13 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::none()
         },
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
-        (c, IcedMessage::Error(ErrorMessage::Okay)) => {
-            match browser::try_boot(c.window_size(), &context.home_dir, &context.cwd, &None) {
-                Ok(l) => {
-                    *c = LocalContext::Browser(l);
-                },
-                Err(e) => match parent(&context.cwd) {
-                    Ok(parent) => match browser::try_boot(c.window_size(), &context.home_dir, &parent, &None) {
-                        Ok(l) => {
-                            context.cwd = parent.to_string();
-                            *c = LocalContext::Browser(l);
-                        },
-                        Err(_) => match std::env::var("HOME") {
-                            Ok(home) => match browser::try_boot(c.window_size(), &home, &home, &None) {
-                                Ok(l) => {
-                                    context.cwd = home.to_string();
-                                    *c = LocalContext::Browser(l);
-                                },
-                                Err(_) => {
-                                    *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
-                                },
-                            },
-                            Err(_) => {
-                                *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
-                            },
-                        },
-                    },
-                    Err(_) => match std::env::var("HOME") {
-                        Ok(home) => match browser::try_boot(c.window_size(), &home, &home, &None) {
-                            Ok(l) => {
-                                context.cwd = home.to_string();
-                                *c = LocalContext::Browser(l);
-                            },
-                            Err(_) => {
-                                *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
-                            },
-                        },
-                        Err(_) => {
-                            *c = LocalContext::Error(error::boot(format!("{e:?}"), c.window_size(), c.zoom()));
-                        },
-                    },
-                },
-            }
-
-            Task::none()
-        },
         (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Error(t)),
         (LocalContext::Error(_), IcedMessage::Tick) => Task::none(),
+        (context, IcedMessage::Kill) => match context {
+            LocalContext::Browser(c) => browser::update(c, BrowserMessage::Kill).map(|m| IcedMessage::Browser(m)),
+            LocalContext::WorkingDir(c) => working_dir::update(c, WorkingDirMessage::Kill).map(|m| IcedMessage::WorkingDir(m)),
+            LocalContext::Error(c) => error::update(c, ErrorMessage::Kill).map(|m| IcedMessage::Error(m)),
+        },
         _ => unreachable!(),
     }
 }

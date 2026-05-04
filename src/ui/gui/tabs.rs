@@ -41,6 +41,11 @@ pub enum IcedMessage {
     WindowResized(Size),
     NewTab(Tab),
     SelectTab(usize),
+
+    // KillTab sends kill signal to the tab.
+    // When the tab is ready to be closed, the tab will produce `Dead` signal.
+    // Then, it'll produce `CloseTab` signal which actually closes the tab.
+    KillTab(usize),
     CloseTab(usize),
     SelectIndex,
     None,
@@ -49,6 +54,7 @@ pub enum IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Tab {
     Browser { dir: String, file: Option<String> },
+    WorkingDir(String),
 }
 
 pub fn boot() -> IcedContext {
@@ -60,17 +66,15 @@ pub fn boot() -> IcedContext {
     IcedContext {
         home_dir: home_dir.to_string(),
         window_size: Size::new(0.0, 0.0),
-        selected_tab: Some(0),
-        index: index::boot(),
-        tabs: vec![tab::boot(&home_dir.clone(), Tab::Browser { dir: home_dir, file: None }, Size::new(0.0, 0.0))],
+        selected_tab: None,
+        index: index::boot(&home_dir),
+        tabs: vec![],
     }
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
-        IcedMessage::Index(IndexMessage::NewTab) => {
-            Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None }))
-        },
+        IcedMessage::Index(IndexMessage::NewTab(tab)) => Task::done(IcedMessage::NewTab(tab)),
         IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
             if let Some(tab) = context.tabs.get(index) && tab.id == id {
                 context.selected_tab = Some(index);
@@ -84,6 +88,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::Tab(TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file })) => {
             Task::done(IcedMessage::NewTab(Tab::Browser { dir, file }))
+        },
+        IcedMessage::Tab(TabMessage::Dead) => match context.selected_tab {
+            Some(selected_tab) => Task::done(IcedMessage::CloseTab(selected_tab)),
+            None => unreachable!(),
         },
         IcedMessage::Tab(m) => match context.selected_tab {
             Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], m).map(|m| IcedMessage::Tab(m)),
@@ -105,7 +113,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Character("t"), true, false, false) => Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None })),
             (Key::Character("w"), true, false, false) => match context.selected_tab {
-                Some(selected_tab) => Task::done(IcedMessage::CloseTab(selected_tab)),
+                Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], TabMessage::Kill).map(|m| IcedMessage::Tab(m)),
                 None => Task::none(),  // cannot close this
             },
             (Key::Character(n @ ("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0")), false, true, false) => {
@@ -162,6 +170,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::SelectTab(i) => {
             context.selected_tab = Some(i);
             Task::none()
+        },
+        IcedMessage::KillTab(i) => {
+            tab::update(&mut context.tabs[i], TabMessage::Kill).map(|m| IcedMessage::Tab(m))
         },
         IcedMessage::CloseTab(i) => {
             context.tabs.remove(i);
@@ -234,7 +245,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             flag,
             curr_selected,
             select_action,
-            if context.tabs.len() < 4 || curr_selected { Some(IcedMessage::CloseTab(i)) } else { None },
+            if context.tabs.len() < 4 || curr_selected { Some(IcedMessage::KillTab(i)) } else { None },
             title_width,
         ));
     }

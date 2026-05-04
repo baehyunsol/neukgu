@@ -14,20 +14,25 @@ pub struct IcedContext {
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     KeyPressed { key: Key, modifiers: Modifiers },
-    Okay,
+
+    // Kill: The caller wants to kill this tab.
+    // Dead: Tell the caller that this tab is okay to be closed.
+    Kill,
+    Dead,
 }
 
 pub fn update(_: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Character("y"), false, false, false) => {
-                return Task::done(IcedMessage::Okay);
+                return Task::done(IcedMessage::Dead);
             },
             _ => {
                 return Task::none();
             },
         },
-        IcedMessage::Okay => unreachable!(),
+        IcedMessage::Kill => Task::done(IcedMessage::Dead),
+        IcedMessage::Dead => unreachable!(),
     }
 }
 
@@ -43,7 +48,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     Column::from_vec(vec![
         text!("Error").size(context.zoom * 18.0).color(red()).into(),
         text!("{}", context.message).size(context.zoom * 14.0).into(),
-        button("Oka(y)", IcedMessage::Okay, green(), context.zoom).into(),
+        button("Oka(y)", IcedMessage::Dead, green(), context.zoom).into(),
     ])
         .padding(context.zoom * 20.0)
         .spacing(context.zoom * 20.0)

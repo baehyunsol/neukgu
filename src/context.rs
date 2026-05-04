@@ -15,16 +15,37 @@ use crate::{
     TurnResultSummary,
     TurnSummary,
     get_first_tool_call,
+    get_global_index_dir,
     load_available_binaries,
     request,
     revert_mock_state,
     validate_parse_result,
 };
-use ragit_fs::{WriteMode, exists, join3, read_string, remove_file, write_string};
+use ragit_fs::{
+    WriteMode,
+    exists,
+    into_abs_path,
+    join3,
+    normalize,
+    read_string,
+    remove_file,
+    write_string,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct NeukguId(pub(crate) u64);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SessionId(pub(crate) u64);
+
 pub struct Context {
+    // `neukgu_id` is created when `.neukgu/` is created and never changes.
+    // `session_id` is updated when `.neukgu/` is created or the session is reset.
+    pub neukgu_id: NeukguId,
+    pub session_id: SessionId,
+
     // You'll find the index dir at `<working_dir>/.neukgu/`
     pub working_dir: String,
 
@@ -42,11 +63,14 @@ pub struct Context {
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
     pub system_prompt: String,
     pub available_binaries: Vec<String>,
+    pub global_index_dir: String,
     pub logger: Logger,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ContextJson {
+    pub neukgu_id: NeukguId,
+    pub session_id: SessionId,
     pub history: Vec<TurnId>,
     pub curr_raw_response: Option<(String, u64)>,
     pub completed_questions_from_user: HashSet<u64>,
@@ -62,10 +86,13 @@ impl Context {
             true,
         )?;
         let available_binaries = load_available_binaries(working_dir)?;
+        let global_index_dir = get_global_index_dir()?;
         let logger = Logger::new(working_dir);
 
         Ok(Context {
-            working_dir: working_dir.to_string(),
+            neukgu_id: NeukguId(rand::random::<u64>()),
+            session_id: SessionId(rand::random::<u64>()),
+            working_dir: normalize(&into_abs_path(working_dir)?)?,
             history: vec![],
             curr_raw_response: None,
             turns: HashMap::new(),
@@ -74,6 +101,7 @@ impl Context {
             pinned_turns: HashSet::new(),
             system_prompt,
             available_binaries,
+            global_index_dir,
             logger,
         })
     }
@@ -83,7 +111,9 @@ impl Context {
         let context_json: ContextJson = serde_json::from_str(&s)?;
 
         Ok(Context {
-            working_dir: working_dir.to_string(),
+            neukgu_id: context_json.neukgu_id,
+            session_id: context_json.session_id,
+            working_dir: normalize(&into_abs_path(working_dir)?)?,
             history: context_json.history.iter().map(
                 |h| h.get_turn_summary()
             ).collect(),
@@ -105,6 +135,8 @@ impl Context {
 
     pub(crate) fn to_json(&self) -> ContextJson {
         ContextJson {
+            neukgu_id: self.neukgu_id,
+            session_id: self.session_id,
             history: self.history.iter().map(
                 |h| h.id.clone()
             ).collect(),

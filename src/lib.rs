@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 mod config;
 mod context;
 mod error;
+mod global;
 mod image;
 mod interrupt;
 mod log;
@@ -34,13 +35,14 @@ mod turn;
 mod ui;
 
 pub use config::Config;
-pub use context::{ChosenTurn, Context, ContextJson};
+pub use context::{ChosenTurn, Context, ContextJson, NeukguId, SessionId};
 pub use error::{Error, from_browser_error};
+pub use global::{Project, clean_global_index_dir, get_global_index_dir, init_global_index_dir, load_all_indexes, update_global_index};
 pub use image::{ImageId, normalize_and_get_id};
 use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
-use pdf::{PdfId, render_and_get_id, render_first_5_pages};
+use pdf::{PdfId, render_and_get_id, render_first_10_pages};
 use prettify::{
     prettify_bytes,
     prettify_time,
@@ -106,6 +108,13 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
             return Err(e);
         },
     }
+
+    // Even if it fails, it's not gonna corrupt the index dir.
+    // It sleeps 500ms in order to add *stability* to the program.
+    // This is the safest place in the loop. The frontend can read the index
+    // because every state is complete, and it's safe to kill the backend here.
+    update_global_index(&context.working_dir, &context.global_index_dir, context.neukgu_id)?;
+    sleep(Duration::from_millis(500));
 
     drop(lock_file);
     Ok(())
@@ -304,6 +313,13 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, model: M
     let context = Context::new(&config, working_dir)?;
     context.store()?;
 
+    init_global_index_dir(&context.global_index_dir)?;
+    update_global_index(
+        &context.working_dir,  // `Context::new` canonicalizes the path
+        &context.global_index_dir,
+        context.neukgu_id,
+    )?;
+
     Ok(())
 }
 
@@ -334,9 +350,11 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
     )?;
 
     let config = Config::load(working_dir)?;
-    let context = Context::new(&config, working_dir)?;
-    context.store()?;
-    context.remove_done_mark()?;
+    let old_context = Context::load(&config, working_dir)?;
+    let mut new_context = Context::new(&config, working_dir)?;
+    new_context.neukgu_id = old_context.neukgu_id;
+    new_context.store()?;
+    new_context.remove_done_mark()?;
 
     if config.model == Model::Mock {
         reset_mock_state(working_dir)?;
@@ -351,6 +369,8 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
     let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
     let snapshot_at = join4(working_dir, ".neukgu", "snapshots", &id.0)?;
     let snapshots_at = join3(working_dir, ".neukgu", "snapshots.json")?;
+    let py_venv_snapshot = join3(&snapshot_at, ".neukgu", "py-venv")?;
+    let py_venv_working_dir = join3(working_dir, ".neukgu", "py-venv")?;
     let snapshots: Vec<Snapshot> = load_json(&snapshots_at)?;
     let snapshot = snapshots.into_iter().filter(|snapshot| &snapshot.turn == id).next();
     let Some(snapshot) = snapshot else { return Err(Error::CannotFindSnapshot(id.clone())); };
@@ -358,6 +378,7 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
     clean_dangling_sandboxes(working_dir)?;
     clean_dangling_snapshots(snapshot.seq, working_dir)?;
     copy_recursive(&snapshot_at, working_dir, true, false /* copy index dir */)?;
+    copy_recursive(&py_venv_snapshot, &py_venv_working_dir, true, false)?;
 
     write_string(
         &join3(working_dir, ".neukgu", "context.json")?,

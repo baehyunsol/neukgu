@@ -40,6 +40,7 @@
   - mock-api 만들고, gui로 실행해서,
     - 늑구 질문 거절한 다음에 잘 진행되는지 확인
     - 끝나기 전에 아무때나 interrupt 해보고 잘 진행되는지 확인
+    - pip install 하고 난 다음에, pip install 이전으로 rollback하면 py-venv도 제대로 되돌아가는지 확인하기
   - user_response_timeout을 짧게 설정한 다음에, mock-api 만들고, gui로 실행해서
     - 늑구 질문 무시한 다음에 잘 진행되는지 확인
     - 중간중간에 hidden/pinned 눌러보고 잘 적용되는지 확인
@@ -61,8 +62,6 @@
   - 제일 직관적인 거는, TextEditor를 띄울 때 기존의 `neukgu-instruction.md`의 내용을 채워놓고 띄우는 거임
   - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
-53. rollback
-  - 생각해보니까 `.neukgu/py-venv/`도 snapshot을 떠야함...
 56. search
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
   - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
@@ -79,7 +78,6 @@
   - Change configs while neukgu is running
     - change AI model
     - enable/disable  tools/binariess
-62. 제일 첫 turn에 `neukgu-instruction.md`를 읽음 (당연). 그리고 바로 다음 턴에 `neukgu-instruction.md`를 또 읽음... -> gpt가 이럴 때가 많음. 도대체 왜 그러지?? harness 차원에서 코드로 막을 수 있기는 한데 너무 지엽적인 거 같기도 하고...
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
   - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
@@ -95,9 +93,6 @@
   - ClaudeCode: 다른 machine에서 도는 harness를 모바일에서 확인할 수 있대
   - ClaudeCode: inter-session으로 관리되는 memory가 있어서 사용자의 성향을 반영할 수 있대
   - ClaudeCode: instant rewind가 가능하대. 어찌됐든 rollback 기능은 꼭 넣어야 할 듯...
-67. 생각해보니까 copy_recursive 할 때 src에는 없고 dst에는 있는 directory 있으면 삭제해야하는 거 아님?
-  - top_level 뿐만 아니라 모든 level에서!!
-  - mock api에서 cargo new 한 다음에 첫 turn으로 roll back하면 확인할 수 있음!! -> ??? 다시 하니까 잘 되는데??
 69. 지금은 diff를 edit마다 따로 봐야하잖아? 더 긴 기간에 걸친 diff를 한눈에 보고 싶음!!
   - 구현은 쉬움. 첫번째 write의 content와 diff가 있잖아? 저 content에 diff를 rev-apply하면 첫번째 write 이전의 content가 나옴. 그럼 그 content랑 현재의 content를 diff를 떠버리면 됨.
     - 현재의 content를 가져올 때는 반드시 파일을 직접 읽어야함! `<run>`같은 걸로 수정했을 수도 있으니까...
@@ -127,24 +122,60 @@
       - rust_xlsxwriter가 괜찮아 보임!
   - python으로 sqlite3 쓰면 되는데 굳이 별개의 tool을 만들 필요가 있나??
     - 의미가 조금은 있음. python으로 하려면 `<run>`에다가 `python3 -c` 해서 엄청 긴 코드를 적거나 (escape 하는 과정에서 오류날 확률이 높음), `<write>` + `<run>`의 조합으로 해야하는데, 이것보다는 한 명령어를 쓰는게 더 편하지!
+  - context가 stateful 해진다는 문제도 있음.
 73. `<read>`에 옵션을 좀더 다양하게 주기?
   - hex view 추가: hex_dump랑 비슷하게 던지기!
   - 지금은 확장자 보고 어떻게 렌더링할지 자동으로 결정하잖아? 이거를 llm한테 결정하게 하는 거임! png 파일을 이미지로 볼지 hex로 볼지 고를 수 있음
   - 온갖 문서 파일들 다 렌더링할까? docx, hwpx등등도 pdf처럼 다루면 좋을 듯...
-75. 쓰다보니 또 불편한 거: 새로운 일을 시키고 싶을 때, 은근 과정이 귀찮음.
-  - 지금은, 1) gui를 열고 2) project dir을 찾고 3) new project를 누르고 4) instruction을 입력하고 ...
-  - index tab에다가 1) 최근 project 2) quick create를 만들자! 이걸 하려면 global neukgu dir이 있어야할 듯 ㅠㅠ
 77. brainstorming mode
   - chat with AI to brainstorm, and can launch a new project from this ui
+  - 아니면, working dir 안에서 채팅을 할 수 있게할까?
+    - turn을 다 보면서 채팅을 함? 그럼 대답을 tool-call로 해? 그것도 이상한데...
+  - chat history도 당연히 남겨야 함!
+  - chat에다가 파일 첨부하기..??
+    - 이걸 할거면 걍 에이전트를 넣어버려? 그럼 결국엔 늑구가 되는데? ㅋㅋㅋ
 78. summary agent
-  - 그냥 fake turn으로 "니가 지금까지 한 거 요약해서 logs/summary.md에 저장해"라고 하면 될 듯? 이거는 verify가 더 쉬움! tool-call-success가 될 때까지 계속 시키면 됨 ㅋㅋ
+  - 버튼을 누르면 interrupt가 자동으로 나감. 질문에는 "니가 지금까지 한 거를 요약해서 logs/summary-<id>.md에 추가해줘"라고 넣기
+    - 버튼 눌러야 나갈 수도 있고, 주기적으로 나갈 수도 있고
+  - summary 확인하는 거는 쉬움, 그냥 turn_view에서 저 turn 선택하면 됨!
+  - index dir 안에다가 summary를 따로 모아놓으면... 그것도 좋을 듯!
+  - summary하는 llm은 좀 싼 거 쓰자!
+    - 그럼 모델 고를 때, 각각 다 고를 수 있게 하자! main agent, summary agent, search agent. 여기에 추가로 search agent랑 summary agent는 "disable"이라는 옵션도 주자!
+79. CLI를 좀 더 linux style로 바꾸자
+  -  `neukgu gui <path>`
+    - dir일 경우 browser, file일 경우 browser + preview
+  -  `neukgu gui <path> --launch`
+    - dir이어야하고, index가 존재해야함.
+    - `--paused`도 추가할까... -> 이 옵션을 gui에도 넣고 싶은데?
+80. symlink 테스트 케이스 추가
+  - python으로 symlink 만들고 git에 추가하고 다시 확인 했을 때
+81. 첫 두 turn은 자동으로 주기
+  - 첫번째: `<read><path>.</path></read>`
+  - 두번째: `<read><path>neukgu-instruction.md</path></read>`
+  - tool 호출하기 전에 생각도 좀 넣기
+  - 1) 어차피 저거 호출할텐데 api 비용 좀 절감할 수 있음
+  - 2) few-shot의 역할을 함
+  - 3) 가장 위에 저 두 turn이 들어가면 context-engineering에도 유리!
+  - edge cases
+    - `.`에 파일이 너무 많으면?
+    - `neukgu-instruction.md`가 너무 길면?
+    - `neukgu-instruction.md`가 없으면?
+83. launch라는 용어가 마음에 안 듦. "go hunt" ㅇㄸ?
+84. better button colors
+  - make clear rules for the colors, and change the colors
+85. When "Launch" button in the index tab is clicked and the working dir is already launched, no new tab is opened. The existing tab is selected.
 
 ```nu
 cd ~/Documents/Rust/neukgu;
 cargo build;
 cd ~/Documents;
-rm -r ttt;
+rm -rf ttt;
+rm -rf tttt;
+echo "initializing ttt..."
 ~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock;
+echo "initializing tttt..."
+~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock;
+echo "spawning gui..."
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
 ```
 

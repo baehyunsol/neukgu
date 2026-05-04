@@ -75,7 +75,7 @@ pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error
     Ok(id)
 }
 
-pub fn render_first_5_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, Error> {
+pub fn render_first_10_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, Error> {
     match Pdf::new(bytes.to_vec()) {
         // hayro sometimes treats non-pdf files as a zero-page pdf file
         Ok(pdf) if pdf.pages().len() > 0 => {

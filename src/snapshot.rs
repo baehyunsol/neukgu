@@ -12,6 +12,7 @@ use ragit_fs::{
     WriteMode,
     create_dir,
     exists,
+    join,
     join3,
     join4,
     remove_dir_all,
@@ -60,6 +61,8 @@ impl Context {
 
         let turn = self.history.last().unwrap();
         let snapshot_at = join4(&self.working_dir, ".neukgu", "snapshots", &turn.id.0)?;
+        let py_venv_src = join3(&self.working_dir, ".neukgu", "py-venv")?;
+        let py_venv_dst = join3(&snapshot_at, ".neukgu", "py-venv")?;
 
         if exists(&snapshot_at) {
             return Ok(());
@@ -74,7 +77,14 @@ impl Context {
         };
 
         create_dir(&snapshot_at)?;
+
+        // `copy_recursive` won't copy the index-dir. Instead, we'll manually
+        // copy necessary directories in index-dir (e.g. python venv).
+        create_dir(&join(&snapshot_at, ".neukgu")?)?;
+        create_dir(&join3(&snapshot_at, ".neukgu", "py-venv")?)?;
+
         copy_recursive(&self.working_dir, &snapshot_at, true, false)?;
+        copy_recursive(&py_venv_src, &py_venv_dst, true, false)?;
 
         snapshots.push(Snapshot {
             seq: snapshots.last().map(|snapshot| snapshot.seq + 1).unwrap_or(0),

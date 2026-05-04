@@ -12,7 +12,7 @@ use super::{
     take_chars,
     white,
 };
-use crate::{Error, Model, init_working_dir, prettify_bytes, render_first_5_pages, validate_project_name};
+use crate::{Error, Model, init_working_dir, prettify_bytes, render_first_10_pages, validate_project_name};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
@@ -134,7 +134,7 @@ impl IcedContext {
                                 self.image_buffer = vec![(format!("{}x{}", img.width(), img.height()), ImageHandle::from_bytes(e.as_bytes().to_vec()))];
                                 None
                             },
-                            _ => match render_first_5_pages(e.as_bytes()) {
+                            _ => match render_first_10_pages(e.as_bytes()) {
                                 Ok(Some((pages, total_pages))) => {
                                     self.image_buffer = pages.into_iter().enumerate().map(|(i, buffer)| (format!("{}/{total_pages}", i + 1), ImageHandle::from_bytes(buffer))).collect();
                                     None
@@ -225,6 +225,11 @@ pub enum IcedMessage {
     EditShortText(TextEditorAction),
     SelectModel(Model),
     Error(String),
+
+    // Kill: The caller wants to kill this tab.
+    // Dead: Tell the caller that this tab is okay to be closed.
+    Kill,
+    Dead,
 }
 
 #[derive(Clone, Debug)]
@@ -441,6 +446,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.selected_model = m;
         },
         IcedMessage::Error(_) => unreachable!(),
+        IcedMessage::Kill => {
+            return Ok(Task::done(IcedMessage::Dead));
+        },
+        IcedMessage::Dead => unreachable!(),
     }
 
     Ok(Task::none())

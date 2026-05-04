@@ -17,8 +17,8 @@ use ragit_fs::{
 // 2. If the backend sees an interruption file in the directory and the
 //    interruption is less than 5 seconds old, the backend immediately
 //    halts the current turn.
-// 3. Whenever the backend checks the interruption directory, the directory
-//    is emptied.
+// 3. Whenever the backend checks the interruption directory, it empties
+//    the directory.
 
 pub fn check_interruption(working_dir: &str) -> Result<bool, Error> {
     let interruption_dir = join3(working_dir, ".neukgu", "interruptions")?;

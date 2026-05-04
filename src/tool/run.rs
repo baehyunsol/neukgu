@@ -114,6 +114,16 @@ pub fn check_python_venv(
     )?;
 
     if !pip_result.stdout.windows(7).any(|w| w == b"install") || !pip_result.stdout.windows(8).any(|w| w == b"download") {
+        eprintln!("---- failed to init python venv ----");
+        eprintln!("<command>");
+        eprintln!("pip help");
+        eprintln!("</command>");
+        eprintln!("<stdout>");
+        eprintln!("{}", String::from_utf8_lossy(&pip_result.stdout));
+        eprintln!("</stdout>");
+        eprintln!("<stderr>");
+        eprintln!("{}", String::from_utf8_lossy(&pip_result.stderr));
+        eprintln!("</stderr>");
         return Err(Error::FailedToInitPythonVenv);
     }
 
@@ -128,6 +138,16 @@ pub fn check_python_venv(
     )?;
 
     if !py_result.stdout.windows(31).any(|w| w == b"9999999999999997900254631487641") {
+        eprintln!("---- failed to init python venv ----");
+        eprintln!("<command>");
+        eprintln!("python -c \"print(3162277660168379 * 3162277660168379)\"");
+        eprintln!("</command>");
+        eprintln!("<stdout>");
+        eprintln!("{}", String::from_utf8_lossy(&py_result.stdout));
+        eprintln!("</stdout>");
+        eprintln!("<stderr>");
+        eprintln!("{}", String::from_utf8_lossy(&py_result.stderr));
+        eprintln!("</stderr>");
         return Err(Error::FailedToInitPythonVenv);
     }
 
