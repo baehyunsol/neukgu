@@ -83,11 +83,11 @@ pub struct IcedContext {
     pub popup_title: Option<String>,
     pub zoom: f32,
 
-    // for `neukgu-instruction.md`
-    pub long_text_editor_content: TextEditorContent,
-
     // for name of the new project
     pub short_text_editor_content: TextEditorContent,
+
+    // for `neukgu-instruction.md`
+    pub long_text_editor_content: TextEditorContent,
 
     pub selected_model: Model,
 }
@@ -116,8 +116,8 @@ impl IcedContext {
             long_preview: None,
             popup_title: None,
             zoom: 1.0,
-            long_text_editor_content: TextEditorContent::new(),
             short_text_editor_content: TextEditorContent::new(),
+            long_text_editor_content: TextEditorContent::new(),
             selected_model: Model::default(),
         };
 
@@ -264,8 +264,8 @@ pub enum IcedMessage {
     Create { path: String },
     Init { path: String },
     Launch { path: String },
-    EditLongText(TextEditorAction),
     EditShortText(TextEditorAction),
+    EditLongText(TextEditorAction),
     SelectModel(Model),
     Error(String),
 

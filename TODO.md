@@ -73,11 +73,7 @@
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
 56. search
   - working dir (turns)
-    - 일단 구현은 했음. 근데 엔터키 치면 검색됐으면 좋겠음...
-    - 그리고, 검색 내용을 초기화하는 방법도 필요함!!
-    - 지금은 view를 호출할 때마다 regex를 비교하는데 이건 말도 안됨... 한번만 regex 검색하고 그 결과 cache 해두자!!
-    - 검색어가 비었으면 None으로 처리하기!!
-    - 검색창 끄면 (Close/ESC) pattern을 None으로 바꾸기?
+    - complete!
   - browser에서도 검색 기능이 있으면 좋을 듯?
     - 이거는 rg를 활용할 수도 있음 (어차피 깔려있을테니!). `rg <pattern> --json` 한다음에 결과물을 뜯어서 rendering해도 됨!
     - 근데 rg를 fe에서 돌리면 랙이 엄청 걸릴텐데?? 별도의 process에서 async하게 돌려야함...
@@ -184,16 +180,7 @@
   - 이거 테스트할 수 있는 환경을 만들어야함!
 88. text edit
   - https://github.com/shareAI-lab/learn-claude-code/blob/main/agents/s02_tool_use.py 보니까 edit를 엄청 무식하게 구현해놨음. old_text랑 new_text 준 다음에 `.replace()` 해버림... 근데 또 생각해보면, 대부분의 경우에서는 잘 동작할 거 같기도?
-89. working_dir tab이 떠 있을 때 해당 working_dir을 삭제하면 gui 전체가 랙이 엄청 걸림...
-  - index dir (`.neukgu`) 삭제하는 거는 괜찮음...
-    - 아니네, 이것도 문제 있음. browser에서 `.neukgu/`를 삭제했는데 삭제 버튼에 버그가 있어서 삭제가 안되는 거였음...ㅜㅜ
-    - 보니까 삭제는 되는데 다시 생성이 됐음! 누가 만드는 거지??
-  - update/view 하는 걸 다 로그를 찍어봤는데 좀 이상함.
-    - 0.5초에 한번씩 tick하는 건 여전하고 tick은 당연히 다 실패함 (필요한 파일이 아무것도 없을테니)
-    - 나머지 update랑 view는 다 씹히고 있다가 2~3초 정도 이후에 한번에 다 처리됨, why?
-    - 어디선가 무한루프 (message로 update를 하면 동일한 message가 생성)가 있는가 확인해봤는데 그렇지도 않은 거 같음...
-  - `working_dir::update`가 시작하고 끝나는 거는 금방 끝남. 근데 `tab::update`의 첫번째 branch에서 `IcedMessage::WorkingDir(WorkingDirMessage::Error)`를 받는 거는 한참 걸림. why?
-90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!!
+90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!! (yellow??!!)
   - 파일 수정 시각
   - dir일 경우, recursive하게 크기 측정
 91. 내가 개입해서 특정 행동을 하기
