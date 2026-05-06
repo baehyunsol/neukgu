@@ -173,71 +173,24 @@
     - `neukgu-instruction.md`가 너무 길면?
     - `neukgu-instruction.md`가 없으면?
 83. launch라는 용어가 마음에 안 듦. "go hunt" ㅇㄸ?
-84. better button colors
-  - browser/top
-    - Create new: green
-    - Launch: green
-    - Init here: green
-    - Help: pink
-    - Up: blue
-    - Home: blue
-  - browser/entry
-    - Delete: red
-  - browser/init_popup
-    - Init: green
-  - browser/create_popup
-    - Create: green
-  - error
-    - Okay: blue
-  - index/main
-    - New project: green
-    - New tab: skyblue
-  - index/recent_projects
-    - Launch: green
-    - Browse: skyblue
-    - Instruction: yellow
-  - popup/top
-    - Close: red
-    - Back: blue
-    - Copy: blue
-  - working_dir/top
-    - Resume: blue
-    - Pause: blue
-    - Quit: red
-    - Interrupt: blue
-    - See logs: yellow
-    - Token usage: yellow
-    - Help: pink
-    - Instruction: yellow
-    - Config: yellow
-    - Reset: blue
-  - working_dir/turn
-    - Diff: yellow
-    - Open in browser: skyblue
-  - tab flag
-    - browser (no file): skyblue
-    - browser (file): skyblue
-    - working_dir (has error): red
-    - working_dir (has llm request): blue
-    - working_dir (paused): yellow
-    - working_dir: green
-    - error: red
-85. When "Launch" button in the index tab is clicked and the working dir is already launched, no new tab is opened. The existing tab is selected.
-86. refactor `src/ui/gui/*.rs`
-  - `struct IcedContext`, `struct IcedMessage`, `impl IcedContext`, `impl IcedMessage`, `boot`, `view`, `update`, misc types, misc funcs의 모양과 순서가 동일해지도록 맞추기
-    - field 순서랑 variant 순서도 맞추기!!
-    - `impl IcedContext` 안에서도 비슷한 method가 많을텐데 순서 다 맞추자!
-  - `popup` -> 이것도 generic하게 빼고 싶음... (완료)
-    - `IcedMessage`랑 `IcedContext`를 둘다 generic으로 만들고 `PopupMessage`라는 trait랑 `PopupContext`라는 trait 만들면 됨!
-    - PopupMessage: Close, Back, Copy
-    - PopupContext: has_prev_popup, has_copy_buffer, zoom
 87. `context.json`이 동일하면 LLM한테 완전 동일한 context를 줄 수 있잖아? 서로 다른 LLM한테 완전 동일한 context를 주고 어떻게 다르게 행동하는지 실험해보자
   - 만약 동일한 상황에서 haiku도 `<write>`를 하고 opus도 `<write>`를 한다? 그럼 평상시에는 haiku를 쓰다가 write할 때만 opus로 갈아끼우면 됨!
   - 이걸 해보면 LLM 간의 능력차이가 얼마나 나는지도 한눈에 볼 수 있음. 예를 들어서 동일한 상황에서 opus가 하는 행동과 qwen이 하는 행동이 거의 비슷하면 굳이 비싸게 opus를 쓸 필요가 없는 거지...
   - 이거 테스트할 수 있는 환경을 만들어야함!
 88. text edit
   - https://github.com/shareAI-lab/learn-claude-code/blob/main/agents/s02_tool_use.py 보니까 edit를 엄청 무식하게 구현해놨음. old_text랑 new_text 준 다음에 `.replace()` 해버림... 근데 또 생각해보면, 대부분의 경우에서는 잘 동작할 거 같기도?
-89. 
+89. working_dir tab이 떠 있을 때 해당 working_dir을 삭제하면 gui 전체가 랙이 엄청 걸림...
+  - index dir (`.neukgu`) 삭제하는 거는 괜찮음...
+    - 아니네, 이것도 문제 있음. browser에서 `.neukgu/`를 삭제했는데 삭제 버튼에 버그가 있어서 삭제가 안되는 거였음...ㅜㅜ
+    - 보니까 삭제는 되는데 다시 생성이 됐음! 누가 만드는 거지??
+  - update/view 하는 걸 다 로그를 찍어봤는데 좀 이상함.
+    - 0.5초에 한번씩 tick하는 건 여전하고 tick은 당연히 다 실패함 (필요한 파일이 아무것도 없을테니)
+    - 나머지 update랑 view는 다 씹히고 있다가 2~3초 정도 이후에 한번에 다 처리됨, why?
+    - 어디선가 무한루프 (message로 update를 하면 동일한 message가 생성)가 있는가 확인해봤는데 그렇지도 않은 거 같음...
+  - `working_dir::update`가 시작하고 끝나는 거는 금방 끝남. 근데 `tab::update`의 첫번째 branch에서 `IcedMessage::WorkingDir(WorkingDirMessage::Error)`를 받는 거는 한참 걸림. why?
+90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!!
+  - 파일 수정 시각
+  - dir일 경우, recursive하게 크기 측정
 
 ```nu
 cd ~/Documents/Rust/neukgu;

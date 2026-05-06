@@ -18,7 +18,7 @@ use super::working_dir::{
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
-use ragit_fs::basename;
+use ragit_fs::{basename, exists, join};
 
 pub struct IcedContext {
     pub id: TabId,
@@ -91,10 +91,20 @@ impl IcedContext {
     pub fn get_preview(&self, index: usize) -> TabPreview {
         let (title, flag) = self.get_title_and_flag(true);
         let (status, error) = match &self.local {
-            LocalContext::WorkingDir(c) => (
-                Some(c.fe_context.curr_status()),
-                c.fe_context.curr_error(),
-            ),
+            LocalContext::WorkingDir(c) => {
+                // If the dir doesn't exist, `c.fe_context.curr_status()` will take long to finish, and it's really bad for
+                // the view function to take long time.
+                if !exists(&join(&c.fe_context.working_dir, ".neukgu").unwrap_or(c.fe_context.working_dir.to_string())) {
+                    (Some(String::from("???")), Some(String::from("Cannot read the index dir")))
+                }
+
+                else {
+                    (
+                        Some(c.fe_context.curr_status()),
+                        c.fe_context.curr_error(),
+                    )
+                }
+            },
             LocalContext::Browser(_) | LocalContext::Error(_) => (None, None),
         };
 
