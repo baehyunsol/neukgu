@@ -223,8 +223,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::none()
         },
         IcedMessage::KillTab(i) => {
-            let tab_id = context.tabs[i].id;
-            tab::update(&mut context.tabs[i], TabMessage::Kill).map(move |message| IcedMessage::Tab { id: tab_id, message })
+            let id = context.tabs[i].id;
+
+            // It'll open a popup, so, in order for the user to see the popup, the tab has to be selected.
+            if let LocalContext::WorkingDir(_) = &context.tabs[i].local {
+                context.selected_tab = Some(i);
+            }
+
+            tab::update(&mut context.tabs[i], TabMessage::Kill).map(move |message| IcedMessage::Tab { id, message })
         },
         IcedMessage::CloseTab(i) => {
             context.tabs.remove(i);
