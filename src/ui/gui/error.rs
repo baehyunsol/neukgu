@@ -1,4 +1,4 @@
-use super::{button, green, red};
+use super::{blue, button, red};
 use iced::{Element, Length, Size, Task};
 use iced::alignment::Horizontal;
 use iced::keyboard::{Key, Modifiers};
@@ -9,6 +9,16 @@ pub struct IcedContext {
     pub message: String,
     pub window_size: Size,
     pub zoom: f32,
+}
+
+impl IcedContext {
+    pub fn new(message: String, window_size: Size, zoom: f32) -> IcedContext {
+        IcedContext {
+            message,
+            window_size,
+            zoom,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -36,19 +46,11 @@ pub fn update(_: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     }
 }
 
-pub fn boot(message: String, window_size: Size, zoom: f32) -> IcedContext {
-    IcedContext {
-        message,
-        window_size,
-        zoom,
-    }
-}
-
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     Column::from_vec(vec![
-        text!("Error").size(context.zoom * 18.0).color(red()).into(),
+        text!("ERROR").size(context.zoom * 21.0).color(red()).into(),
         text!("{}", context.message).size(context.zoom * 14.0).into(),
-        button("Oka(y)", IcedMessage::Dead, green(), context.zoom).into(),
+        button("Oka(y)", IcedMessage::Dead, blue(), context.zoom).into(),
     ])
         .padding(context.zoom * 20.0)
         .spacing(context.zoom * 20.0)

@@ -6,6 +6,7 @@ use crate::{
     ContextJson,
     Error,
     LogId,
+    NeukguId,
     TokenUsage,
     ToolCall,
     Turn,
@@ -147,6 +148,7 @@ impl Default for Fe2Be {
 #[derive(Clone, Debug)]
 pub struct FeContext {
     pub working_dir: String,
+    pub neukgu_id: NeukguId,
     pub history: Vec<TurnSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub curr_tool_call_elapsed: Option<u64>,
@@ -297,6 +299,7 @@ impl FeContext {
 
         Ok(FeContext {
             working_dir: working_dir.to_string(),
+            neukgu_id: be_context.neukgu_id,
             history,
             curr_tool_call,
             curr_tool_call_elapsed,

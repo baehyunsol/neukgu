@@ -20,18 +20,6 @@ use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
 use ragit_fs::basename;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct TabId(u64);
-
-pub struct TabPreview {
-    pub id: TabId,
-    pub index: usize,
-    pub flag: Color,
-    pub title: String,
-    pub status: Option<String>,
-    pub error: Option<String>,
-}
-
 pub struct IcedContext {
     pub id: TabId,
     pub cwd: String,
@@ -39,6 +27,36 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
+    pub fn new(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
+        match tab {
+            Tab::Browser { dir, file } => {
+                let local_context = match BrowserContext::new(window_size, home_dir, &dir, &file) {
+                    Ok(c) => LocalContext::Browser(c),
+                    Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
+                };
+
+                IcedContext {
+                    id: TabId(rand::random::<u64>()),
+                    cwd: dir,
+                    local: local_context,
+                }
+            },
+            Tab::WorkingDir(dir) => {
+                // TODO: make `no_backend` configurable
+                let local_context = match WorkingDirContext::new(false, &dir, window_size, 1.0) {
+                    Ok(c) => LocalContext::WorkingDir(c),
+                    Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
+                };
+
+                IcedContext {
+                    id: TabId(rand::random::<u64>()),
+                    cwd: dir,
+                    local: local_context,
+                }
+            },
+        }
+    }
+
     pub fn get_title_and_flag(&self, full_path: bool) -> (String, Color) {
         match &self.local {
             LocalContext::Browser(c) => {
@@ -51,8 +69,8 @@ impl IcedContext {
             LocalContext::WorkingDir(c) => {
                 let flag = match 0 {
                     _ if c.fe_context.curr_error().is_some() => red(),
-                    _ if c.llm_request.is_some() => yellow(),
-                    _ if c.is_paused => blue(),
+                    _ if c.llm_request.is_some() => blue(),
+                    _ if c.is_paused => yellow(),
                     _ => green(),
                 };
 
@@ -91,6 +109,21 @@ impl IcedContext {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum IcedMessage {
+    Browser(BrowserMessage),
+    WorkingDir(WorkingDirMessage),
+    Error(ErrorMessage),
+    Tick,
+    KeyPressed { key: Key, modifiers: Modifiers },
+    WindowResized(Size),
+
+    // Kill: The caller wants to kill this tab.
+    // Dead: Tell the caller that this tab is okay to be closed.
+    Kill,
+    Dead,
+}
+
 pub enum LocalContext {
     Browser(BrowserContext),
     WorkingDir(WorkingDirContext),
@@ -115,55 +148,22 @@ impl LocalContext {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum IcedMessage {
-    Browser(BrowserMessage),
-    WorkingDir(WorkingDirMessage),
-    Error(ErrorMessage),
-    Tick,
-    KeyPressed { key: Key, modifiers: Modifiers },
-    WindowResized(Size),
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TabId(u64);
 
-    // Kill: The caller wants to kill this tab.
-    // Dead: Tell the caller that this tab is okay to be closed.
-    Kill,
-    Dead,
-}
-
-pub fn boot(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
-    match tab {
-        Tab::Browser { dir, file } => {
-            let local_context = match browser::try_boot(window_size, home_dir, &dir, &file) {
-                Ok(c) => LocalContext::Browser(c),
-                Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), window_size, 1.0)),
-            };
-
-            IcedContext {
-                id: TabId(rand::random::<u64>()),
-                cwd: dir,
-                local: local_context,
-            }
-        },
-        Tab::WorkingDir(dir) => {
-            // TODO: make `no_backend` configurable
-            let local_context = match working_dir::try_boot(false, &dir, window_size, 1.0) {
-                Ok(c) => LocalContext::WorkingDir(c),
-                Err(e) => LocalContext::Error(error::boot(format!("{e:?}"), window_size, 1.0)),
-            };
-
-            IcedContext {
-                id: TabId(rand::random::<u64>()),
-                cwd: dir,
-                local: local_context,
-            }
-        },
-    }
+pub struct TabPreview {
+    pub id: TabId,
+    pub index: usize,
+    pub flag: Color,
+    pub title: String,
+    pub status: Option<String>,
+    pub error: Option<String>,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match (&mut context.local, message) {
         (context, IcedMessage::Browser(BrowserMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
-            *context = LocalContext::Error(error::boot(e, context.window_size(), context.zoom()));
+            *context = LocalContext::Error(ErrorContext::new(e, context.window_size(), context.zoom()));
             Task::none()
         },
         (_, IcedMessage::Browser(BrowserMessage::Dead) | IcedMessage::WorkingDir(WorkingDirMessage::Dead) | IcedMessage::Error(ErrorMessage::Dead)) => {
@@ -171,12 +171,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
-            match working_dir::try_boot(false, &path, context.window_size(), context.zoom()) {
+            match WorkingDirContext::new(false, &path, context.window_size(), context.zoom()) {
                 Ok(c) => {
                     *context = LocalContext::WorkingDir(c);
                 },
                 Err(e) => {
-                    *context = LocalContext::Error(error::boot(format!("{e:?}"), context.window_size(), context.zoom()));
+                    *context = LocalContext::Error(ErrorContext::new(format!("{e:?}"), context.window_size(), context.zoom()));
                 },
             }
 

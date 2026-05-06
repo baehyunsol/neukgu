@@ -8,8 +8,11 @@ use super::tab::{
     self,
     IcedContext as TabContext,
     IcedMessage as TabMessage,
+    LocalContext,
+    TabId,
 };
 use super::working_dir::IcedMessage as WorkingDirMessage;
+use crate::get_neukgu_id;
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
@@ -32,10 +35,27 @@ pub struct IcedContext {
     pub tabs: Vec<TabContext>,
 }
 
+impl IcedContext {
+    pub fn new() -> IcedContext {
+        let home_dir = match std::env::var("HOME") {
+            Ok(d) => d,
+            Err(_) => current_dir().unwrap(),
+        };
+
+        IcedContext {
+            home_dir: home_dir.to_string(),
+            window_size: Size::new(0.0, 0.0),
+            selected_tab: None,
+            index: IndexContext::new(&home_dir),
+            tabs: vec![],
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     Index(IndexMessage),
-    Tab(TabMessage),
+    Tab { id: TabId, message: TabMessage },
     Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
@@ -57,21 +77,6 @@ pub enum Tab {
     WorkingDir(String),
 }
 
-pub fn boot() -> IcedContext {
-    let home_dir = match std::env::var("HOME") {
-        Ok(d) => d,
-        Err(_) => current_dir().unwrap(),
-    };
-
-    IcedContext {
-        home_dir: home_dir.to_string(),
-        window_size: Size::new(0.0, 0.0),
-        selected_tab: None,
-        index: index::boot(&home_dir),
-        tabs: vec![],
-    }
-}
-
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
         IcedMessage::Index(IndexMessage::NewTab(tab)) => Task::done(IcedMessage::NewTab(tab)),
@@ -86,22 +91,33 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Some(_) => unreachable!(),
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
         },
-        IcedMessage::Tab(TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file })) => {
+        IcedMessage::Tab { id: _, message: TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file }) } => {
             Task::done(IcedMessage::NewTab(Tab::Browser { dir, file }))
         },
-        IcedMessage::Tab(TabMessage::Dead) => match context.selected_tab {
-            Some(selected_tab) => Task::done(IcedMessage::CloseTab(selected_tab)),
-            None => unreachable!(),
+        IcedMessage::Tab { id, message: TabMessage::Dead } => {
+            for (i, tab) in context.tabs.iter().enumerate() {
+                if tab.id == id {
+                    return Task::done(IcedMessage::CloseTab(i));
+                }
+            }
+
+            unreachable!()
         },
-        IcedMessage::Tab(m) => match context.selected_tab {
-            Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], m).map(|m| IcedMessage::Tab(m)),
-            None => unreachable!(),
+        IcedMessage::Tab { id, message } => {
+            for tab in context.tabs.iter_mut() {
+                if tab.id == id {
+                    return tab::update(tab, message).map(move |message| IcedMessage::Tab { id, message });
+                }
+            }
+
+            unreachable!()
         },
         IcedMessage::Tick => {
             let mut tasks = vec![];
 
             for t in context.tabs.iter_mut() {
-                tasks.push(tab::update(t, TabMessage::Tick).map(|m| IcedMessage::Tab(m)));
+                let id = t.id;
+                tasks.push(tab::update(t, TabMessage::Tick).map(move |message| IcedMessage::Tab { id, message }));
             }
 
             tasks.push(index::update(&mut context.index, IndexMessage::Tick).map(|m| IcedMessage::Index(m)));
@@ -113,7 +129,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Character("t"), true, false, false) => Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None })),
             (Key::Character("w"), true, false, false) => match context.selected_tab {
-                Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], TabMessage::Kill).map(|m| IcedMessage::Tab(m)),
+                Some(selected_tab) => {
+                    let id = context.tabs[selected_tab].id;
+                    tab::update(&mut context.tabs[selected_tab], TabMessage::Kill).map(move |message| IcedMessage::Tab { id, message })
+                },
                 None => Task::none(),  // cannot close this
             },
             (Key::Character(n @ ("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0")), false, true, false) => {
@@ -140,7 +159,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 Task::none()
             },
             _ => match context.selected_tab {
-                Some(selected_tab) => tab::update(&mut context.tabs[selected_tab], TabMessage::KeyPressed { key, modifiers }).map(|m| IcedMessage::Tab(m)),
+                Some(selected_tab) => {
+                    let id = context.tabs[selected_tab].id;
+                    tab::update(&mut context.tabs[selected_tab], TabMessage::KeyPressed { key, modifiers }).map(move |message| IcedMessage::Tab { id, message })
+                },
                 None => index::update(&mut context.index, IndexMessage::KeyPressed { key, modifiers }).map(|m| IcedMessage::Index(m)),
             },
         },
@@ -150,21 +172,50 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             tasks.push(index::update(&mut context.index, IndexMessage::WindowResized(size)).map(|m| IcedMessage::Index(m)));
 
             for t in context.tabs.iter_mut() {
-                tasks.push(tab::update(t, TabMessage::WindowResized(size)).map(|m| IcedMessage::Tab(m)));
+                let id = t.id;
+                tasks.push(tab::update(t, TabMessage::WindowResized(size)).map(move |message| IcedMessage::Tab { id, message }));
             }
 
             Task::batch(tasks)
         },
         IcedMessage::NewTab(tab) => {
-            context.selected_tab = Some(context.tabs.len());
-            let new_tab = tab::boot(&context.home_dir, tab, context.window_size);
-            let scroll_id = new_tab.get_scroll_id();
-            context.tabs.push(new_tab);
+            let mut already_open = None;
 
-            if let Some(scroll_id) = scroll_id {
-                scroll_to(scroll_id, AbsoluteOffset { x: 0.0, y: 0.0 })
-            } else {
+            match &tab {
+                Tab::WorkingDir(w) => match get_neukgu_id(w) {
+                    Ok(id) => {
+                        for (i, tab) in context.tabs.iter().enumerate() {
+                            if let TabContext { local: LocalContext::WorkingDir(w), .. } = tab && w.fe_context.neukgu_id == id {
+                                already_open = Some(i);
+                                break;
+                            }
+                        }
+                    },
+
+                    // `TabContext::new` will encounter the same error and will handle that
+                    Err(_) => {},
+                },
+                Tab::Browser { .. } => {},
+            };
+
+            if let Some(index) = already_open {
+                context.selected_tab = Some(index);
                 Task::none()
+            }
+
+            else {
+                // TODO: if `context.selected_tab` is `Some(i)`, the new tab should be at `i + 1`,
+                //       not at the end of the tabs
+                context.selected_tab = Some(context.tabs.len());
+                let new_tab = TabContext::new(&context.home_dir, tab, context.window_size);
+                let scroll_id = new_tab.get_scroll_id();
+                context.tabs.push(new_tab);
+
+                if let Some(scroll_id) = scroll_id {
+                    scroll_to(scroll_id, AbsoluteOffset { x: 0.0, y: 0.0 })
+                } else {
+                    Task::none()
+                }
             }
         },
         IcedMessage::SelectTab(i) => {
@@ -172,7 +223,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::none()
         },
         IcedMessage::KillTab(i) => {
-            tab::update(&mut context.tabs[i], TabMessage::Kill).map(|m| IcedMessage::Tab(m))
+            let tab_id = context.tabs[i].id;
+            tab::update(&mut context.tabs[i], TabMessage::Kill).map(move |message| IcedMessage::Tab { id: tab_id, message })
         },
         IcedMessage::CloseTab(i) => {
             context.tabs.remove(i);
@@ -203,7 +255,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         .height(Length::Fixed(8.0))
         .into();
     let curr_tab = if let Some(selected_tab) = context.selected_tab {
-        tab::view(&context.tabs[selected_tab]).map(|m| IcedMessage::Tab(m))
+        let selected_tab = &context.tabs[selected_tab];
+        let selected_tab_id = selected_tab.id;
+        tab::view(&selected_tab).map(move |message| IcedMessage::Tab { id: selected_tab_id, message })
     } else {
         index::view(&context.index).map(|m| IcedMessage::Index(m))
     };

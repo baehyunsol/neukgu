@@ -37,7 +37,15 @@ mod ui;
 pub use config::Config;
 pub use context::{ChosenTurn, Context, ContextJson, NeukguId, SessionId};
 pub use error::{Error, from_browser_error};
-pub use global::{Project, clean_global_index_dir, get_global_index_dir, init_global_index_dir, load_all_indexes, update_global_index};
+pub use global::{
+    Project,
+    clean_global_index_dir,
+    get_global_index_dir,
+    init_global_index_dir,
+    load_all_indexes,
+    remove_global_index,
+    update_global_index,
+};
 pub use image::{ImageId, normalize_and_get_id};
 use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
@@ -113,7 +121,7 @@ pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
     // It sleeps 500ms in order to add *stability* to the program.
     // This is the safest place in the loop. The frontend can read the index
     // because every state is complete, and it's safe to kill the backend here.
-    update_global_index(&context.working_dir, &context.global_index_dir, context.neukgu_id)?;
+    update_global_index(&context)?;
     sleep(Duration::from_millis(500));
 
     drop(lock_file);
@@ -223,12 +231,17 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
 }
 
 pub fn validate_project_name(name: &str) -> Result<(), Error> {
+    if name.is_empty() {
+        return Err(Error::EmptyProjectName);
+    }
+
     for ch in name.chars() {
         match ch {
             '0'..='9' |
             'a'..='z' |
             'A'..='Z' |
             '가'..='힣' |
+            'ㄱ'..='ㅣ' |
             ' ' | '_' | '-' => {},
             _ => {
                 return Err(Error::NotAllowedCharInProjectName { name: name.to_string(), ch });
@@ -239,7 +252,12 @@ pub fn validate_project_name(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn init_working_dir(instruction: Option<String>, working_dir: &str, model: Model) -> Result<(), Error> {
+pub fn init_working_dir(
+    instruction: Option<String>,
+    working_dir: &str,
+    model: Model,
+    is_in_global_index_dir: bool,
+) -> Result<(), Error> {
     if exists(&join(working_dir, ".neukgu/")?) {
         return Err(Error::IndexDirAlreadyExists);
     }
@@ -310,15 +328,11 @@ pub fn init_working_dir(instruction: Option<String>, working_dir: &str, model: M
     config.model = model;
     config.store(working_dir)?;
 
-    let context = Context::new(&config, working_dir)?;
+    let context = Context::new(&config, working_dir, is_in_global_index_dir)?;
     context.store()?;
 
     init_global_index_dir(&context.global_index_dir)?;
-    update_global_index(
-        &context.working_dir,  // `Context::new` canonicalizes the path
-        &context.global_index_dir,
-        context.neukgu_id,
-    )?;
+    update_global_index(&context)?;
 
     Ok(())
 }
@@ -351,7 +365,7 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
 
     let config = Config::load(working_dir)?;
     let old_context = Context::load(&config, working_dir)?;
-    let mut new_context = Context::new(&config, working_dir)?;
+    let mut new_context = Context::new(&config, working_dir, old_context.is_in_global_index_dir)?;
     new_context.neukgu_id = old_context.neukgu_id;
     new_context.store()?;
     new_context.remove_done_mark()?;
@@ -446,6 +460,12 @@ pub fn load_json<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
     }
 
     Err(curr_error.unwrap())
+}
+
+pub fn get_neukgu_id(working_dir: &str) -> Result<NeukguId, Error> {
+    let config = Config::load(working_dir)?;
+    let context = Context::load(&config, working_dir)?;
+    Ok(context.neukgu_id)
 }
 
 fn hash_bytes(s: &[u8]) -> u128 {

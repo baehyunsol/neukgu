@@ -1,4 +1,6 @@
 use super::{
+    PopupContext,
+    PopupMessage,
     black,
     blue,
     button,
@@ -7,13 +9,13 @@ use super::{
     gray,
     green,
     pink,
+    into_popup,
     red,
     set_bg,
     take_chars,
-    white,
 };
 use crate::{Error, Model, init_working_dir, prettify_bytes, render_first_10_pages, validate_project_name};
-use iced::{Background, Color, Element, Length, Size, Task};
+use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
@@ -91,6 +93,40 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
+    pub fn new(window_size: Size, home_dir: &str, cwd: &str, file: &Option<String>) -> Result<IcedContext, Error> {
+        let file = match file {
+            Some(file) => Some(basename(file)?),
+            None => None,
+        };
+
+        let mut context = IcedContext {
+            home_dir: home_dir.to_string(),
+            cwd: cwd.to_string(),
+            entries: load_entries(cwd)?,
+            has_neukgu_index: check_neukgu_index(cwd)?,
+            window_size,
+            entry_view_id: Id::unique(),
+            entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
+            hovered_entry: None,
+            selected_entry: None,
+            curr_popup: None,
+            copy_buffer: None,
+            image_buffer: vec![],
+            syntax_highlight: None,
+            long_preview: None,
+            popup_title: None,
+            zoom: 1.0,
+            long_text_editor_content: TextEditorContent::new(),
+            short_text_editor_content: TextEditorContent::new(),
+            selected_model: Model::default(),
+        };
+
+        if let Some(file) = &file {
+            context.open_popup(Popup::Preview { path: join(cwd, file)? })?;
+        }
+
+        Ok(context)
+    }
     // It returns a scroll-offset of the entry view.
     pub fn select_entry(&mut self, offset: i32) -> f32 {
         let new_selection = (self.selected_entry.map(|i| i as i32).unwrap_or(-1) + offset).min(self.entries.len() as i32 - 1).max(0) as usize;
@@ -206,6 +242,13 @@ impl IcedContext {
     }
 }
 
+impl PopupContext for IcedContext {
+    fn can_close_popup(&self) -> bool { true }
+    fn has_prev_popup(&self) -> bool { false }
+    fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
+    fn zoom(&self) -> f32 { self.zoom }
+}
+
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     Tick,
@@ -214,7 +257,7 @@ pub enum IcedMessage {
     HoverOnEntry(Option<String>),
     OpenPopup(Popup),
     ClosePopup,
-    CopyToClipboard,
+    CopyPopupContent,
     ChDir(String),
     DeleteFile(String),
     DeleteDirectory(String),
@@ -230,6 +273,12 @@ pub enum IcedMessage {
     // Dead: Tell the caller that this tab is okay to be closed.
     Kill,
     Dead,
+}
+
+impl PopupMessage for IcedMessage {
+    fn close_popup() -> Self { IcedMessage::ClosePopup }
+    fn back_popup() -> Self { unreachable!() }
+    fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
 }
 
 #[derive(Clone, Debug)]
@@ -252,41 +301,6 @@ pub enum Popup {
     Preview { path: String },
     AskDelete { is_dir: bool, path: String },
     Help,
-}
-
-pub fn try_boot(window_size: Size, home_dir: &str, cwd: &str, file: &Option<String>) -> Result<IcedContext, Error> {
-    let file = match file {
-        Some(file) => Some(basename(file)?),
-        None => None,
-    };
-
-    let mut context = IcedContext {
-        home_dir: home_dir.to_string(),
-        cwd: cwd.to_string(),
-        entries: load_entries(cwd)?,
-        has_neukgu_index: check_neukgu_index(cwd)?,
-        window_size,
-        entry_view_id: Id::unique(),
-        entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
-        hovered_entry: None,
-        selected_entry: None,
-        curr_popup: None,
-        copy_buffer: None,
-        image_buffer: vec![],
-        syntax_highlight: None,
-        long_preview: None,
-        popup_title: None,
-        zoom: 1.0,
-        long_text_editor_content: TextEditorContent::new(),
-        short_text_editor_content: TextEditorContent::new(),
-        selected_model: Model::default(),
-    };
-
-    if let Some(file) = &file {
-        context.open_popup(Popup::Preview { path: join(cwd, file)? })?;
-    }
-
-    Ok(context)
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -399,7 +413,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
             return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
         },
-        IcedMessage::CopyToClipboard => {
+        IcedMessage::CopyPopupContent => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
         },
         IcedMessage::ChDir(path) => {
@@ -427,12 +441,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.selected_model)?;
+            init_working_dir(Some(instruction), &project_path, context.selected_model, false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
-            init_working_dir(Some(instruction), &path, context.selected_model)?;
+            init_working_dir(Some(instruction), &path, context.selected_model, false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),
@@ -498,7 +512,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         if let Some((pre, trunc, post)) = &context.long_preview {
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
-                popup(Scrollable::new(Column::from_vec(vec![
+                into_popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
                     Container::new(text!("{pre}").size(context.zoom * 14.0)).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
                     text!("... ({} truncated) ...", prettify_bytes(*trunc as u64)).size(context.zoom * 14.0).into(),
@@ -517,7 +531,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
-                popup(Scrollable::new(
+                into_popup(Scrollable::new(
                     Column::from_vec(column)
                         .spacing(context.zoom * 20.0)
                         .width(Length::Fill)
@@ -533,7 +547,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
-                popup(Scrollable::new(Column::from_vec(vec![
+                into_popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
                     text_editor.into(),
                 ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
@@ -542,7 +556,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     } else if let Some(Popup::EntryError(e)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(text!("{e}").size(context.zoom * 14.0).into(), context).into(),
+            into_popup(text!("{e}").size(context.zoom * 14.0).into(), context).into(),
         ]).into();
     } else if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
         let ask = if *is_dir {
@@ -559,12 +573,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(ask.into(), context).into(),
+            into_popup(ask.into(), context).into(),
         ]).into();
     } else if let Some(Popup::Help) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            popup(Scrollable::new(text!("{HELP_MESSAGE}").size(context.zoom * 14.0)).into(), context).into(),
+            into_popup(Scrollable::new(text!("{HELP_MESSAGE}").size(context.zoom * 14.0)).into(), context).into(),
         ]).into();
     }
 
@@ -592,10 +606,10 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
 
     if let Ok(parent) = parent(&context.cwd) && !parent.is_empty() {
-        buttons_row2.push(button("Up", IcedMessage::ChDir(parent), green(), context.zoom).into());
+        buttons_row2.push(button("Up", IcedMessage::ChDir(parent), blue(), context.zoom).into());
     }
 
-    buttons_row2.push(button("Home", IcedMessage::ChDir(context.home_dir.to_string()), green(), context.zoom).into());
+    buttons_row2.push(button("Home", IcedMessage::ChDir(context.home_dir.to_string()), blue(), context.zoom).into());
 
     Column::from_vec(vec![
         Row::from_vec(buttons_row1).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
@@ -704,7 +718,7 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         |m| Radio::new(m.short_name(), m, Some(context.selected_model), |m| IcedMessage::SelectModel(m)).into()
     ).collect());
 
-    popup(
+    into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 text_editor.into(),
@@ -737,7 +751,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         |m| Radio::new(m.short_name(), m, Some(context.selected_model), |m| IcedMessage::SelectModel(m)).into()
     ).collect());
 
-    popup(
+    into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 short_text_editor.into(),
@@ -812,39 +826,6 @@ fn check_neukgu_index(path: &str) -> Result<bool, Error> {
 
         false
     })
-}
-
-fn popup<'e, 'c>(element: Element<'e, IcedMessage>, context: &'c IcedContext) -> Element<'e, IcedMessage> {
-    let mut buttons: Vec<Element<IcedMessage>> = vec![];
-    buttons.push(button("Close", IcedMessage::ClosePopup, red(), context.zoom).into());
-
-    if context.copy_buffer.is_some() {
-        buttons.push(button("Copy", IcedMessage::CopyToClipboard, blue(), context.zoom).into());
-    }
-
-    Container::new(
-        Container::new(Column::from_vec(vec![
-            Row::from_vec(buttons).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
-            element,
-        ]).width(Length::Fill)).style(
-            |_| Style {
-                background: Some(Background::Color(black())),
-                border: Border {
-                    color: white(),
-                    width: 4.0,
-                    radius: Radius::new(8.0),
-                },
-                ..Style::default()
-            }
-        )
-        .padding(context.zoom * 8.0)
-        .width(Length::Fill)
-    )
-    .style(|_| set_bg(Color::from_rgba(0.0, 0.0, 0.0, 0.5)))
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .padding(context.zoom * 32.0)
-    .into()
 }
 
 fn dump_hex(bytes: &[u8], offset: usize) -> String {

@@ -11,6 +11,7 @@
   - C. 몇몇 tool은 thinking이 전혀 필요없음
     - 보통 아무 영양가 없는 thinking token 좀 만들고 넘어가더라. 예를 들어서, 첫 turn에 instruction.md를 읽기 전에 "먼저 instruction.md를 읽어봐야겠군"라고 생각하고 바로 instruction.md를 읽음
   - 많이 과격한 아이디어: 기본적으로는 thinking 없이 돌리되, 돌아온 결과물이 `<write>`이면 그 결과물 버리고 thinking 켜서 다시 돌리기?
+    - 굳이 thinking이 아니더라도 비슷한 걸 할 수 있는게, 평상시에는 haiku로 돌리다가 haiku가 `<write>`를 하면 그 결과물을 버리고 opus로 다시 돌릴 수도 있음. 이슈 87을 하면서 haiku랑 opus의 동작이 얼마나 비슷한지 확인하기!
 11. 무지 긴 파일을 한번에 쓰려고 할 경우... AI가 500KiB짜리 파일을 쓰려고 시도했다고 치자
   - 당연히 TextTooLongToWrite를 내뱉겠지?
   - 그다음턴에 500KiB짜리 파일을 통째로 context에 집어넣으면... 너무 손해인데??
@@ -20,6 +21,14 @@
 19. multi-agent
   - 코드 짜는 agent 따로, test하는 agent 따로, doc 쓰는 agent 따로... 하면 더 좋으려나?
   - working-dir 안에서 여러 agent가 *동시에* 돌아가는게 가능하려나?? 지금의 flow로는 좀 힘들겠지? ㅠㅠ
+  - 아니면 main-agent랑 sub-agent를 별개로 두는 거임.
+    - 사용자가 instruction을 넣으면, main-agent가 깨어나고, main-agent는 sub-agent를 호출하는 역할만 할 수 있음!
+    - sub-agent는 현재의 늑구와 동일. sub-agent가 작업을 끝내면 summary만 main-agent에 전달함.
+    - main-agent는 3가지 중 하나를 할 수 있음
+      - 방금 sub-agent가 한 일들을 다 날리고 이전으로 rollback
+      - 새로운 sub-agent를 띄움
+      - 작업이 끝났다고 사용자에게 보고
+    - 아니면, main-agent를 구현한 다음에 main-agent 자리에 사람이 들어가도 되잖아?
 23. `` FileError(file not found: `./.neukgu/fe2be.json_tmp__50d05389127d0952`) ``
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
@@ -66,18 +75,21 @@
   - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
   - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
   - 다른 popup 안에서도 Ctrl+F가 되면 좋을 듯... 근데 그건 너무 빡셀 듯 ㅠㅠ
+  - browser에서도 검색 기능이 있으면 좋을 듯?
+    - 이거는 rg를 활용할 수도 있음 (어차피 깔려있을테니!). `rg <pattern> --json` 한다음에 결과물을 뜯어서 rendering해도 됨!
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - When initializing a new working-dir, it can
-    - choose AI model
+    - choose AI model (smart, quick, search, summary)
     - enable/disable tools/binaries
       - I'm not gonna update the system prompt (or maybe I have to do so...)
       - when the AI calls the tool, it'll reject it with an error message
       - If we can disable binaries, what's the point of `Error::UnavailableBinaries`?
   - set api key with GUI
+    - 이게 젤 필요함. 지금 너무 귀찮음 ㅠㅠ
   - Change configs while neukgu is running
-    - change AI model
-    - enable/disable  tools/binariess
+    - change AI model (smart, quick, search, summary)
+    - enable/disable tools/binariess
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
   - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
@@ -162,8 +174,70 @@
     - `neukgu-instruction.md`가 없으면?
 83. launch라는 용어가 마음에 안 듦. "go hunt" ㅇㄸ?
 84. better button colors
-  - make clear rules for the colors, and change the colors
+  - browser/top
+    - Create new: green
+    - Launch: green
+    - Init here: green
+    - Help: pink
+    - Up: blue
+    - Home: blue
+  - browser/entry
+    - Delete: red
+  - browser/init_popup
+    - Init: green
+  - browser/create_popup
+    - Create: green
+  - error
+    - Okay: blue
+  - index/main
+    - New project: green
+    - New tab: skyblue
+  - index/recent_projects
+    - Launch: green
+    - Browse: skyblue
+    - Instruction: yellow
+  - popup/top
+    - Close: red
+    - Back: blue
+    - Copy: blue
+  - working_dir/top
+    - Resume: blue
+    - Pause: blue
+    - Quit: red
+    - Interrupt: blue
+    - See logs: yellow
+    - Token usage: yellow
+    - Help: pink
+    - Instruction: yellow
+    - Config: yellow
+    - Reset: blue
+  - working_dir/turn
+    - Diff: yellow
+    - Open in browser: skyblue
+  - tab flag
+    - browser (no file): skyblue
+    - browser (file): skyblue
+    - working_dir (has error): red
+    - working_dir (has llm request): blue
+    - working_dir (paused): yellow
+    - working_dir: green
+    - error: red
 85. When "Launch" button in the index tab is clicked and the working dir is already launched, no new tab is opened. The existing tab is selected.
+86. refactor `src/ui/gui/*.rs`
+  - `struct IcedContext`, `struct IcedMessage`, `impl IcedContext`, `impl IcedMessage`, `boot`, `view`, `update`, misc types, misc funcs의 모양과 순서가 동일해지도록 맞추기
+    - field 순서랑 variant 순서도 맞추기!!
+    - `impl IcedContext` 안에서도 비슷한 method가 많을텐데 순서 다 맞추자!
+  - `popup` -> 이것도 generic하게 빼고 싶음... (완료)
+    - `IcedMessage`랑 `IcedContext`를 둘다 generic으로 만들고 `PopupMessage`라는 trait랑 `PopupContext`라는 trait 만들면 됨!
+    - PopupMessage: Close, Back, Copy
+    - PopupContext: has_prev_popup, has_copy_buffer, zoom
+87. `context.json`이 동일하면 LLM한테 완전 동일한 context를 줄 수 있잖아? 서로 다른 LLM한테 완전 동일한 context를 주고 어떻게 다르게 행동하는지 실험해보자
+  - 만약 동일한 상황에서 haiku도 `<write>`를 하고 opus도 `<write>`를 한다? 그럼 평상시에는 haiku를 쓰다가 write할 때만 opus로 갈아끼우면 됨!
+  - 이걸 해보면 LLM 간의 능력차이가 얼마나 나는지도 한눈에 볼 수 있음. 예를 들어서 동일한 상황에서 opus가 하는 행동과 qwen이 하는 행동이 거의 비슷하면 굳이 비싸게 opus를 쓸 필요가 없는 거지...
+  - 이거 테스트할 수 있는 환경을 만들어야함!
+88. text edit
+  - https://github.com/shareAI-lab/learn-claude-code/blob/main/agents/s02_tool_use.py 보니까 edit를 엄청 무식하게 구현해놨음. old_text랑 new_text 준 다음에 `.replace()` 해버림... 근데 또 생각해보면, 대부분의 경우에서는 잘 동작할 거 같기도?
+89. 
 
 ```nu
 cd ~/Documents/Rust/neukgu;
@@ -172,9 +246,9 @@ cd ~/Documents;
 rm -rf ttt;
 rm -rf tttt;
 echo "initializing ttt..."
-~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock;
+~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
 echo "initializing tttt..."
-~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock;
+~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
 echo "spawning gui..."
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
 ```

@@ -20,6 +20,7 @@ pub enum Error {
     CannotFindSnapshot(TurnId),
     FailedToParseAPIResponse(String),
     MockApiExpectationFailure { expect: String },
+    EmptyProjectName,
     NotAllowedCharInProjectName { name: String, ch: char },
     InvalidLogId(LogId),
     UserInterrupt,

@@ -1,5 +1,5 @@
 use chrono::Local;
-use crate::{ContextJson, Error, NeukguId, load_json};
+use crate::{Context, ContextJson, Error, NeukguId, load_json};
 use ragit_fs::{
     WriteMode,
     basename,
@@ -18,6 +18,7 @@ pub struct Project {
     pub neukgu_id: NeukguId,
     pub working_dir: String,
     pub updated_at: i64,  // millis timestamp
+    pub is_in_global_index_dir: bool,
 
     // error while loading this project
     pub error: Option<String>,
@@ -28,6 +29,11 @@ pub struct Project {
 pub struct ProjectJson {
     pub working_dir: String,
     pub updated_at: i64,
+
+    // If it's created by "New project" button in the index tab,
+    // 1. It doesn't have to display the full path.
+    // 2. It's okay to delete the directory.
+    pub is_in_global_index_dir: bool,
 }
 
 pub fn get_global_index_dir() -> Result<String, Error> {
@@ -46,8 +52,8 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         create_dir(&join(global_index_dir, "indexes")?)?;
     }
 
-    if !exists(&join(global_index_dir, "tmp-projects")?) {
-        create_dir(&join(global_index_dir, "tmp-projects")?)?;
+    if !exists(&join(global_index_dir, "projects")?) {
+        create_dir(&join(global_index_dir, "projects")?)?;
     }
 
     Ok(())
@@ -58,6 +64,7 @@ pub fn clean_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
 
     for index in load_all_indexes(global_index_dir).iter() {
         if index.error.is_some() {
+            dangling_ids.push(index.neukgu_id);
             continue;
         }
 
@@ -86,17 +93,25 @@ pub fn clean_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn update_global_index(
-    working_dir: &str,
-    global_index_dir: &str,
-    neukgu_id: NeukguId,
-) -> Result<(), Error> {
-    let index_at = join3(global_index_dir, "indexes", &format!("{:016x}", neukgu_id.0))?;
+pub fn update_global_index(context: &Context) -> Result<(), Error> {
+    let index_at = join3(&context.global_index_dir, "indexes", &format!("{:016x}", context.neukgu_id.0))?;
+    let project = ProjectJson {
+        working_dir: context.working_dir.to_string(),
+        updated_at: Local::now().timestamp_millis(),
+        is_in_global_index_dir: context.is_in_global_index_dir,
+    };
+
     write_string(
         &index_at,
-        &serde_json::to_string_pretty(&ProjectJson { working_dir: working_dir.to_string(), updated_at: Local::now().timestamp_millis() })?,
+        &serde_json::to_string_pretty(&project)?,
         WriteMode::Atomic,
     )?;
+    Ok(())
+}
+
+pub fn remove_global_index(global_index_dir: &str, id: NeukguId) -> Result<(), Error> {
+    let index_at = join3(global_index_dir, "indexes", &format!("{:016x}", id.0))?;
+    remove_file(&index_at)?;
     Ok(())
 }
 
@@ -134,12 +149,14 @@ pub fn load_all_indexes(global_index_dir: &str) -> Vec<Project> {
                             neukgu_id,
                             working_dir: p.working_dir.to_string(),
                             updated_at: p.updated_at,
+                            is_in_global_index_dir: p.is_in_global_index_dir,
                             error: None,
                         },
                         Err(e) => Project {
                             neukgu_id,
                             working_dir: String::from("????"),
                             updated_at: -1,
+                            is_in_global_index_dir: false,
                             error: Some(format!("{e:?}")),
                         },
                     },
@@ -147,6 +164,7 @@ pub fn load_all_indexes(global_index_dir: &str) -> Vec<Project> {
                         neukgu_id,
                         working_dir: String::from("????"),
                         updated_at: -1,
+                        is_in_global_index_dir: false,
                         error: Some(format!("{e:?}")),
                     },
                 };

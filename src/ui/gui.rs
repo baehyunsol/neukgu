@@ -12,16 +12,18 @@ use iced::window::Event as WindowEvent;
 mod browser;
 mod error;
 mod index;
+mod popup;
 mod tab;
 mod tabs;
 mod working_dir;
 
-use tabs::IcedMessage as TabsMessage;
+use popup::{PopupContext, PopupMessage, into_popup};
+use tabs::{IcedContext as TabsContext, IcedMessage as TabsMessage};
 
 const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
 
 pub fn run() -> Result<(), Error> {
-    iced::application(tabs::boot, tabs::update, tabs::view)
+    iced::application(TabsContext::new, tabs::update, tabs::view)
         .theme(Theme::Dark)
         .font(include_bytes!("../../resources/SpaceMono-Regular.ttf"))
         .default_font(DEFAULT_MONO_FONT)

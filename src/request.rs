@@ -13,32 +13,44 @@ pub use mock::{MockState, reset_mock_state, revert_mock_state};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Model {
+    GptMini,
     Gpt,
+    Haiku,
     Sonnet,
+    Opus,
     Mock,
 }
 
 impl Model {
-    pub fn name(&self) -> &'static str {
+    pub fn api_name(&self) -> &'static str {
         match self {
-            Model::Gpt => "gpt-5.4",
+            Model::GptMini => "gpt-5.4-mini",
+            Model::Gpt => "gpt-5.5",
+            Model::Haiku => "claude-haiku-4-5",
             Model::Sonnet => "claude-sonnet-4-6",
+            Model::Opus => "claude-opus-4-7",
             Model::Mock => "mock",
         }
     }
 
     pub fn short_name(&self) -> &'static str {
         match self {
+            Model::GptMini => "gpt-mini",
             Model::Gpt => "gpt",
+            Model::Haiku => "haiku",
             Model::Sonnet => "sonnet",
+            Model::Opus => "opus",
             Model::Mock => "mock",
         }
     }
 
     pub fn from_short_name(s: &str) -> Result<Model, Error> {
         match s {
+            "gpt-mini" => Ok(Model::GptMini),
             "gpt" => Ok(Model::Gpt),
+            "haiku" => Ok(Model::Haiku),
             "sonnet" => Ok(Model::Sonnet),
+            "opus" => Ok(Model::Opus),
             "mock" => Ok(Model::Mock),
             _ => Err(Error::InvalidModelName(s.to_string())),
         }
@@ -46,14 +58,24 @@ impl Model {
 
     pub fn provider(&self) -> ApiProvider {
         match self {
+            Model::GptMini => ApiProvider::OpenAi,
             Model::Gpt => ApiProvider::OpenAi,
+            Model::Haiku => ApiProvider::Anthropic,
             Model::Sonnet => ApiProvider::Anthropic,
+            Model::Opus => ApiProvider::Anthropic,
             Model::Mock => ApiProvider::Mock,
         }
     }
 
-    pub fn all() -> [Model; 3] {
-        [Model::Gpt, Model::Sonnet, Model::Mock]
+    pub fn all() -> [Model; 6] {
+        [
+            Model::GptMini,
+            Model::Gpt,
+            Model::Haiku,
+            Model::Sonnet,
+            Model::Opus,
+            Model::Mock,
+        ]
     }
 
     pub fn short_names() -> Vec<&'static str> {
@@ -105,7 +127,7 @@ pub struct Turn {
 }
 
 impl Request {
-    // VIBE NOTE: gemini 3.1 pro (via perplexity) taught me how to use `tokio` macros.
+    // VIBE NOTE: gemini 3.1 pro (via perplexity) taught me how to use `tokio::select` macro.
     pub async fn request(&mut self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
         let request_future = self.request_inner(working_dir, logger);
         tokio::pin!(request_future);

@@ -98,7 +98,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction, &project_name, model)?;
+            init_working_dir(instruction, &project_name, model, false)?;
             Ok(())
         },
         Some("init") => {
@@ -111,7 +111,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
             let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap()).unwrap_or(Model::default());
 
-            init_working_dir(instruction, ".", model)?;
+            init_working_dir(instruction, ".", model, false)?;
             Ok(())
         },
         Some("headless") => {

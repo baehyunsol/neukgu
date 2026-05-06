@@ -58,6 +58,7 @@ pub struct Context {
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,  // never hidden
+    pub is_in_global_index_dir: bool,
 
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
@@ -76,10 +77,11 @@ pub struct ContextJson {
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
+    pub is_in_global_index_dir: bool,
 }
 
 impl Context {
-    pub fn new(config: &Config, working_dir: &str) -> Result<Self, Error> {
+    pub fn new(config: &Config, working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
         let system_prompt = tera::Tera::one_off(
             include_str!("../system.pdl"),
             &config.system_prompt_context(),
@@ -99,6 +101,7 @@ impl Context {
             completed_questions_from_user: HashSet::new(),
             hidden_turns: HashSet::new(),
             pinned_turns: HashSet::new(),
+            is_in_global_index_dir,
             system_prompt,
             available_binaries,
             global_index_dir,
@@ -121,7 +124,8 @@ impl Context {
             completed_questions_from_user: context_json.completed_questions_from_user.clone(),
             hidden_turns: context_json.hidden_turns.clone(),
             pinned_turns: context_json.pinned_turns.clone(),
-            ..Context::new(config, working_dir)?
+            is_in_global_index_dir: context_json.is_in_global_index_dir,
+            ..Context::new(config, working_dir, false)?
         })
     }
 
@@ -144,6 +148,7 @@ impl Context {
             completed_questions_from_user: self.completed_questions_from_user.clone(),
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
+            is_in_global_index_dir: self.is_in_global_index_dir,
         }
     }
 
