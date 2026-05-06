@@ -72,11 +72,16 @@
   - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
     - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
 56. search
-  - turn view에서 python 실행만 찾고 싶다고 치자... 만약 이게 html이었으면 Ctrl+F 누르고 "Run `python" 검색했을 거임...
-  - 여기도 비슷한 기능이 있었으면 좋겠음! regex로 검색까지 되면... 금상첨화!
-  - 다른 popup 안에서도 Ctrl+F가 되면 좋을 듯... 근데 그건 너무 빡셀 듯 ㅠㅠ
+  - working dir (turns)
+    - 일단 구현은 했음. 근데 엔터키 치면 검색됐으면 좋겠음...
+    - 그리고, 검색 내용을 초기화하는 방법도 필요함!!
+    - 지금은 view를 호출할 때마다 regex를 비교하는데 이건 말도 안됨... 한번만 regex 검색하고 그 결과 cache 해두자!!
+    - 검색어가 비었으면 None으로 처리하기!!
+    - 검색창 끄면 (Close/ESC) pattern을 None으로 바꾸기?
   - browser에서도 검색 기능이 있으면 좋을 듯?
     - 이거는 rg를 활용할 수도 있음 (어차피 깔려있을테니!). `rg <pattern> --json` 한다음에 결과물을 뜯어서 rendering해도 됨!
+    - 근데 rg를 fe에서 돌리면 랙이 엄청 걸릴텐데?? 별도의 process에서 async하게 돌려야함...
+  - 온갖 popup에서도 검색이 되면 좋을 듯? 파일 내용을 보다가 그 안에서 검색하기!!
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - When initializing a new working-dir, it can
@@ -191,6 +196,9 @@
 90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!!
   - 파일 수정 시각
   - dir일 경우, recursive하게 크기 측정
+91. 내가 개입해서 특정 행동을 하기
+  - e.g. git push를 하고 싶을 경우, gui에다가 `git push origin main`을 입력함.
+  - 그럼 interrupt turn이 생기고 user request로 "I want you to run git push origin main"이 들어가고 그 다음 turn에 자동으로 `<run>`이 추가되는 거임. AI는 지가 했다고 생각하겠지!
 
 ```nu
 cd ~/Documents/Rust/neukgu;
@@ -202,6 +210,7 @@ echo "initializing ttt..."
 ~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
 echo "initializing tttt..."
 ~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
+cd ~/Documents/Rust/neukgu;
 echo "spawning gui..."
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
 ```

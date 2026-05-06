@@ -43,7 +43,7 @@ use crate::{
 use iced::{ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Stack, text};
+use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, text};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, scroll_to, snap_to};
 use iced::widget::text_editor::{
@@ -123,6 +123,7 @@ pub struct IcedContext {
     pub hovered_turn: Option<TurnId>,
     pub selected_turn: Option<usize>,
 
+    pub find_pattern: Option<(String, Regex)>,
     pub loaded_turn: Option<(usize, Turn)>,
     pub loaded_logs: Option<Vec<String>>,
     pub loaded_image: Option<ImageId>,
@@ -163,6 +164,7 @@ impl IcedContext {
             turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             hovered_turn: None,
             selected_turn: None,
+            find_pattern: None,
             loaded_turn: None,
             loaded_logs: None,
             loaded_image: None,
@@ -280,6 +282,11 @@ impl IcedContext {
                 self.copy_buffer = None;
                 self.syntax_highlight = None;
             },
+            Popup::Find { re, .. } => {
+                if let Some(re) = re {
+                    self.set_text_editor_content(re);
+                }
+            },
             Popup::AskRollBack { .. } => {},
             Popup::AskQuit => {},
         }
@@ -353,6 +360,7 @@ pub enum IcedMessage {
     InterruptNeukgu,
     ResetNeukgu,
     RollBackNeukgu(TurnId),
+    Find,
     AnswerLLMRequest,
     DismissLLMRequest,
     EditText(TextEditorAction),
@@ -387,6 +395,7 @@ pub enum Popup {
     Instruction,
     Config,
     Reset,
+    Find { re: Option<String>, error: Option<String> },
     AskRollBack { id: TurnId, title: String },
     AskQuit,
 }
@@ -515,6 +524,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("d"), false, false, false) => {
                 if let Some(Popup::Turn(_, _)) = &context.curr_popup && context.text_diff.is_some() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Diff, prev: context.curr_popup.clone() }));
+                }
+            },
+            (Key::Character("f"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }));
                 }
             },
             (Key::Character("h"), false, false, false) => {
@@ -657,6 +671,22 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             return Ok(Task::done(IcedMessage::Tick));
         },
+        IcedMessage::Find => {
+            let pattern = context.text_editor_content.text();
+
+            match Regex::new(&pattern) {
+                Ok(re) => {
+                    context.find_pattern = Some((pattern, re));
+                    context.close_popup();
+                },
+                Err(e) => {
+                    return Ok(Task::done(IcedMessage::OpenPopup {
+                        curr: Popup::Find { re: Some(pattern), error: Some(format!("{e:?}")) },
+                        prev: None,
+                    }));
+                },
+            }
+        },
         IcedMessage::AnswerLLMRequest => {
             let Some((id, _)) = context.llm_request.take() else { unreachable!() };
             context.processed_llm_requests.insert(id);
@@ -792,8 +822,9 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     else if let Some(Popup::Reset) = context.curr_popup {
         let text_editor = TextEditor::new(&context.text_editor_content)
-            .placeholder("What do you want neukgu to do?")
             .size(context.zoom * 14.0)
+            .placeholder("What do you want neukgu to do?")
+            .min_height(400)
             .id(context.text_editor_id.clone())
             .on_action(|action| IcedMessage::EditText(action));
         let reset_edit = Column::from_vec(vec![
@@ -805,6 +836,34 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(reset_edit.into(), context).into(),
+        ]).into();
+    }
+
+    else if let Some(Popup::Find { error, .. }) = &context.curr_popup {
+        let text_editor = TextEditor::new(&context.text_editor_content)
+            .placeholder("regex")
+            .size(context.zoom * 14.0)
+            .id(context.text_editor_id.clone())
+            .on_action(|action| IcedMessage::EditText(action));
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Column::from_vec(vec![
+                    text_editor.into(),
+                    if let Some(error) = error {
+                        text!("{error}").size(context.zoom * 14.0).color(red()).into()
+                    } else {
+                        Space::new().into()
+                    },
+                    button("Find", IcedMessage::Find, green(), context.zoom).padding(context.zoom * 20.0).into(),
+                ])
+                    .spacing(context.zoom * 20.0)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill)
+                    .into(),
+                context,
+            ).into(),
         ]).into();
     }
 
@@ -865,6 +924,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom).into());
     buttons_row2.push(button("Config", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom).into());
+    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom).into());
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom).into());
 
     Column::from_vec(vec![
@@ -917,12 +977,33 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         TurnResultSummary::ToolCallSuccess => text!(""),
     }.into();
 
+    let preview_title: Element<IcedMessage> = if let Some((_, regex)) = &context.find_pattern {
+        match regex.find(&p.preview_title_truncated) {
+            Some(m) => {
+                let (start, end) = (m.start(), m.end());
+                let (pre, m, post) = (
+                    p.preview_title_truncated.get(0..start).unwrap(),
+                    p.preview_title_truncated.get(start..end).unwrap(),
+                    p.preview_title_truncated.get(end..).unwrap(),
+                );
+                Row::from_vec(vec![
+                    text!("{pre}").size(context.zoom * 14.0).into(),
+                    Container::new(text!("{m}").color(black()).size(context.zoom * 14.0)).style(|_| set_bg(white())).into(),
+                    text!("{post}").size(context.zoom * 14.0).into(),
+                ]).into()
+            },
+            None => text!("{}", p.preview_title_truncated).size(context.zoom * 14.0).into(),
+        }
+    } else {
+        text!("{}", p.preview_title_truncated).size(context.zoom * 14.0).into()
+    };
+
     let turn_row = Row::from_vec(vec![
         text!("{index:>3}. ").size(context.zoom * 14.0).into(),
         text!("[{}]", p.timestamp).size(context.zoom * 14.0).into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
-                text!("{}", p.preview_title_truncated).size(context.zoom * 14.0).into(),
+                preview_title,
                 turn_result,
             ]).into(),
             text!("(LLM: {}, TOOL: {})", prettify_time(p.llm_elapsed_ms), prettify_time(p.tool_elapsed_ms)).width(Length::FillPortion(2)).size(context.zoom * 14.0).into(),
