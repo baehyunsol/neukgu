@@ -109,11 +109,9 @@
 69. 지금은 diff를 edit마다 따로 봐야하잖아? 더 긴 기간에 걸친 diff를 한눈에 보고 싶음!!
   - 구현은 쉬움. 첫번째 write의 content와 diff가 있잖아? 저 content에 diff를 rev-apply하면 첫번째 write 이전의 content가 나옴. 그럼 그 content랑 현재의 content를 diff를 떠버리면 됨.
     - 현재의 content를 가져올 때는 반드시 파일을 직접 읽어야함! `<run>`같은 걸로 수정했을 수도 있으니까...
+    - There's a problem... the `similar` crate doesn't allow me to rev-apply a unified diff (which has a string type). If I store it as a diff object, I don't think that's serializable.
   - 파일이 여러개여도... diff 뜨는 거는 쉽지!
-  - UI에 붙이는게 문제임!
-    - viewer는 간단함. 지금의 diff viewer랑 똑같이 만든 다음에 파일 구분자만 적당히 넣어주면 됨. 아니면 file마다 별개의 widget으로 만들면 더 효율적일 수도 있고!
-      - 파일마다 collapsible widget으로 만들자!
-    - "어디부터 어디까지 diff를 보여줘"라는 버튼을 만들어야 하는데... 어디에 만들지? ㅠㅠ
+  - Let's add a "history" tab. It shows all the file writes in a session, with diffs.
 70. `my-project/.neukgu/`가 존재하는 상황에서 `my-project/foo/bar/.neukgu/`를 또 만들 경우
   - 둘이 동시에 돌리면 온갖 이상한 오류가 쏟아짐.
   - 둘이 동시에 안 돌린다는 가정 하에 저런 식의 작업이 도움이 되는 경우도 있음
@@ -121,7 +119,6 @@
     - 계속 parent로 올라가면서 `.neukgu/`를 확인할 수도 있고
     - 모든 children을 recursive하게 뒤져서 `.neukgu/`를 확인할 수도 있음
       - 이거는 엄청 비쌀텐데?
-71. OpenCode 보니까 오른쪽에 column 하나 있고 (screen의 50% 정도 차지), 현재 session에서 수정된 파일의 목록을 쭉 보여줌. 클릭하면 그 파일의 diff가 collapsible로 나옴.
 72. SQL
   - backend를 만들 때: postgresql 하나 띄워놓고 소통할 수 있게 만들어야함!
   - 방대한 자료를 정리할 때: sqlite 하나 만들고 그 안에다가 알아서 정리하라고 하기!
@@ -204,6 +201,10 @@
     - 이 둘은 어떻게 구분?
     - 일단 그냥 chat-completion만 받자 ㅋㅋ
   - big_agent랑 search_agent랑 다른 모델인데 둘다 openai-compatible로 쓰고싶을 경우...
+96. Issues (literally, like github)
+  - Issues are stored in `.neukgu/`.
+  - It provides github-like interface.
+  - Neukgu will read the issues and tries to fix them, and close them.
 
 ```nu
 cd ~/Documents/Rust/neukgu;
