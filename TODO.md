@@ -192,6 +192,18 @@
   - 모델같은 거는 정해놓으면 좋지!
 93. alternative python
   - 지금 mac처럼 python에 문제가 있는 애들은 어떤 python으로 init할 지 정할 수 있게 하고싶음...
+94. visualize agent
+  - pdf/xlsx/pptx/hwpx 등 온갖 문서를 만들 수 있는 능력이 있음!
+  - main agent가 정리해서 얘한테 넘겨주면 얘가 결과물 만들어주는 거지!!
+  - vis agent가 만든 결과물을 main agent가 확인했는데 마음에 안 들면?
+  - vis agent가 만든 결과물을 사람이 확인했는데 마음에 안 들면?
+  - vis agent가 만든 결과물을 main agent가 확인할 수 있으려면 `<read>`가 쟤네를 전부 지원해야함...
+95. openai-compatible API, anthropic-compatible API
+  - OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL -> 이렇게 3개의 환경변수를 읽어서 동작
+  - openai는 api 형태가 2종류인데? chat-completion vs responses
+    - 이 둘은 어떻게 구분?
+    - 일단 그냥 chat-completion만 받자 ㅋㅋ
+  - big_agent랑 search_agent랑 다른 모델인데 둘다 openai-compatible로 쓰고싶을 경우...
 
 ```nu
 cd ~/Documents/Rust/neukgu;

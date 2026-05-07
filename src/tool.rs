@@ -453,10 +453,15 @@ impl ToolCall {
                 }
             },
             ToolCall::Ask { id, to: AskTo::User, question } => {
-                context.ask_to_user(*id, question.to_string())?;
-
                 let response;
                 let tool_call_result = 'block: {
+                    if config.user_response_timeout == 0 {
+                        response = UserResponse::Reject;
+                        break 'block Err(ToolCallError::UserRejectedToRespond);
+                    }
+
+                    context.ask_to_user(*id, question.to_string())?;
+
                     if let Err(Error::FrontendNotAvailable) = context.wait_for_fe() {
                         response = UserResponse::Timeout;
                         break 'block Err(ToolCallError::UserNotResponding);

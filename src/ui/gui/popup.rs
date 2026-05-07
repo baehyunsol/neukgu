@@ -39,12 +39,12 @@ pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupCont
             Row::from_vec(buttons).padding(zoom * 8.0).spacing(zoom * 8.0).into(),
             element,
         ]).width(Length::Fill)).style(
-            |_| Style {
+            move |_| Style {
                 background: Some(Background::Color(black())),
                 border: Border {
                     color: white(),
-                    width: 4.0,
-                    radius: Radius::new(8.0),
+                    width: zoom * 4.0,
+                    radius: Radius::new(zoom * 8.0),
                 },
                 ..Style::default()
             }
