@@ -1,4 +1,4 @@
-use crate::{Error, Model};
+use crate::{Agents, Error};
 use ragit_fs::{
     WriteMode,
     join3,
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    pub model: Model,
+    pub agents: Agents,
     pub sandbox_root: String,
     pub llm_context_max_len: u64,
     pub text_file_max_len: u64,
@@ -50,7 +50,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            model: Model::default(),
+            agents: Agents::default(),
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
             llm_context_max_len: 204_800,
             text_file_max_len: 32_768,

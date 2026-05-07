@@ -226,10 +226,13 @@ impl IcedContext {
 
 <|result|>
 
+{}
+
 {}",
                     turn.preview().preview_title,
                     turn.raw_response,
                     stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
+                    turn.introduce_agents(),
                 ));
                 self.loaded_turn = Some((index, turn));
             },
@@ -1119,6 +1122,7 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
             render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
     ];
+    turn_content.push(text!("{}", turn.introduce_agents()).size(context.zoom * 14.0).into());
 
     let mut buttons = vec![];
 

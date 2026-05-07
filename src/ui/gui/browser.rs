@@ -1,9 +1,11 @@
 use super::{
     PopupContext,
     PopupMessage,
+    SetProjectConfig,
     black,
     blue,
     button,
+    config_ui,
     count_chars,
     disabled_button,
     gray,
@@ -12,14 +14,22 @@ use super::{
     into_popup,
     red,
     set_bg,
+    set_project_config,
     take_chars,
 };
-use crate::{Error, Model, init_working_dir, prettify_bytes, render_first_10_pages, validate_project_name};
+use crate::{
+    Config,
+    Error,
+    init_working_dir,
+    prettify_bytes,
+    render_first_10_pages,
+    validate_project_name,
+};
 use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Id, MouseArea, Radio, Row, Scrollable, Stack, text};
+use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Stack, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{
     Handle as ImageHandle,
@@ -82,14 +92,13 @@ pub struct IcedContext {
     pub long_preview: Option<(String, usize, String)>,
     pub popup_title: Option<String>,
     pub zoom: f32,
+    pub new_project_config: Config,
 
     // for name of the new project
     pub short_text_editor_content: TextEditorContent,
 
     // for `neukgu-instruction.md`
     pub long_text_editor_content: TextEditorContent,
-
-    pub selected_model: Model,
 }
 
 impl IcedContext {
@@ -116,9 +125,9 @@ impl IcedContext {
             long_preview: None,
             popup_title: None,
             zoom: 1.0,
+            new_project_config: Config::default(),
             short_text_editor_content: TextEditorContent::new(),
             long_text_editor_content: TextEditorContent::new(),
-            selected_model: Model::default(),
         };
 
         if let Some(file) = &file {
@@ -266,7 +275,7 @@ pub enum IcedMessage {
     Launch { path: String },
     EditShortText(TextEditorAction),
     EditLongText(TextEditorAction),
-    SelectModel(Model),
+    SetProjectConfig(SetProjectConfig),
     Error(String),
 
     // Kill: The caller wants to kill this tab.
@@ -441,12 +450,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.selected_model, false)?;
+            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
-            init_working_dir(Some(instruction), &path, context.selected_model, false)?;
+            init_working_dir(Some(instruction), &path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),
@@ -456,8 +465,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditShortText(a) => {
             context.short_text_editor_content.perform(a);
         },
-        IcedMessage::SelectModel(m) => {
-            context.selected_model = m;
+        IcedMessage::SetProjectConfig(c) => {
+            set_project_config(&mut context.new_project_config, c);
         },
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::Kill => {
@@ -714,15 +723,11 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 
-    let model_selector = Row::from_vec(Model::all().into_iter().map(
-        |m| Radio::new(m.short_name(), m, Some(context.selected_model), |m| IcedMessage::SelectModel(m)).into()
-    ).collect());
-
     into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 text_editor.into(),
-                model_selector.into(),
+                config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
                 button("Init", IcedMessage::Init { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
@@ -747,16 +752,12 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 
-    let model_selector = Row::from_vec(Model::all().into_iter().map(
-        |m| Radio::new(m.short_name(), m, Some(context.selected_model), |m| IcedMessage::SelectModel(m)).into()
-    ).collect());
-
     into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 short_text_editor.into(),
                 long_text_editor.into(),
-                model_selector.into(),
+                config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
                 button("Create", IcedMessage::Create { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)

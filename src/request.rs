@@ -1,5 +1,5 @@
 use async_std::task::sleep;
-use crate::{Error, ImageId, Logger, LogEntry, Response, check_interruption};
+use crate::{ApiProvider, Error, ImageId, Logger, LogEntry, Model, Response, check_interruption};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -10,91 +10,6 @@ mod mock;
 mod openai;
 
 pub use mock::{MockState, reset_mock_state, revert_mock_state};
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum Model {
-    GptMini,
-    Gpt,
-    Haiku,
-    Sonnet,
-    Opus,
-    Mock,
-}
-
-impl Model {
-    pub fn api_name(&self) -> &'static str {
-        match self {
-            Model::GptMini => "gpt-5.4-mini",
-            Model::Gpt => "gpt-5.5",
-            Model::Haiku => "claude-haiku-4-5",
-            Model::Sonnet => "claude-sonnet-4-6",
-            Model::Opus => "claude-opus-4-7",
-            Model::Mock => "mock",
-        }
-    }
-
-    pub fn short_name(&self) -> &'static str {
-        match self {
-            Model::GptMini => "gpt-mini",
-            Model::Gpt => "gpt",
-            Model::Haiku => "haiku",
-            Model::Sonnet => "sonnet",
-            Model::Opus => "opus",
-            Model::Mock => "mock",
-        }
-    }
-
-    pub fn from_short_name(s: &str) -> Result<Model, Error> {
-        match s {
-            "gpt-mini" => Ok(Model::GptMini),
-            "gpt" => Ok(Model::Gpt),
-            "haiku" => Ok(Model::Haiku),
-            "sonnet" => Ok(Model::Sonnet),
-            "opus" => Ok(Model::Opus),
-            "mock" => Ok(Model::Mock),
-            _ => Err(Error::InvalidModelName(s.to_string())),
-        }
-    }
-
-    pub fn provider(&self) -> ApiProvider {
-        match self {
-            Model::GptMini => ApiProvider::OpenAi,
-            Model::Gpt => ApiProvider::OpenAi,
-            Model::Haiku => ApiProvider::Anthropic,
-            Model::Sonnet => ApiProvider::Anthropic,
-            Model::Opus => ApiProvider::Anthropic,
-            Model::Mock => ApiProvider::Mock,
-        }
-    }
-
-    pub fn all() -> [Model; 6] {
-        [
-            Model::GptMini,
-            Model::Gpt,
-            Model::Haiku,
-            Model::Sonnet,
-            Model::Opus,
-            Model::Mock,
-        ]
-    }
-
-    pub fn short_names() -> Vec<&'static str> {
-        Model::all().iter().map(|m| m.short_name()).collect()
-    }
-}
-
-impl Default for Model {
-    fn default() -> Model {
-        Model::Gpt
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum ApiProvider {
-    Anthropic,
-    OpenAi,
-    Mock,
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HttpRequest {

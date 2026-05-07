@@ -1,4 +1,5 @@
 use neukgu::{
+    Agents,
     Config,
     Context,
     Error,
@@ -94,11 +95,16 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             let project_name = parsed_args.get_args_exact(1)?[0].clone();
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
-            let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap()).unwrap_or(Model::default());
+            let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap());
+            let mut config = Config::default();
+
+            if let Some(model) = model {
+                config.agents = Agents::single(model);
+            }
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction, &project_name, model, false)?;
+            init_working_dir(instruction, &project_name, config, false)?;
             Ok(())
         },
         Some("init") => {
@@ -109,9 +115,14 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 .parse(&args, 2)?;
 
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
-            let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap()).unwrap_or(Model::default());
+            let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap());
+            let mut config = Config::default();
 
-            init_working_dir(instruction, ".", model, false)?;
+            if let Some(model) = model {
+                config.agents = Agents::single(model);
+            }
+
+            init_working_dir(instruction, ".", config, false)?;
             Ok(())
         },
         Some("headless") => {

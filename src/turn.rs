@@ -1,5 +1,7 @@
 use chrono::{Local, SecondsFormat};
 use crate::{
+    Agents,
+    AskTo,
     Config,
     Error,
     LLMToken,
@@ -68,6 +70,7 @@ pub struct Turn {
     pub turn_result: TurnResult,
     pub llm_elapsed_ms: u64,
     pub tool_elapsed_ms: u64,
+    pub agents: Agents,
 
     // A user interrupt creates a fake-turn.
     pub is_question_from_user: bool,
@@ -90,6 +93,7 @@ impl Turn {
             turn_result,
             llm_elapsed_ms,
             tool_elapsed_ms,
+            agents: config.agents,
             is_question_from_user,
         };
         let turn_summary = turn.summary(config);
@@ -189,6 +193,20 @@ impl Turn {
             TurnResult::ToolCallSuccess(tcs) => tcs.get_result_path(),
         }
     }
+
+    pub fn introduce_agents(&self) -> String {
+        if let TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::Web, .. }) = &self.turn_result {
+            if self.agents.search != self.agents.big {
+                return format!(
+                    "Agent: {}\nSearch Agent: {}",
+                    self.agents.big.short_name(),
+                    self.agents.search.short_name(),
+                );
+            }
+        }
+
+        format!("Agent: {}", self.agents.big.short_name())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -202,7 +220,7 @@ impl TurnResult {
     pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         match self {
             TurnResult::ParseError(e) => e.to_llm_tokens(),
-            TurnResult::ToolCallError(e) => e.to_llm_tokens(),
+            TurnResult::ToolCallError(e) => e.to_llm_tokens(config),
             TurnResult::ToolCallSuccess(r) => r.to_llm_tokens(config),
         }
     }

@@ -1,14 +1,17 @@
 use super::{
     PopupContext,
     PopupMessage,
+    SetProjectConfig,
     black,
     button,
     circle,
+    config_ui,
     disabled_button,
     gray,
     green,
     into_popup,
     red,
+    set_project_config,
     skyblue,
     white,
     yellow,
@@ -17,8 +20,8 @@ use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
 use chrono::Local;
 use crate::{
+    Config,
     Error,
-    Model,
     Project,
     clean_global_index_dir,
     get_global_index_dir,
@@ -33,7 +36,7 @@ use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, MouseArea, Radio, Row, Scrollable, Space, Stack, text};
+use iced::widget::{Column, MouseArea, Row, Scrollable, Space, Stack, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -64,9 +67,9 @@ pub struct IcedContext {
     pub copy_buffer: Option<String>,
     pub syntax_highlight: Option<String>,
 
+    pub new_project_config: Config,
     pub short_text_editor_content: TextEditorContent,
     pub long_text_editor_content: TextEditorContent,
-    pub selected_model: Model,
 }
 
 impl IcedContext {
@@ -86,9 +89,9 @@ impl IcedContext {
             curr_popup: None,
             copy_buffer: None,
             syntax_highlight: None,
+            new_project_config: Config::default(),
             short_text_editor_content: TextEditorContent::new(),
             long_text_editor_content: TextEditorContent::new(),
-            selected_model: Model::default(),
         }
     }
 
@@ -151,7 +154,7 @@ pub enum IcedMessage {
     CopyPopupContent,
     EditLongText(TextEditorAction),
     EditShortText(TextEditorAction),
-    SelectModel(Model),
+    SetProjectConfig(SetProjectConfig),
 }
 
 impl PopupMessage for IcedMessage {
@@ -230,7 +233,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.selected_model, true)?;
+            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), true)?;
             context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab(Tab::WorkingDir(project_path))));
         },
@@ -258,8 +261,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditShortText(a) => {
             context.short_text_editor_content.perform(a);
         },
-        IcedMessage::SelectModel(m) => {
-            context.selected_model = m;
+        IcedMessage::SetProjectConfig(c) => {
+            set_project_config(&mut context.new_project_config, c);
         },
     }
 
@@ -537,16 +540,12 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 
-    let model_selector = Row::from_vec(Model::all().into_iter().map(
-        |m| Radio::new(m.short_name(), m, Some(context.selected_model), |m| IcedMessage::SelectModel(m)).into()
-    ).collect());
-
     into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 short_text_editor.into(),
                 long_text_editor.into(),
-                model_selector.into(),
+                config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
                 button("Create", IcedMessage::NewProject, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)

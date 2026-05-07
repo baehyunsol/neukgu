@@ -22,6 +22,7 @@ mod global;
 mod image;
 mod interrupt;
 mod log;
+mod model;
 mod parse;
 mod pdf;
 mod prettify;
@@ -49,6 +50,7 @@ pub use global::{
 pub use image::{ImageId, normalize_and_get_id};
 use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
+pub use model::{Agents, ApiProvider, Model};
 pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
 use pdf::{PdfId, render_and_get_id, render_first_10_pages};
 use prettify::{
@@ -56,7 +58,7 @@ use prettify::{
     prettify_time,
     prettify_tokens,
 };
-pub use request::{LLMToken, Model, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
+pub use request::{LLMToken, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
 use request::{MockState, reset_mock_state, revert_mock_state};
 pub use response::Response;
 use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to_sandbox, import_from_sandbox};
@@ -255,7 +257,7 @@ pub fn validate_project_name(name: &str) -> Result<(), Error> {
 pub fn init_working_dir(
     instruction: Option<String>,
     working_dir: &str,
-    model: Model,
+    config: Config,
     is_in_global_index_dir: bool,
 ) -> Result<(), Error> {
     if exists(&join(working_dir, ".neukgu/")?) {
@@ -324,12 +326,9 @@ pub fn init_working_dir(
         RagitFsWriteMode::AlwaysCreate,
     )?;
 
-    let mut config = Config::default();
-    config.model = model;
-    config.store(working_dir)?;
-
     let context = Context::new(&config, working_dir, is_in_global_index_dir)?;
     context.store()?;
+    config.store(working_dir)?;
 
     init_global_index_dir(&context.global_index_dir)?;
     update_global_index(&context)?;
@@ -370,7 +369,7 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
     new_context.store()?;
     new_context.remove_done_mark()?;
 
-    if config.model == Model::Mock {
+    if config.agents.big == Model::Mock {
         reset_mock_state(working_dir)?;
     }
 

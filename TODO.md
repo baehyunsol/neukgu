@@ -186,6 +186,12 @@
 91. 내가 개입해서 특정 행동을 하기
   - e.g. git push를 하고 싶을 경우, gui에다가 `git push origin main`을 입력함.
   - 그럼 interrupt turn이 생기고 user request로 "I want you to run git push origin main"이 들어가고 그 다음 turn에 자동으로 `<run>`이 추가되는 거임. AI는 지가 했다고 생각하겠지!
+  - AI한테 보이게 할 수도 있고, 안 보이게 할 수도 있음
+    - 안 보이는 버전이면 아무 바이너리나 다 쓸 수 있게 해줘도 되지 않음?
+92. global config
+  - 모델같은 거는 정해놓으면 좋지!
+93. alternative python
+  - 지금 mac처럼 python에 문제가 있는 애들은 어떤 python으로 init할 지 정할 수 있게 하고싶음...
 
 ```nu
 cd ~/Documents/Rust/neukgu;
@@ -193,12 +199,12 @@ cargo build;
 cd ~/Documents;
 rm -rf ttt;
 rm -rf tttt;
-echo "initializing ttt..."
+echo "initializing ttt...";
 ~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
-echo "initializing tttt..."
+echo "initializing tttt...";
 ~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
 cd ~/Documents/Rust/neukgu;
-echo "spawning gui..."
+echo "spawning gui...";
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
 ```
 

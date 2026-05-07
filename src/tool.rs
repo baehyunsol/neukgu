@@ -6,6 +6,7 @@ use crate::{
     ImageId,
     LLMToken,
     LogEntry,
+    Model,
     UserResponse,
     clean_sandbox,
     export_to_sandbox,
@@ -490,9 +491,12 @@ impl ToolCall {
                 context.answer_to_llm(*id, question.to_string(), response)?;
                 Ok(tool_call_result)
             },
-            ToolCall::Ask { id: _, to: AskTo::Web, question } => {
-                let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.model).await?;
-                Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
+            ToolCall::Ask { id: _, to: AskTo::Web, question } => match config.agents.search {
+                Model::Disabled | Model::Mock => Ok(Err(ToolCallError::WebSearchDisabled)),
+                _ => {
+                    let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.agents.search).await?;
+                    Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
+                },
             },
             // TODO: error if `script` is set and `input` is not an html
             ToolCall::Render { script, input, output } => {
@@ -849,85 +853,91 @@ pub enum ToolCallError {
     // ask errors
     UserNotResponding,
     UserRejectedToRespond,
+    WebSearchDisabled,
 
     // etc
     UserInterrupt,
 }
 
 impl ToolCallError {
-    pub fn to_llm_tokens(&self) -> Vec<LLMToken> {
-        match self {
-            ToolCallError::NoSuchFile { path } => vec![
-                LLMToken::String(format!("There's no such file: `{path}`.")),
-            ],
-            ToolCallError::TextTooLongToRead { path, length, limit } => vec![
-                LLMToken::String(format!(
-                    "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 200 lines with <end>200</end>, or use search tools like ripgrep.",
-                    prettify_bytes(*length),
-                    prettify_bytes(*limit),
-                )),
-            ],
-            ToolCallError::TooManyTextLinesToRead { length, limit, .. } => vec![
-                LLMToken::String(format!(
-                    "You're trying to read too many lines at once. You're trying to read {length} lines, and the environment won't allow you to read more than {limit} lines at once.",
-                )),
-            ],
-            ToolCallError::TooManyDirEntriesToRead { path, entries, limit: _, given_range: (None, None) } => vec![
-                LLMToken::String(format!("`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.")),
-            ],
-            ToolCallError::TooManyDirEntriesToRead { limit, .. } => vec![
-                LLMToken::String(format!("You can read at most `{limit}` entries at once. Please give me a smaller range.")),
-            ],
-            ToolCallError::TooManyReadWithoutWrite => vec![
-                LLMToken::String(String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this.")),
-            ],
-            ToolCallError::BrokenFile { path, kind, error } => vec![
-                LLMToken::String(format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}")),
-            ],
-            ToolCallError::WriteModeError { path, mode, exists } => {
-                let s = match (mode, exists) {
-                    (WriteMode::Create, true) => format!("You can't create `{path}` because it already exists. Try with \"truncate\" or \"append\"."),
-                    (WriteMode::Truncate, false) => format!("You can't truncate `{path}` because it does not exist. Try with \"create\"."),
-                    (WriteMode::Append, false) => format!("You can't append to `{path}` because it does not exist. Try with \"create\"."),
-                    _ => unreachable!(),
-                };
-                vec![LLMToken::String(s)]
+    pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
+        let s = match self {
+            ToolCallError::NoSuchFile { path } => format!("There's no such file: `{path}`."),
+            ToolCallError::NoPermissionToRead { path } => format!("You don't have a permission to read: `{path}`."),
+            ToolCallError::TextTooLongToRead { path, length, limit } => format!(
+                "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 200 lines with <end>200</end>, or use search tools like ripgrep.",
+                prettify_bytes(*length),
+                prettify_bytes(*limit),
+            ),
+            ToolCallError::TooManyTextLinesToRead { length, limit, .. } => format!(
+                "You're trying to read too many lines at once. You're trying to read {length} lines, and the environment won't allow you to read more than {limit} lines at once.",
+            ),
+            ToolCallError::TooManyDirEntriesToRead { path, entries, limit: _, given_range: (None, None) } => format!(
+                "`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.",
+            ),
+            ToolCallError::TooManyDirEntriesToRead { limit, .. } => format!("You can read at most `{limit}` entries at once. Please give me a smaller range."),
+            ToolCallError::TooManyReadWithoutWrite => String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this."),
+            ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
+
+            ToolCallError::NoPermissionToWrite { path } => format!("You don't have a permission to write to: `{path}`."),
+            ToolCallError::IsDir { path, .. } => format!("You can't write to `{path}` because it already exists and is a directory."),
+            ToolCallError::WriteModeError { path, mode, exists } => match (mode, exists) {
+                (WriteMode::Create, true) => format!("You can't create `{path}` because it already exists. Try with \"truncate\" or \"append\"."),
+                (WriteMode::Truncate, false) => format!("You can't truncate `{path}` because it does not exist. Try with \"create\"."),
+                (WriteMode::Append, false) => format!("You can't append to `{path}` because it does not exist. Try with \"create\"."),
+                _ => unreachable!(),
             },
-            ToolCallError::TextTooLongToWrite { path, length, limit } => vec![
-                LLMToken::String(format!(
-                    "Failed to write to the file.\nYou attempted to write too long contents to `{path}`. The environment allows up to {} write at once, but your content is {}.\nYou can try to make it shorter, or split it into multiple files.",
-                    prettify_bytes(*limit),
-                    prettify_bytes(*length),
-                )),
-            ],
-            ToolCallError::NoSuchBinary { binary, available_binaries } => vec![
-                LLMToken::String(format!(
-                    "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
-                    available_binaries.join(", "),
-                    if binary.contains("/") {
-                        "\nDon't call the binary with its path. Run it with just the name."
-                    } else {
-                        ""
-                    },
-                )),
-            ],
-            ToolCallError::UserNotResponding => vec![
-                LLMToken::String(format!(
-                    "User is not responding.",
-                )),
-            ],
-            ToolCallError::UserRejectedToRespond => vec![
-                LLMToken::String(format!(
-                    "User doesn't want to answer your question.",
-                )),
-            ],
-            ToolCallError::UserInterrupt => vec![
-                LLMToken::String(format!(
-                    "(This turn is supposed to be removed by `context.discard_previous_turn()`. If you, the human user, see this message in GUI or if you, an AI agent, see this message in the context, there's a bug in the harness.)",
-                )),
-            ],
+            ToolCallError::TextTooLongToWrite { path, length, limit } => format!(
+                "Failed to write to the file.\nYou attempted to write too long contents to `{path}`. The environment allows up to {} write at once, but your content is {}.\nYou can try to make it shorter, or split it into multiple files.",
+                prettify_bytes(*limit),
+                prettify_bytes(*length),
+            ),
+            ToolCallError::NoSuchBinary { binary, available_binaries } => format!(
+                "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
+                available_binaries.join(", "),
+                if binary.contains("/") {
+                    "\nDon't call the binary with its path. Run it with just the name."
+                } else {
+                    ""
+                },
+            ),
+            ToolCallError::Timeout { command, timeout, stdout, stderr } => {
+                let stdout = match stdout {
+                    DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
+                    DumpOrRedirect::Redirect(stdout) => format!("Redirected to {}", stdout.join("/")),
+                };
+                let stderr = match stderr {
+                    DumpOrRedirect::Dump(stderr) => truncate_middle(stderr, config.stdout_max_len),
+                    DumpOrRedirect::Redirect(stderr) => format!("Redirected to {}", stderr.join("/")),
+                };
+
+                format!(
+"
+Command timeout! The process didn't terminate for {timeout} seconds.
+
+<run_result>
+<command>{}</command>
+<stdout>
+{stdout}
+</stdout>
+<stderr>
+{stderr}
+</stderr>
+</run_result>
+",
+                    join_command_args(command),
+                )
+            },
+            ToolCallError::UserNotResponding => String::from("User is not responding."),
+            ToolCallError::UserRejectedToRespond => String::from("User doesn't want to answer your question."),
+            ToolCallError::WebSearchDisabled => String::from("The web search agent is not available now."),
+            ToolCallError::UserInterrupt => format!(
+                "(This turn is supposed to be removed by `context.discard_previous_turn()`. If you, the human user, see this message in GUI or if you, an AI agent, see this message in the context, there's a bug in the harness.)",
+            ),
             _ => panic!("TODO: {self:?}"),
-        }
+        };
+
+        vec![LLMToken::String(s)]
     }
 
     pub fn get_result_path(&self) -> Result<Option<(String, Option<String>)>, Error> {
