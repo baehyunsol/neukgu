@@ -68,7 +68,7 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
         }
 
         sleep(Duration::from_millis(1000));
-        context.end_frame(None, None, None)?;
+        context.end_frame(None, None, None, false)?;
         has_to_erase_terminal = true;
     }
 }

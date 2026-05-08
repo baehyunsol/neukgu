@@ -112,7 +112,7 @@ impl Logger {
 
         if let Some(extra_content) = extra_content {
             let mut compressed = vec![];
-            let mut gz = GzEncoder::new(extra_content.as_bytes(), Compression::new(2));
+            let mut gz = GzEncoder::new(extra_content.as_bytes(), Compression::new(3));
             gz.read_to_end(&mut compressed)?;
 
             write_bytes(

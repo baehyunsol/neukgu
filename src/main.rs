@@ -141,7 +141,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 return Err(Error::IndexDirNotFound);
             }
 
-            let config = Config::load(&working_dir)?;
+            let mut config = Config::load(&working_dir)?;
             let mut context = Context::load(&config, &working_dir)?;
 
             if !exists(&config.sandbox_root) {
@@ -160,7 +160,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                         return Ok(());
                     }
 
-                    if let Err(e) = step(&mut context, &config).await {
+                    if let Err(e) = step(&mut context, &mut config).await {
                         return Err(e);
                     }
                 }

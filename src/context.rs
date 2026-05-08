@@ -68,6 +68,9 @@ pub struct Context {
     pub available_binaries: Vec<String>,
     pub global_index_dir: String,
     pub logger: Logger,
+
+    // If FE wants to update the config, this field will be set.
+    pub new_config: Option<Config>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -110,6 +113,7 @@ impl Context {
             available_binaries,
             global_index_dir,
             logger,
+            new_config: None,
         })
     }
 

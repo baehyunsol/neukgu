@@ -63,6 +63,7 @@ pub enum MessageKind {
         question: String,
         completed: bool,
     },
+    UpdateConfig(Config),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -365,6 +366,7 @@ impl FeContext {
         pause: Option<bool>,
         question_from_user: Option<(u64, String)>,
         user_response: Option<(u64, UserResponse)>,
+        has_to_update_config: bool,
     ) -> Result<(), Error> {
         let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
         let mut fe2be: Fe2Be = load_json(&fe2be_at)?;
@@ -384,6 +386,11 @@ impl FeContext {
                     },
                 },
             );
+        }
+
+        if has_to_update_config {
+            let id = rand::random::<u64>();
+            fe2be.to_be.insert(id, Message { id, kind: MessageKind::UpdateConfig(self.config.clone()) });
         }
 
         if let Some((id, response)) = user_response {
@@ -557,6 +564,10 @@ impl Context {
         self.pinned_turns = fe2be.pinned_turns.clone();
 
         for (id, message) in fe2be.to_be.iter() {
+            if let MessageKind::UpdateConfig(config) = &message.kind {
+                self.new_config = Some(config.clone());
+            }
+
             be2fe.from_fe.insert(*id, message.clone());
         }
 

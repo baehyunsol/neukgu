@@ -611,9 +611,9 @@ fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage
 
     match context.battery {
         Some((state, charged)) => {
-            let cell_color = if charged < 0.3 {
+            let cell_color = if charged < 0.333 {
                 red()
-            } else if charged < 0.7 {
+            } else if charged < 0.667 {
                 yellow()
             } else {
                 green()
@@ -622,10 +622,12 @@ fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage
             let battery = Container::new(
                 Row::from_vec(vec![
                     cell(charged > 0.0, cell_color, context.zoom),
-                    cell(charged > 0.2, cell_color, context.zoom),
-                    cell(charged > 0.4, cell_color, context.zoom),
-                    cell(charged > 0.6, cell_color, context.zoom),
-                    cell(charged > 0.8, cell_color, context.zoom),
+                    cell(charged > 0.143, cell_color, context.zoom),
+                    cell(charged > 0.286, cell_color, context.zoom),
+                    cell(charged > 0.429, cell_color, context.zoom),
+                    cell(charged > 0.571, cell_color, context.zoom),
+                    cell(charged > 0.714, cell_color, context.zoom),
+                    cell(charged > 0.857, cell_color, context.zoom),
                 ])
             ).style(move |_| Style {
                 background: None,

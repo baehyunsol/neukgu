@@ -7,7 +7,7 @@ use ragit_fs::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Config {
     pub agents: Agents,
     pub sandbox_root: String,

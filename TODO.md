@@ -63,8 +63,8 @@
     - 한 세션에서 브라우저 여러번 띄우면 문제 생기는 거같은데?? -> 이거는 테스트하기 쉬움!!
       - 근데 mac이랑 linux에서 지금은 잘 돎... 브라우저를 더 많이 띄워봐야하나? 아니면 시간 간격을 좀 두고 띄워볼까?
 43. anthropic에서 web-search-tool 쓰면 너무 느림 ㅠㅠ
-  - main agent랑 search agent랑 다르게 쓸 수 있으면 좋을 텐데...
-  - search agent를 별개로 쓰면, search-tool이 없는 API들도 다 사용할 수 있게됨! deepseek을 main agent로 붙이고 GPT를 search agent로 쓸 수 있는 거지...
+  - 기본적으로 search-agent는 항상 느림. 다만 anthropic은 좀 과하긴 함
+  - search agent가 도는 동안 현재 질문이 뭔지를 편하게 볼 수 있었으면 좋겠음!
 49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
   - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
   - 늑구와 관계없는 프로그램이 저 파일을 만드는 경우는... 없다고 하자!
@@ -78,6 +78,7 @@
     - 이거는 rg를 활용할 수도 있음 (어차피 깔려있을테니!). `rg <pattern> --json` 한다음에 결과물을 뜯어서 rendering해도 됨!
     - 근데 rg를 fe에서 돌리면 랙이 엄청 걸릴텐데?? 별도의 process에서 async하게 돌려야함...
   - 온갖 popup에서도 검색이 되면 좋을 듯? 파일 내용을 보다가 그 안에서 검색하기!!
+    - 파일 내용 안에서 검색하는 거는 현재 UI에서는 한계가 있음... 파일 내용 popup -> 검색 내용 popup -> 검색 결과 popup 이렇게 3중으로 가야하는데 지금 구현으로는 2중이 최대임...
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - When initializing a new working-dir, it can
@@ -144,16 +145,6 @@
   - chat history도 당연히 남겨야 함!
   - chat에다가 파일 첨부하기..??
     - 이걸 할거면 걍 에이전트를 넣어버려? 그럼 결국엔 늑구가 되는데? ㅋㅋㅋ
-78. summary agent
-  - 버튼을 누르면 interrupt가 자동으로 나감. 질문에는 "니가 지금까지 한 거를 요약해서 logs/summary-<id>.md에 추가해줘"라고 넣기
-    - 버튼 눌러야 나갈 수도 있고, 주기적으로 나갈 수도 있고
-    - logs/done을 썼으면 자동으로 summary도 쓰게할까?
-  - summary 확인하는 거는 쉬움, 그냥 turn_view에서 저 turn 선택하면 됨!
-  - index dir 안에다가 summary를 따로 모아놓으면... 그것도 좋을 듯!
-  - summary하는 llm은 좀 싼 거 쓰자!
-    - 그럼 모델 고를 때, 각각 다 고를 수 있게 하자! main agent, summary agent, search agent. 여기에 추가로 search agent랑 summary agent는 "disable"이라는 옵션도 주자!
-  - summary는 그냥 프롬프트로 시키자! 그대신 summary를 안 쓴지 한참 됐으면 자동으로 interrupt를 걸자. 그럼 summary agent를 따로 지정하는게 의미가 없네?
-    - 그럼 TooManyReadWithoutWrite도 summary 쓰라고 직접적으로 시키면 되겠네!!
 79. CLI를 좀 더 linux style로 바꾸자
   -  `neukgu gui <path>`
     - dir일 경우 browser, file일 경우 browser + preview
@@ -162,24 +153,6 @@
     - `--paused`도 추가할까... -> 이 옵션을 gui에도 넣고 싶은데?
 80. symlink 테스트 케이스 추가
   - python으로 symlink 만들고 git에 추가하고 다시 확인 했을 때
-81. 첫 두 turn은 자동으로 주기
-  - 첫번째: `<read><path>.</path></read>`
-  - 두번째: `<read><path>neukgu-instruction.md</path></read>`
-  - tool 호출하기 전에 생각도 좀 넣기
-  - 1) 어차피 저거 호출할텐데 api 비용 좀 절감할 수 있음
-  - 2) few-shot의 역할을 함
-  - 3) 가장 위에 저 두 turn이 들어가면 context-engineering에도 유리!
-  - edge cases
-    - `.`에 파일이 너무 많으면?
-      - 이거는 좀 수고스럽지만, harness가 다 고려해줘야함.
-      - 파일이 너무 많아서 tool call error가 났을 때랑 아닐 때의 멘트를 다르게 해서 neukgu-instruction.md를 읽게 하자
-    - `neukgu-instruction.md`가 너무 길면?
-      - 이거는 애초에 잘못된 project임... 그냥 시작하기 전에 오류를 내버리자!
-      - `neukgu-instruction.md`는 반드시 한번에 읽어야하는 파일인데, 얘가 길어버리면 답이 없는 거잖아?
-    - `neukgu-instruction.md`가 없으면?
-      - 이것도 잘못된 project임... 이것도 시작하기 전에 오류를 내버리자!
-      - 시작하기 전에 오류를 내면 ui에는 어떻게 보임?
-    - 생각해보면 edge-case 굳이 대응할 필요가 없는게, `neukgu-instruction.md`에 문제가 있으면 tool-call-error가 날 거고, 그럼 AI가 알아서 하겠지!
 83. launch라는 용어가 마음에 안 듦. "go hunt" ㅇㄸ?
 87. `context.json`이 동일하면 LLM한테 완전 동일한 context를 줄 수 있잖아? 서로 다른 LLM한테 완전 동일한 context를 주고 어떻게 다르게 행동하는지 실험해보자
   - 만약 동일한 상황에서 haiku도 `<write>`를 하고 opus도 `<write>`를 한다? 그럼 평상시에는 haiku를 쓰다가 write할 때만 opus로 갈아끼우면 됨!
@@ -232,12 +205,14 @@
   - debug anthropic search api
 99. change config at working dir
   - 이제 config ui가 생겼으니까 working dir에서도 이거 보여주자! -> 이거만 하면 87번 이슈도 해결 가능!!
-100. run 하고 stdout이나 stderr이 길어서 truncate 됐으면 agent한테 추가로 알려주자! `...(XXX truncated)...`가 중간에 끼어있으니까 잘 안 보임 ㅠㅠ 아닌가 AI는 잘 보려나? ㅋㅋ
-101. working_dir GUI에 browse라는 버튼도 추가하기!
-102. 브라우저 탭 열 때도 해당 dir이 이미 열려있으면 그 탭으로 그냥 넘기자
-  - 물론 normalize가 안되면 false negative가 생길 수도 있지만, 그냥 best-effort로 하자!
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
+104. Init with files
+  - index tab에서 project 만드는 거 은근 편함. 근데, 파일/폴더 선택해서 그거 포함한 상태로 init 하고싶음. 예를 들어서 hwp2pdf를 만들 건데, sample hwp를 미리 준비해뒀거든? 근데 그걸 줄 방법이 없음 ㅠㅠ
+105. context + turns를 통째로 한 파일로 압축하기
+  - images도 포함
+  - 나중에 trajectory 공유하고 싶을 수도 있잖아...
+  - reset session 할 때 기존 session을 저장하고 싶으면 이걸 쓸까?
 
 ```nu
 cd ~/Documents/Rust/neukgu;

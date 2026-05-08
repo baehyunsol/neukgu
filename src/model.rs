@@ -83,7 +83,7 @@ impl Model {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Agents {
     pub big: Model,
     pub small: Model,  // WIP

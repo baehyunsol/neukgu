@@ -139,7 +139,7 @@ impl Turn {
     }
 
     pub fn load(id: &TurnId, working_dir: &str) -> Result<Turn, Error> {
-        let path = join4(working_dir, ".neukgu", "turns", &format!("{}.json", id.0))?;
+        let path = join4(working_dir, ".neukgu", "turns", &format!("{}.json.gz", id.0))?;
         let json = read_bytes(&path)?;
         let mut decompressed = vec![];
         let mut gz = GzDecoder::new(&json[..]);
@@ -150,11 +150,11 @@ impl Turn {
     pub fn store(&self, working_dir: &str) -> Result<(), Error> {
         let json = serde_json::to_vec(self)?;
         let mut compressed = vec![];
-        let mut gz = GzEncoder::new(&json[..], Compression::new(2));
+        let mut gz = GzEncoder::new(&json[..], Compression::new(3));
         gz.read_to_end(&mut compressed)?;
 
         Ok(write_bytes(
-            &join4(working_dir, ".neukgu", "turns", &format!("{}.json", self.id.0))?,
+            &join4(working_dir, ".neukgu", "turns", &format!("{}.json.gz", self.id.0))?,
             &compressed,
             WriteMode::Atomic,
         )?)

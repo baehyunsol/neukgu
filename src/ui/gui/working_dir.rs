@@ -2,10 +2,12 @@ use super::{
     FeContext,
     PopupContext,
     PopupMessage,
+    SetProjectConfig,
     Truncation,
     black,
     blue,
     button,
+    config_ui,
     disabled_button,
     gray,
     green,
@@ -13,12 +15,14 @@ use super::{
     into_popup,
     red,
     set_bg,
+    set_project_config,
     skyblue,
     spawn_be_process,
     white,
     yellow,
 };
 use crate::{
+    Config,
     Error,
     ImageId,
     LLMToken,
@@ -148,6 +152,11 @@ pub struct IcedContext {
     // If it's set, it'll display "Open in browser" button in the turn popup.
     pub turn_result_path: Option<(String, Option<String>)>,  // (dir, basename of file)
 
+    // When the user does something with config_ui, this value is changed.
+    // When the user clicks the "apply" button, tmp_config is applied to the real config (it takes a few frames).
+    pub tmp_config: Config,
+    pub has_to_update_config: bool,
+
     // user interaction
     pub is_paused: bool,
     pub pause: Option<bool>,
@@ -187,6 +196,8 @@ impl IcedContext {
             syntax_highlight: None,
             text_diff: None,
             turn_result_path: None,
+            tmp_config: fe_context.config.clone(),
+            has_to_update_config: false,
             is_paused: fe_context.is_paused()?,
             pause: None,
             question_from_user: None,
@@ -290,10 +301,7 @@ impl IcedContext {
                 self.syntax_highlight = Some(String::from("md"));
             },
             Popup::Config => {
-                let config = serde_json::to_string_pretty(&self.fe_context.config)?;
-                self.set_long_text_editor_content(config.to_string());
-                self.copy_buffer = Some(config.to_string());
-                self.syntax_highlight = Some(String::from("json"));
+                self.tmp_config = self.fe_context.config.clone();
             },
             Popup::Reset => {
                 self.set_long_text_editor_content(self.fe_context.get_instruction()?);
@@ -391,6 +399,8 @@ pub enum IcedMessage {
     InterruptNeukgu,
     ResetNeukgu,
     RollBackNeukgu(TurnId),
+    SetTmpConfig(SetProjectConfig),
+    ApplyTmpConfig,
     Find,
     AnswerLLMRequest,
     DismissLLMRequest,
@@ -458,7 +468,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.pause.take(),
                 context.question_from_user.take(),
                 context.user_response.take(),
+                context.has_to_update_config,
             )?;
+            context.has_to_update_config = false;
             context.update_find_result();
 
             if context.loaded_logs.is_some() {
@@ -597,7 +609,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Character("o"), false, false, false) => {
-                if let Some(Popup::Turn(_, _)) = &context.curr_popup && let Some((dir, file)) = &context.turn_result_path {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Config, prev: None }));
+                }
+
+                else if let Some(Popup::Turn(_, _)) = &context.curr_popup && let Some((dir, file)) = &context.turn_result_path {
                     return Ok(Task::done(IcedMessage::OpenBrowser { dir: dir.to_string(), file: file.clone() }));
                 }
             },
@@ -737,6 +753,19 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             return Ok(Task::done(IcedMessage::Tick));
+        },
+        IcedMessage::SetTmpConfig(c) => {
+            set_project_config(&mut context.tmp_config, c);
+        },
+        IcedMessage::ApplyTmpConfig => {
+            context.close_popup();
+
+            if context.fe_context.config != context.tmp_config {
+                context.fe_context.config = context.tmp_config.clone();
+                context.fe_context.interrupt_be()?;
+                context.has_to_update_config = true;
+                return Ok(Task::done(IcedMessage::Tick));
+            }
         },
         IcedMessage::Find => {
             let pattern = context.short_text_editor_content.to_string();
@@ -924,6 +953,18 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::Config) = context.curr_popup {
+        let config_popup = Column::from_vec(vec![
+            text!("Config").size(context.zoom * 18.0).into(),
+            config_ui(&context.tmp_config, context.zoom).map(|m| IcedMessage::SetTmpConfig(m)).into(),
+            button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
+        ]).align_x(Horizontal::Center).width(Length::Fill).spacing(context.zoom * 12.0);
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(config_popup.into(), context).into(),
+        ]).into();
+    }
+
     else if let Some(Popup::Reset) = context.curr_popup {
         let text_editor = TextEditor::new(&context.long_text_editor_content)
             .size(context.zoom * 14.0)
@@ -993,7 +1034,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction | Popup::Config) = &context.curr_popup {
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction) = &context.curr_popup {
         let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
             iced::highlighter::Theme::SolarizedDark,
@@ -1028,7 +1069,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom).into());
 
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom).into());
-    buttons_row2.push(button("Config", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom).into());
+    buttons_row2.push(button("C(o)nfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom).into());
     buttons_row2.push(button("(B)rowser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom).into());
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom).into());
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom).into());

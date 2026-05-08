@@ -92,8 +92,13 @@ pub use turn::{
 };
 pub use ui::{Be2Fe, Fe2Be, UserResponse, gui, tui};
 
-pub async fn step(context: &mut Context, config: &Config) -> Result<(), Error> {
+pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Error> {
     context.sync_with_fe()?;
+
+    if let Some(new_config) = context.new_config.take() {
+        *config = new_config;
+        config.store(&context.working_dir)?;
+    }
 
     if context.is_paused()? {
         sleep(Duration::from_millis(100));  // prevent busy-loop
