@@ -82,7 +82,6 @@
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - When initializing a new working-dir, it can
-    - choose AI model (smart, quick, search, summary)
     - enable/disable tools/binaries
       - I'm not gonna update the system prompt (or maybe I have to do so...)
       - when the AI calls the tool, it'll reject it with an error message
@@ -90,7 +89,6 @@
   - set api key with GUI
     - 이게 젤 필요함. 지금 너무 귀찮음 ㅠㅠ
   - Change configs while neukgu is running
-    - change AI model (smart, quick, search, summary)
     - enable/disable tools/binariess
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
@@ -203,8 +201,6 @@
   - add gemini api
   - add openai chat-completion api
   - debug anthropic search api
-99. change config at working dir
-  - 이제 config ui가 생겼으니까 working dir에서도 이거 보여주자! -> 이거만 하면 87번 이슈도 해결 가능!!
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files

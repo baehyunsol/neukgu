@@ -369,7 +369,9 @@ fn render_tab_title<'t, 'm>(
     width: f32,
 ) -> Element<'m, IcedMessage> {
     let flag = circle(6.0, flag);
-    let title_limit = (width * 0.075).round() as usize;
+    // 12 for flag, 4 for spacing between flag and title, 8 for spacing between title, 8 for padding and close button and 24 for close button
+    let title_max_width = width - 32.0 - if close_action.is_some() { 24.0 } else { 0.0 };
+    let title_limit = ((title_max_width * 0.09).round() as i64).max(0) as usize;
     let title = if title_limit < 4 {
         String::new()
     } else if count_chars(title) > title_limit {
@@ -403,7 +405,7 @@ fn render_tab_title<'t, 'm>(
                     border: Border {
                         color: black(),
                         width: 0.0,
-                        radius: Radius::new(20.0),
+                        radius: Radius::new(12.0),
                     },
                     ..ButtonStyle::default()
                 },
