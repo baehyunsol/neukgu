@@ -136,6 +136,18 @@ impl IcedContext {
 
         Ok(context)
     }
+
+    pub fn get_open_dir_and_file(&self) -> Result<(String, Option<String>), Error> {
+        Ok((
+            self.cwd.to_string(),
+            if let Some(Popup::Preview { path }) = &self.curr_popup {
+                Some(basename(path)?)
+            } else {
+                None
+            },
+        ))
+    }
+
     // It returns a scroll-offset of the entry view.
     pub fn select_entry(&mut self, offset: i32) -> f32 {
         let new_selection = (self.selected_entry.map(|i| i as i32).unwrap_or(-1) + offset).min(self.entries.len() as i32 - 1).max(0) as usize;

@@ -7,10 +7,15 @@ use crate::{
     LLMToken,
     LogEntry,
     Model,
+    ParsedSegment,
+    Turn,
+    TurnResult,
+    TurnSummary,
     UserResponse,
     clean_sandbox,
     export_to_sandbox,
     from_browser_error,
+    get_first_tool_call,
     image,
     import_from_sandbox,
     prettify_bytes,
@@ -101,8 +106,8 @@ impl ToolCall {
 
         match self {
             ToolCall::Read { path, start, end } => {
-                if context.is_reading_too_much()? {
-                    return Ok(Err(ToolCallError::TooManyReadWithoutWrite));
+                if context.is_reading_too_much(config)? {
+                    return Ok(Err(ToolCallError::TooManyReadWithoutSummary));
                 }
 
                 let joined_path = match normalize_path(path) {
@@ -322,6 +327,7 @@ impl ToolCall {
                 Ok(Ok(ToolCallSuccess::Write {
                     path: joined_path,
                     content: content.to_string(),
+                    is_summary: is_summary_path(path),
                     diff,
                     mode: *mode,
                     bytes: byte_count,
@@ -649,7 +655,13 @@ pub enum ToolCallSuccess {
     Write {
         path: String,
         content: String,
+
+        // If the LLM writes file at `logs/summary-XXX.md`, this flag is set.
+        is_summary: bool,
+
+        // If the LLM truncates an existing file, the harness calculates diff.
         diff: Option<String>,
+
         mode: WriteMode,
         bytes: u64,
         chars: u64,
@@ -720,17 +732,27 @@ impl ToolCallSuccess {
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Run { command, elapsed_ms, exit_code, stdout, stderr } => {
-                let stdout = match stdout {
+                let (stdout, stdout_truncated) = match stdout {
                     DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stdout) => format!("Redirected to {}", stdout.join("/")),
+                    DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.join("/")), None),
                 };
-                let stderr = match stderr {
+                let (stderr, stderr_truncated) = match stderr {
                     DumpOrRedirect::Dump(stderr) => truncate_middle(stderr, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stderr) => format!("Redirected to {}", stderr.join("/")),
+                    DumpOrRedirect::Redirect(stderr) => (format!("Redirected to {}", stderr.join("/")), None),
+                };
+                let stdout_truncated = if let Some(stdout_truncated) = stdout_truncated {
+                    format!("\nstdout is very long, so {stdout_truncated} bytes were truncated")
+                } else {
+                    String::new()
+                };
+                let stderr_truncated = if let Some(stderr_truncated) = stderr_truncated {
+                    format!("\nstderr is very long, so {stderr_truncated} bytes were truncated")
+                } else {
+                    String::new()
                 };
 
                 let s = format!(
-"
+"{stdout_truncated}{stderr_truncated}
 <run_result>
 <command>{}</command>
 <elapsed>{}</elapsed>
@@ -813,12 +835,13 @@ pub enum ToolCallError {
         limit: u64,
         given_range: (Option<u64>, Option<u64>),
     },
-    TooManyReadWithoutWrite,
+    TooManyReadWithoutSummary,
     BrokenFile {
         path: String,
         kind: String,
         error: String,
     },
+    ReadingExactSameFile { path: String },
 
     // write errors
     NoPermissionToWrite {
@@ -838,6 +861,7 @@ pub enum ToolCallError {
         length: u64,
         limit: u64,
     },
+    NoSummaryInDoneFile,
 
     // run errors
     CommandTimeoutTooLong {
@@ -861,6 +885,7 @@ pub enum ToolCallError {
     WebSearchDisabled,
 
     // etc
+    SupposedToWriteSummary { write_path: Option<String> },
     UserInterrupt,
 }
 
@@ -881,7 +906,8 @@ impl ToolCallError {
                 "`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.",
             ),
             ToolCallError::TooManyDirEntriesToRead { limit, .. } => format!("You can read at most `{limit}` entries at once. Please give me a smaller range."),
-            ToolCallError::TooManyReadWithoutWrite => String::from("You're keep reading files without updating logs. Please update the log files with what you've learnt, then continue reading this."),
+            ToolCallError::TooManyReadWithoutSummary => String::from("You're keep reading files without writing summaries. Please write a summary of what you're doing and what you've discovered so far at logs/summary-XXX.md."),
+            ToolCallError::ReadingExactSameFile { path } => format!("You already read `{path}` and I just gave you the content of `{path}`. Try do something else."),
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
             ToolCallError::NoPermissionToWrite { path } => format!("You don't have a permission to write to: `{path}`."),
@@ -897,6 +923,7 @@ impl ToolCallError {
                 prettify_bytes(*limit),
                 prettify_bytes(*length),
             ),
+            ToolCallError::NoSummaryInDoneFile => String::from("You're supposed to write summary of what you've done at `logs/done` file. Try write the file again with the summary."),
             ToolCallError::NoSuchBinary { binary, available_binaries } => format!(
                 "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
                 available_binaries.join(", "),
@@ -907,19 +934,29 @@ impl ToolCallError {
                 },
             ),
             ToolCallError::Timeout { command, timeout, stdout, stderr } => {
-                let stdout = match stdout {
+                let (stdout, stdout_truncated) = match stdout {
                     DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stdout) => format!("Redirected to {}", stdout.join("/")),
+                    DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.join("/")), None),
                 };
-                let stderr = match stderr {
+                let (stderr, stderr_truncated) = match stderr {
                     DumpOrRedirect::Dump(stderr) => truncate_middle(stderr, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stderr) => format!("Redirected to {}", stderr.join("/")),
+                    DumpOrRedirect::Redirect(stderr) => (format!("Redirected to {}", stderr.join("/")), None),
+                };
+                let stdout_truncated = if let Some(stdout_truncated) = stdout_truncated {
+                    format!("\nstdout is very long, so {stdout_truncated} bytes were truncated")
+                } else {
+                    String::new()
+                };
+                let stderr_truncated = if let Some(stderr_truncated) = stderr_truncated {
+                    format!("\nstderr is very long, so {stderr_truncated} bytes were truncated")
+                } else {
+                    String::new()
                 };
 
                 format!(
 "
 Command timeout! The process didn't terminate for {timeout} seconds.
-
+{stdout_truncated}{stderr_truncated}
 <run_result>
 <command>{}</command>
 <stdout>
@@ -936,6 +973,10 @@ Command timeout! The process didn't terminate for {timeout} seconds.
             ToolCallError::UserNotResponding => String::from("User is not responding."),
             ToolCallError::UserRejectedToRespond => String::from("User doesn't want to answer your question."),
             ToolCallError::WebSearchDisabled => String::from("The web search agent is not available now."),
+            ToolCallError::SupposedToWriteSummary { write_path } => match write_path {
+                Some(path) => format!("`{path}` is not a correct path for a summary file. You have to write summary at `logs/`. The summary file name must start with \"summary\", and has extension \".md\". For example, `logs/summary-refactor.md` or `logs/summary-test.md`"),
+                None => String::from("You're supposed to summarize what you're doing and what you've discovered so far and write the summary at `logs/summary-XXX.md`."),
+            },
             ToolCallError::UserInterrupt => format!(
                 "(This turn is supposed to be removed by `context.discard_previous_turn()`. If you, the human user, see this message in GUI or if you, an AI agent, see this message in the context, there's a bug in the harness.)",
             ),
@@ -1005,6 +1046,81 @@ impl ToolKind {
     }
 }
 
+impl Context {
+    // Sometimes the harness want the AI to do specific things.
+    pub fn validate_tool_call(&mut self, tool: &ToolCall) -> Result<Result<(), ToolCallError>, Error> {
+        match self.history.last() {
+            Some(TurnSummary { id, .. }) => {
+                let turn_id = id.clone();
+                let last_turn = self.load_turn(&turn_id)?;
+
+                // 1. If the last turn was `TooManyReadWithoutSuammry` and the current tool is not writing summary, it's an error.
+                if let Turn { turn_result: TurnResult::ToolCallError(ToolCallError::TooManyReadWithoutSummary), .. } = &last_turn {
+                    match tool {
+                        ToolCall::Write { path, .. } => {
+                            if is_summary_path(path) {
+                                Ok(Ok(()))
+                            } else {
+                                Ok(Err(ToolCallError::SupposedToWriteSummary { write_path: Some(path.join("/")) }))
+                            }
+                        },
+                        ToolCall::Ask { to: AskTo::User, .. } => Ok(Ok(())),
+                        _ => Ok(Err(ToolCallError::SupposedToWriteSummary { write_path: None })),
+                    }
+                }
+
+                // 2. It wrote `logs/done` but there's no summary in the file or it's too short.
+                else if let ToolCall::Write { path, content, .. } = tool {
+                    if is_done_file(path) && content.len() < 10 {
+                        Ok(Err(ToolCallError::NoSummaryInDoneFile))
+                    }
+
+                    else {
+                        Ok(Ok(()))
+                    }
+                }
+
+                // 3. It's reading the same file with the same range, over and over.
+                //    -> When I ask something to GPT, it just keeps reading `neukgu-instruction.md` over and over, and
+                //       I have no idea why. Maybe something's wrong with the model. I have to manually interrupt and
+                //       say "stop reading the instruction and start working". Instead of manual interruptions, the harness
+                //       interrupts the model and nudges it.
+                else if let ToolCall::Read { path, start: None, end: None } = tool {
+                    if let Some(parse_result) = &last_turn.parse_result && let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {
+                        if let ToolCall::Read { path: last_path, start: None, end: None } = call && normalize_path(path) == normalize_path(last_path) && normalize_path(path).is_some() {
+                            return Ok(Err(ToolCallError::ReadingExactSameFile { path: normalize_path(path).unwrap().join("/") }));
+                        }
+                    }
+
+                    Ok(Ok(()))
+                }
+
+                else {
+                    Ok(Ok(()))
+                }
+            },
+            None => Ok(Ok(())),
+        }
+    }
+}
+
+fn is_summary_path(path: &Path) -> bool {
+    match normalize_path(path) {
+        Some(path) => match (path.get(0), path.get(1), path.get(2)) {
+            (Some(logs), Some(summary), None) if logs == "logs" && (summary.starts_with("summary") && summary.ends_with(".md") || summary == "done") => true,
+            _ => false,
+        },
+        None => false,
+    }
+}
+
+fn is_done_file(path: &Path) -> bool {
+    match normalize_path(path) {
+        Some(path) if path.join("/") == "logs/done" => true,
+        _ => false,
+    }
+}
+
 // Normalization fails if it tries escape the working directory.
 fn normalize_path(path: &Path) -> Option<Path> {
     let mut result = vec![];
@@ -1041,13 +1157,14 @@ fn join_command_args(args: &[String]) -> String {
     ).collect::<Vec<_>>().join(" ")
 }
 
-fn truncate_middle(s: &str, limit: u64) -> String {
+fn truncate_middle(s: &str, limit: u64) -> (String, Option<usize>) {
     if (s.len() as u64) < limit {
-        s.to_string()
+        (s.to_string(), None)
     } else {
         let d = limit * 2 / 5;
         let pre = String::from_utf8_lossy(&s.as_bytes()[..(d as usize)]).to_string();
         let post = String::from_utf8_lossy(&s.as_bytes()[(s.len() - d as usize)..]).to_string();
-        format!("{pre}...({} bytes truncated)...{post}", s.len() as u64 - d * 2)
+        let truncated = s.len() as u64 - d * 2;
+        (format!("{pre}...({truncated} bytes truncated)...{post}"), Some(truncated as usize))
     }
 }

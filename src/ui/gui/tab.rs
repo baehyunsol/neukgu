@@ -15,6 +15,7 @@ use super::working_dir::{
     IcedContext as WorkingDirContext,
     IcedMessage as WorkingDirMessage,
 };
+use crate::NeukguId;
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
@@ -89,9 +90,12 @@ impl IcedContext {
     }
 
     pub fn get_preview(&self, index: usize) -> TabPreview {
+        let mut neukgu_id = None;
         let (title, flag) = self.get_title_and_flag(true);
         let (status, error) = match &self.local {
             LocalContext::WorkingDir(c) => {
+                neukgu_id = Some(c.fe_context.neukgu_id);
+
                 // If the dir doesn't exist, `c.fe_context.curr_status()` will take long to finish, and it's really bad for
                 // the view function to take long time.
                 if !exists(&join(&c.fe_context.working_dir, ".neukgu").unwrap_or(c.fe_context.working_dir.to_string())) {
@@ -110,6 +114,7 @@ impl IcedContext {
 
         TabPreview {
             id: self.id,
+            neukgu_id,
             index,
             flag,
             title,
@@ -163,6 +168,7 @@ pub struct TabId(u64);
 
 pub struct TabPreview {
     pub id: TabId,
+    pub neukgu_id: Option<NeukguId>,  // if it's `Tab::WorkingDir`
     pub index: usize,
     pub flag: Color,
     pub title: String,

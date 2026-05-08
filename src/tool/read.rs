@@ -1,5 +1,15 @@
-use super::{Path, normalize_path};
-use crate::{Context, Error, ImageId, PdfId, normalize_and_get_id, render_and_get_id};
+use super::{Path, ToolCallSuccess, normalize_path};
+use crate::{
+    Config,
+    Context,
+    Error,
+    ImageId,
+    PdfId,
+    TurnResult,
+    TurnResultSummary,
+    normalize_and_get_id,
+    render_and_get_id,
+};
 use hayro::hayro_syntax::Pdf;
 use ragit_fs::{basename, extension, is_dir, join, read_bytes, read_dir};
 use serde::{Deserialize, Serialize};
@@ -151,5 +161,42 @@ pub fn check_read_permission(path: &Path) -> bool {
             _ => true,
         },
         None => false,
+    }
+}
+
+impl Context {
+    // Sometimes, when I ask AI to inspect a code repository, it tries to read all
+    // the files in the repository, even if the repository is too big to fit in the
+    // AI's context. Neukgu's auto-context-engineering will remove the traces, but
+    // the AI doesn't know that, so the AI will fall into an infinite loop.
+    //
+    // In order to prevent that, the harness forces the AI to write summaries regularly.
+    pub fn is_reading_too_much(&mut self, config: &Config) -> Result<bool, Error> {
+        Ok(self.history.len() >= config.max_read_without_write && {
+            let this_turn = self.history.last().unwrap();
+
+            this_turn.result == TurnResultSummary::ToolCallSuccess && {
+                let recent_turn_ids = self.history.iter().rev().filter(
+                    |t| t.result != TurnResultSummary::ParseError
+                ).take(config.max_read_without_write).map(|t| t.clone()).collect::<Vec<_>>();
+                let mut recent_turns = vec![];
+
+                for turn_id in recent_turn_ids.iter() {
+                    recent_turns.push(self.load_turn(&turn_id.id)?);
+                }
+
+                recent_turns.iter().all(
+                    |turn| matches!(
+                        turn.turn_result,
+                        TurnResult::ToolCallSuccess(
+                            ToolCallSuccess::ReadText { .. } |
+                            ToolCallSuccess::ReadPdf { .. } |
+                            ToolCallSuccess::ReadImage { .. } |
+                            ToolCallSuccess::ReadDir { .. }
+                        ),
+                    )
+                )
+            }
+        })
     }
 }

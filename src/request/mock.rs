@@ -153,12 +153,13 @@ impl MockRequest {
 
 fn mock_requests() -> Vec<MockRequest> {
     vec![
+        // The fake turns already have read `.` and `neukgu-instruction.md`.
         MockRequest::new(
-            "<read>\n<path>neukgu-instruction.md</path>\n</read>",
+            "<ask><to>user</to><question>I don't see any instructions... what do you want me to do?</question></ask>",
             None,
         ),
         MockRequest::new(
-            "<ask><to>user</to><question>I don't see any instructions... what do you want me to do?</question></ask>",
+            "<write>\n<mode>create</mode>\n<path>logs/summary-files.md</path>\n<content>\nI have inspected the working directory and the instruction file, but there's no instructions.\n</content>\n</write>",
             None,
         ),
         MockRequest::new(
@@ -197,6 +198,10 @@ edition = "2024"
             "<run>\n<command>cargo run --manifest-path new_crate/Cargo.toml</command>\n</run>",
             Some("<exit_code>101</exit_code>"),
         ),
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>logs/summary-cargo.md</path>\n<content>\nI have tested cargo and it's working.\n</content>\n</write>",
+            None,
+        ),
 
         // git test
         MockRequest::new(
@@ -219,6 +224,10 @@ edition = "2024"
             "<read>\n<path>foo/bar/baz</path></read>",
             Some("no such file"),
         ),
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>logs/summary-git.md</path>\n<content>\nI have tested git and it's working.\n</content>\n</write>",
+            None,
+        ),
         // git test end
 
         // browser test
@@ -236,6 +245,10 @@ edition = "2024"
         ),
         MockRequest::new(
             "<render><input>https://youtube.com</input><output>youtube.png</output></render>",
+            None,
+        ),
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>logs/summary-browser.md</path>\n<content>\nI have tested the <render> tool and it's working.\n</content>\n</write>",
             None,
         ),
         // browser test end
@@ -265,9 +278,18 @@ edition = "2024"
             "<run>\n<command>python3 -c \"import unicorn\"</command>\n</run>",
             Some("<exit_code>0</exit_code>"),
         ),
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>logs/summary-python.md</path>\n<content>\nI have tested python and it's working.\n</content>\n</write>",
+            None,
+        ),
 
+        // This is suppoed to be an error because there's no summary in `logs/done`
         MockRequest::new(
             "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content></content>\n</write>",
+            None,
+        ),
+        MockRequest::new(
+            "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content>I called tools in the harness, and it's all working!\n\n1. cargo: working\n2. git: working\n3. browser: working\n4. python: working</content>\n</write>",
             None,
         ),
     ]

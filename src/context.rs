@@ -11,6 +11,7 @@ use crate::{
     ToolCallSuccess,
     Turn,
     TurnId,
+    TurnKind,
     TurnResult,
     TurnResultSummary,
     TurnSummary,
@@ -34,10 +35,10 @@ use ragit_fs::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct NeukguId(pub(crate) u64);
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SessionId(pub(crate) u64);
 
 pub struct Context {
@@ -50,6 +51,7 @@ pub struct Context {
     pub working_dir: String,
 
     pub history: Vec<TurnSummary>,
+    pub summaries: Vec<TurnId>,
 
     // If we have this, that means we already have LLM's response,
     // so we just have to run tool-call (or throw a parse error).
@@ -73,6 +75,7 @@ pub struct ContextJson {
     pub neukgu_id: NeukguId,
     pub session_id: SessionId,
     pub history: Vec<TurnId>,
+    pub summaries: Vec<TurnId>,
     pub curr_raw_response: Option<(String, u64)>,
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
@@ -96,6 +99,7 @@ impl Context {
             session_id: SessionId(rand::random::<u64>()),
             working_dir: normalize(&into_abs_path(working_dir)?)?,
             history: vec![],
+            summaries: vec![],
             curr_raw_response: None,
             turns: HashMap::new(),
             completed_questions_from_user: HashSet::new(),
@@ -120,6 +124,7 @@ impl Context {
             history: context_json.history.iter().map(
                 |h| h.get_turn_summary()
             ).collect(),
+            summaries: context_json.summaries.clone(),
             curr_raw_response: context_json.curr_raw_response.clone(),
             completed_questions_from_user: context_json.completed_questions_from_user.clone(),
             hidden_turns: context_json.hidden_turns.clone(),
@@ -144,6 +149,7 @@ impl Context {
             history: self.history.iter().map(
                 |h| h.id.clone()
             ).collect(),
+            summaries: self.summaries.clone(),
             curr_raw_response: self.curr_raw_response.clone(),
             completed_questions_from_user: self.completed_questions_from_user.clone(),
             hidden_turns: self.hidden_turns.clone(),
@@ -168,8 +174,8 @@ impl Context {
         turn_result: TurnResult,
         tool_elapsed_ms: u64,
         config: &Config,
-        is_question_from_user: bool,
-    ) -> Result<(), Error> {
+        kind: TurnKind,
+    ) -> Result<TurnId, Error> {
         let (raw_response, llm_elapsed_ms) = self.curr_raw_response.take().unwrap();
         let new_turn = Turn::new(
             raw_response,
@@ -177,48 +183,20 @@ impl Context {
             turn_result,
             llm_elapsed_ms,
             tool_elapsed_ms,
-            is_question_from_user,
+            kind,
             config,
         );
         let new_turn_summary = new_turn.summary(config);
         new_turn.store(&self.working_dir)?;
-        self.history.push(new_turn_summary.clone());
-        Ok(())
+        let new_turn_id = new_turn_summary.id.clone();
+        self.history.push(new_turn_summary);
+        Ok(new_turn_id)
     }
 
     pub fn discard_previous_turn(&mut self) {
         assert!(self.curr_raw_response.is_none());
         revert_mock_state(&self.working_dir).unwrap();
         self.history.pop().unwrap();
-    }
-
-    pub fn is_reading_too_much(&mut self) -> Result<bool, Error> {
-        Ok(self.history.len() >= 5 && {
-            let this_turn = self.history.last().unwrap();
-
-            this_turn.result == TurnResultSummary::ToolCallSuccess && {
-                let recent_5_turn_ids = self.history.iter().rev().filter(
-                    |t| t.result != TurnResultSummary::ParseError
-                ).take(5).map(|t| t.clone()).collect::<Vec<_>>();
-                let mut recent_5_turns = vec![];
-
-                for turn_id in recent_5_turn_ids.iter() {
-                    recent_5_turns.push(self.load_turn(&turn_id.id)?);
-                }
-
-                recent_5_turns.iter().all(
-                    |turn| matches!(
-                        turn.turn_result,
-                        TurnResult::ToolCallSuccess(
-                            ToolCallSuccess::ReadText { .. } |
-                            ToolCallSuccess::ReadPdf { .. } |
-                            ToolCallSuccess::ReadImage { .. } |
-                            ToolCallSuccess::ReadDir { .. }
-                        ),
-                    )
-                )
-            }
-        })
     }
 
     pub fn load_turn(&mut self, id: &TurnId) -> Result<Turn, Error> {
@@ -245,6 +223,63 @@ impl Context {
             // When enabled,
             thinking: Thinking::Disabled,
         })
+    }
+
+    // The harness may inject *fake* turns to nudge the behavior of the LLM.
+    //
+    // # 1. Start of a session
+    //
+    // The first turn is always `<read><path>.</path></read>` and the second turn
+    // is always `<read><path>neukgu-instruction.md</path></read>`.
+    //
+    // It's beneficial in 2 ways:
+    //
+    // 1. It's a few-shot example for the LLM that shows how to call tools.
+    // 2. The LLM is gonna do this anyway, so we can save time and cost by skipping
+    //    the LLM api.
+    //
+    // # 2.
+    pub fn get_fake_turn(&self) -> Option<(String, TurnKind)> {
+        let session_starts: Vec<&TurnSummary> = self.history.iter().filter(
+            |turn| turn.kind == TurnKind::SessionStart
+        ).collect();
+
+        match session_starts.len() {
+            0 => Some((
+                String::from(
+"Let's first check what I have in the working directory.
+<read>
+<path>.</path>
+</read>
+"
+                ),
+                TurnKind::SessionStart,
+            )),
+            1 => match session_starts[0].result {
+                TurnResultSummary::ParseError => unreachable!(),
+                TurnResultSummary::ToolCallError => Some((
+                    String::from(
+"Okay, I can't get the list of files in the working directory. But there must be neukgu-instruction.md. Let's read the instructions.
+<read>
+<path>neukgu-instruction.md</path>
+</read>
+"
+                    ),
+                    TurnKind::SessionStart,
+                )),
+                TurnResultSummary::ToolCallSuccess => Some((
+                    String::from(
+"Okay, I see the instruction file. Let's read the instructions.
+<read>
+<path>neukgu-instruction.md</path>
+</read>
+"
+                    ),
+                    TurnKind::SessionStart,
+                )),
+            },
+            _ => None,
+        }
     }
 
     // This is the core of context engineering.
@@ -420,7 +455,7 @@ impl Context {
             turn_result,
             0,
             config,
-            true,
+            TurnKind::UserQuestion,
         )?;
         self.completed_questions_from_user.insert(id);
         Ok(())
@@ -456,4 +491,14 @@ fn count_llm_context_len(turns: &[(TurnSummary, bool)]) -> u64 {
 pub struct ChosenTurn {
     pub turn: TurnId,
     pub full_render: bool,
+}
+
+// When the agent writes `logs/summary-XXX.md`, the context will remember the turn id.
+// We can get `SessionSummary` from the turn.
+#[derive(Clone, Debug)]
+pub struct SessionSummary {
+    pub timestamp: String,
+    pub timestamp_millis: i64,
+    pub title: String,
+    pub summary: String,
 }

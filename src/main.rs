@@ -170,11 +170,13 @@ fn run(args: Vec<String>) -> Result<(), Error> {
         Some("tui") => {
             let parsed_args = ArgParser::new()
                 .args(ArgType::String, ArgCount::None)
+                .optional_arg_flag("--working-dir", ArgType::String)
                 .optional_flag(&["--no-backend"])
                 .parse(&args, 2)?;
 
+            let working_dir = parsed_args.arg_flags.get("--working-dir").map(|s| s.to_string()).unwrap_or(String::from("."));
             let no_backend = parsed_args.get_flag(0).is_some();
-            tui::run(no_backend, ".")
+            tui::run(no_backend, &working_dir)
         },
         Some("gui") => {
             ArgParser::new()

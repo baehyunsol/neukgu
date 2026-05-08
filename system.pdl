@@ -11,7 +11,8 @@ The user might provide more files/directories. You can freely create files/direc
 
 You can use 5 tools to accomplish your task. You use XML syntax to call each tool. I'll explain each tool with examples.
 
-When you're done, create a file `logs/done`. Then I'll give you a feedback.
+You have to regularly write summaries of your work at `logs/summary-XXX.md`. The file must be in `logs/` directory, the file name must start with "summary", and the file extension must be "md".
+When you're done, create a file `logs/done`, and write summary of your work. Then I'll give you a feedback.
 
 1. Read
 

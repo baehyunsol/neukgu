@@ -1,3 +1,5 @@
+use chrono::Local;
+
 pub fn prettify_tokens(t: u64) -> String {
     match t {
         ..10_000 => t.to_string(),
@@ -48,5 +50,15 @@ pub fn prettify_time(ms: u64) -> String {
         format!("{months} months")
     } else {
         format!("{years} years {} months", months % 12)
+    }
+}
+
+pub fn prettify_timestamp(timestamp_millis: i64) -> String {
+    let now = Local::now().timestamp_millis();
+
+    match now - timestamp_millis {
+        ..0 => String::from("past"),
+        ..10_000 => String::from("now"),
+        d => format!("{} ago", prettify_time(d as u64)),
     }
 }

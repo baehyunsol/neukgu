@@ -36,7 +36,14 @@ mod turn;
 mod ui;
 
 pub use config::Config;
-pub use context::{ChosenTurn, Context, ContextJson, NeukguId, SessionId};
+pub use context::{
+    ChosenTurn,
+    Context,
+    ContextJson,
+    NeukguId,
+    SessionId,
+    SessionSummary,
+};
 pub use error::{Error, from_browser_error};
 pub use global::{
     Project,
@@ -56,6 +63,7 @@ use pdf::{PdfId, render_and_get_id, render_first_10_pages};
 use prettify::{
     prettify_bytes,
     prettify_time,
+    prettify_timestamp,
     prettify_tokens,
 };
 pub use request::{LLMToken, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
@@ -75,6 +83,7 @@ pub use tool::{
 pub use turn::{
     Turn,
     TurnId,
+    TurnKind,
     TurnPreview,
     TurnResult,
     TurnResultSummary,
@@ -138,7 +147,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     }
 
     // TODO: When it's marked done, it still creates and removes sandbox-backup everytime,
-    //       which is a gigantic overhead. I temporily alleviated it with longer sleep,
+    //       which is a gigantic overhead. I temporily alleviated it with a longer sleep,
     //       but I need a better solution.
     if context.is_marked_done()? {
         sleep(Duration::from_millis(1_000));  // prevent busy-loop
@@ -146,25 +155,33 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     }
 
     let mut user_interrupt = false;
+    let mut turn_kind = TurnKind::Agent;
     let raw_response = match &context.curr_raw_response {
         Some((r, _)) => r.to_string(),
-        None => {
-            let llm_call_started_at = Instant::now();
-            let mut request = context.to_request(config)?;
-            let response = match request.request(&context.working_dir, &context.logger).await {
-                Ok(response) => response.response.to_string(),
-                Err(Error::UserInterrupt) => {
-                    context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
-                    user_interrupt = true;
-                    String::new()
-                },
-                Err(e) => {
-                    return Err(e);
-                },
-            };
-            let llm_elapsed_ms = Instant::now().duration_since(llm_call_started_at).as_millis() as u64;
-            context.start_turn(response.clone(), llm_elapsed_ms);
-            response
+        None => match context.get_fake_turn() {
+            Some((r, kind)) => {
+                turn_kind = kind;
+                context.start_turn(r.to_string(), 0);
+                r
+            },
+            None => {
+                let llm_call_started_at = Instant::now();
+                let mut request = context.to_request(config)?;
+                let response = match request.request(&context.working_dir, &context.logger).await {
+                    Ok(response) => response.response.to_string(),
+                    Err(Error::UserInterrupt) => {
+                        context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
+                        user_interrupt = true;
+                        String::new()
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+                let llm_elapsed_ms = Instant::now().duration_since(llm_call_started_at).as_millis() as u64;
+                context.start_turn(response.to_string(), llm_elapsed_ms);
+                response
+            },
         },
     };
 
@@ -183,39 +200,58 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     }
 
     let tool_call_started_at = Instant::now();
+    let mut wrote_summary = false;
     let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes()) {
         Ok(parse_result) => match validate_parse_result(&parse_result) {
             // A valid response has exactly 1 tool-call.
-            Ok(tool_call) => match tool_call.run(context, config).await {
-                Ok(tool_call_result) => {
-                    context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
+            Ok(tool_call) => {
+                if let Err(e) = context.validate_tool_call(&tool_call)? {
+                    (Some(parse_result), TurnResult::ToolCallError(e))
+                }
 
-                    match tool_call_result {
-                        Ok(s) => (Some(parse_result), TurnResult::ToolCallSuccess(s)),
-                        Err(e) => (Some(parse_result), TurnResult::ToolCallError(e)),
+                else {
+                    match tool_call.run(context, config).await {
+                        Ok(tool_call_result) => {
+                            context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
+
+                            match tool_call_result {
+                                Ok(s) => {
+                                    if let ToolCallSuccess::Write { is_summary: true, .. } = &s {
+                                        wrote_summary = true;
+                                    }
+
+                                    (Some(parse_result), TurnResult::ToolCallSuccess(s))
+                                },
+                                Err(e) => (Some(parse_result), TurnResult::ToolCallError(e)),
+                            }
+                        },
+                        Err(Error::UserInterrupt) => {
+                            context.logger.log(LogEntry::UserInterruptWhileToolCall)?;
+                            user_interrupt = true;
+                            (Some(parse_result), TurnResult::ToolCallError(ToolCallError::UserInterrupt))
+                        },
+                        Err(e) => {
+                            return Err(e);
+                        },
                     }
-                },
-                Err(Error::UserInterrupt) => {
-                    context.logger.log(LogEntry::UserInterruptWhileToolCall)?;
-                    user_interrupt = true;
-                    (Some(parse_result), TurnResult::ToolCallError(ToolCallError::UserInterrupt))
-                },
-                Err(e) => {
-                    return Err(e);
-                },
+                }
             },
             Err(e) => (Some(parse_result), TurnResult::ParseError(e)),
         },
         Err(e) => (None, TurnResult::ParseError(e)),
     };
 
-    context.finish_turn(
+    let new_turn_id = context.finish_turn(
         parse_result,
         turn_result,
         Instant::now().duration_since(tool_call_started_at).as_millis() as u64,
         config,
-        false,
+        turn_kind,
     )?;
+
+    if wrote_summary {
+        context.summaries.push(new_turn_id);
+    }
 
     if user_interrupt {
         context.discard_previous_turn();

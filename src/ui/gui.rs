@@ -66,7 +66,7 @@ fn disabled_button<'s, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Bu
                 border: Border {
                     color: black(),
                     width: 0.0,
-                    radius: Radius::new(6.0),
+                    radius: Radius::new(zoom * 6.0),
                 },
                 ..ButtonStyle::default()
             }

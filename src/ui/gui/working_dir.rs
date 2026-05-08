@@ -25,6 +25,7 @@ use crate::{
     LogEntry,
     LogId,
     Logger,
+    SessionSummary,
     ToolCallSuccess,
     Turn,
     TurnId,
@@ -36,14 +37,17 @@ use crate::{
     load_log,
     load_logs_tail,
     prettify_time,
+    prettify_timestamp,
     reset_working_dir,
     roll_back_working_dir,
     stringify_llm_tokens,
 };
-use iced::{ContentFit, Element, Length, Size, Task};
+use iced::{Background, ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
+use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, scroll_to, snap_to};
 use iced::widget::text_editor::{
@@ -257,6 +261,11 @@ impl IcedContext {
                 self.set_long_text_editor_content(log.to_string());
                 self.syntax_highlight = Some(extension);
             },
+            Popup::Summaries => {},
+            Popup::Summary(summary) => {
+                self.copy_buffer = Some(summary.summary.to_string());
+                self.set_long_text_editor_content(summary.summary.to_string());
+            },
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
@@ -411,6 +420,8 @@ pub enum Popup {
     Interrupt,
     Logs,
     Log(LogId),
+    Summaries,
+    Summary(SessionSummary),
     Help,
     Image(ImageId),
     Diff,
@@ -548,6 +559,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
+            (Key::Character("b"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }));
+                }
+            },
             (Key::Character("c"), false, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     if let Some(i) = context.selected_turn && let Some(turn) = &context.fe_context.history.get(i) {
@@ -598,6 +614,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("t"), false, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
+                }
+            },
+            (Key::Character("u"), false, false, false) => {
+                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }));
                 }
             },
             (Key::Character("y"), false, false, false) => {
@@ -850,6 +871,20 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::Summaries) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_summaries(&context.fe_context.summaries, context),
+        ]).into();
+    }
+
+    else if let Some(Popup::Summary(summary)) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_summary(summary, context),
+        ]).into();
+    }
+
     // TODO: we can use the syntax highlighter
     else if let Some(Popup::Diff) = context.curr_popup {
         let diff_view = Column::from_vec(context.text_diff.as_ref().unwrap().lines().map(
@@ -988,11 +1023,13 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("(Q)uit", IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }, red(), context.zoom).into());
     buttons_row1.push(button("(I)nterrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue(), context.zoom).into());
     buttons_row1.push(button("See (l)ogs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, yellow(), context.zoom).into());
+    buttons_row1.push(button("See s(u)mmaries", IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }, yellow(), context.zoom).into());
     buttons_row1.push(button("(T)oken usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, yellow(), context.zoom).into());
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom).into());
 
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom).into());
     buttons_row2.push(button("Config", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom).into());
+    buttons_row2.push(button("(B)rowser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom).into());
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom).into());
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom).into());
 
@@ -1043,7 +1080,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
     let turn_result: Element<IcedMessage> = match p.result {
         TurnResultSummary::ParseError => text!(" (parse-error)").size(context.zoom * 14.0).color(red()),
         TurnResultSummary::ToolCallError => text!(" (tool-call-error)").size(context.zoom * 14.0).color(yellow()),
-        TurnResultSummary::ToolCallSuccess => text!(""),
+        TurnResultSummary::ToolCallSuccess => text!("").size(context.zoom * 14.0),
     }.into();
 
     let preview_title: Element<IcedMessage> = if let Some((start, end)) = context.find_result.get(&p.preview_title_truncated) {
@@ -1063,7 +1100,10 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
 
     let turn_row = Row::from_vec(vec![
         text!("{index:>3}. ").size(context.zoom * 14.0).into(),
-        text!("[{}]", p.timestamp).size(context.zoom * 14.0).into(),
+        Column::from_vec(vec![
+            text!("[{}]", p.timestamp).size(context.zoom * 14.0).into(),
+            text!("({})", prettify_timestamp(p.timestamp_millis)).size(context.zoom * 14.0).into(),
+        ]).into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
                 preview_title,
@@ -1215,6 +1255,95 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
             ]).spacing(context.zoom * 20.0).into(),
         ]).padding(context.zoom * 20.0).spacing(context.zoom * 20.0).into(),
+        context,
+    )
+}
+
+fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    if summaries.is_empty() {
+        return into_popup(text!("(There are no summaries yet.)").size(context.zoom * 14.0).into(), context);
+    }
+
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(summaries.iter().map(
+                |summary| {
+                    let mut truncated = false;
+                    let summary_preview: String = {
+                        let mut chars = vec![];
+                        let mut line_count = 0;
+
+                        for ch in summary.summary.chars() {
+                            chars.push(ch);
+
+                            if ch == '\n' {
+                                line_count += 1;
+                            }
+
+                            if line_count == 4 || chars.len() > 256 {
+                                truncated = true;
+                                break;
+                            }
+                        }
+
+                        chars.into_iter().collect()
+                    };
+                    let summary_preview = Container::new(
+                        text!("{summary_preview}{}", if truncated { "..." } else { "" }).size(context.zoom * 14.0)
+                    ).style(|_| Style {
+                        background: Some(Background::Color(gray(0.15))),
+                        border: Border {
+                            color: white(),
+                            width: context.zoom * 2.0,
+                            radius: Radius::new(context.zoom * 8.0),
+                        },
+                        ..Style::default()
+                    }).width(context.window_size.width).padding(context.zoom * 8.0);
+
+                    Container::new(Column::from_vec(vec![
+                        Row::from_vec(vec![
+                            text!("{}", summary.title).size(context.zoom * 18.0).into(),
+                            text!("({})", prettify_timestamp(summary.timestamp_millis)).size(context.zoom * 12.0).into(),
+                        ]).spacing(context.zoom * 4.0).align_y(Vertical::Bottom).into(),
+                        summary_preview.into(),
+                        if truncated {
+                            button("more", IcedMessage::OpenPopup { curr: Popup::Summary(summary.clone()), prev: Some(Popup::Summaries) }, yellow(), context.zoom).into()
+                        } else {
+                            Space::new().into()
+                        },
+                    ]).spacing(context.zoom * 8.0)).style(|_| Style {
+                        background: Some(Background::Color(gray(0.15))),
+                        border: Border {
+                            color: white(),
+                            width: 0.0,
+                            radius: Radius::new(context.zoom * 8.0),
+                        },
+                        ..Style::default()
+                    }).padding(context.zoom * 8.0).into()
+                }
+            ).collect())
+                .padding(context.zoom * 8.0)
+                .spacing(context.zoom * 16.0)
+        ).into(),
+        context,
+    )
+}
+
+fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(vec![
+                Row::from_vec(vec![
+                    text!("{}", summary.title).size(context.zoom * 18.0).into(),
+                    text!("[{}] ({})", summary.timestamp, prettify_timestamp(summary.timestamp_millis)).size(context.zoom * 12.0).into(),
+                ]).spacing(context.zoom * 4.0).align_y(Vertical::Bottom).into(),
+                TextEditor::new(&context.long_text_editor_content)
+                    .width(context.window_size.width)
+                    .size(context.zoom * 14.0)
+                    .highlight("md", iced::highlighter::Theme::SolarizedDark)
+                    .into(),
+            ]).padding(context.zoom * 8.0).spacing(context.zoom * 20.0)
+        ).into(),
         context,
     )
 }

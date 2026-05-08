@@ -20,6 +20,10 @@ pub struct Config {
     pub default_command_timeout: u64,  // seconds
     pub user_response_timeout: u64,  // seconds
 
+    // If the agent doesn't write summary and keeps reading files,
+    // the harness will force it to write a summary file.
+    pub max_read_without_write: usize,
+
     // I'm worried if AI mistakens millisec and sec.
     pub command_max_timeout: u64,  // seconds
 }
@@ -60,6 +64,7 @@ impl Default for Config {
             stdout_max_len: 5120,
             default_command_timeout: 600,
             user_response_timeout: 300,
+            max_read_without_write: 6,
             command_max_timeout: 3 * 3600,
         }
     }

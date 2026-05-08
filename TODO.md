@@ -147,10 +147,13 @@
 78. summary agent
   - 버튼을 누르면 interrupt가 자동으로 나감. 질문에는 "니가 지금까지 한 거를 요약해서 logs/summary-<id>.md에 추가해줘"라고 넣기
     - 버튼 눌러야 나갈 수도 있고, 주기적으로 나갈 수도 있고
+    - logs/done을 썼으면 자동으로 summary도 쓰게할까?
   - summary 확인하는 거는 쉬움, 그냥 turn_view에서 저 turn 선택하면 됨!
   - index dir 안에다가 summary를 따로 모아놓으면... 그것도 좋을 듯!
   - summary하는 llm은 좀 싼 거 쓰자!
     - 그럼 모델 고를 때, 각각 다 고를 수 있게 하자! main agent, summary agent, search agent. 여기에 추가로 search agent랑 summary agent는 "disable"이라는 옵션도 주자!
+  - summary는 그냥 프롬프트로 시키자! 그대신 summary를 안 쓴지 한참 됐으면 자동으로 interrupt를 걸자. 그럼 summary agent를 따로 지정하는게 의미가 없네?
+    - 그럼 TooManyReadWithoutWrite도 summary 쓰라고 직접적으로 시키면 되겠네!!
 79. CLI를 좀 더 linux style로 바꾸자
   -  `neukgu gui <path>`
     - dir일 경우 browser, file일 경우 browser + preview
@@ -168,8 +171,15 @@
   - 3) 가장 위에 저 두 turn이 들어가면 context-engineering에도 유리!
   - edge cases
     - `.`에 파일이 너무 많으면?
+      - 이거는 좀 수고스럽지만, harness가 다 고려해줘야함.
+      - 파일이 너무 많아서 tool call error가 났을 때랑 아닐 때의 멘트를 다르게 해서 neukgu-instruction.md를 읽게 하자
     - `neukgu-instruction.md`가 너무 길면?
+      - 이거는 애초에 잘못된 project임... 그냥 시작하기 전에 오류를 내버리자!
+      - `neukgu-instruction.md`는 반드시 한번에 읽어야하는 파일인데, 얘가 길어버리면 답이 없는 거잖아?
     - `neukgu-instruction.md`가 없으면?
+      - 이것도 잘못된 project임... 이것도 시작하기 전에 오류를 내버리자!
+      - 시작하기 전에 오류를 내면 ui에는 어떻게 보임?
+    - 생각해보면 edge-case 굳이 대응할 필요가 없는게, `neukgu-instruction.md`에 문제가 있으면 tool-call-error가 날 거고, 그럼 AI가 알아서 하겠지!
 83. launch라는 용어가 마음에 안 듦. "go hunt" ㅇㄸ?
 87. `context.json`이 동일하면 LLM한테 완전 동일한 context를 줄 수 있잖아? 서로 다른 LLM한테 완전 동일한 context를 주고 어떻게 다르게 행동하는지 실험해보자
   - 만약 동일한 상황에서 haiku도 `<write>`를 하고 opus도 `<write>`를 한다? 그럼 평상시에는 haiku를 쓰다가 write할 때만 opus로 갈아끼우면 됨!
@@ -190,7 +200,7 @@
 93. alternative python
   - 지금 mac처럼 python에 문제가 있는 애들은 어떤 python으로 init할 지 정할 수 있게 하고싶음...
 94. visualize agent
-  - pdf/xlsx/pptx/hwpx 등 온갖 문서를 만들 수 있는 능력이 있음!
+  - pdf/xlsx/pptx/docx/hwpx 등 온갖 문서를 만들 수 있는 능력이 있음!
   - main agent가 정리해서 얘한테 넘겨주면 얘가 결과물 만들어주는 거지!!
   - vis agent가 만든 결과물을 main agent가 확인했는데 마음에 안 들면?
   - vis agent가 만든 결과물을 사람이 확인했는데 마음에 안 들면?
@@ -205,6 +215,29 @@
   - Issues are stored in `.neukgu/`.
   - It provides github-like interface.
   - Neukgu will read the issues and tries to fix them, and close them.
+97. skills
+  - 어떤 작업을 하는 방법을 프롬프트로 설명할 수도 있고, 그 작업을 스크립트로 구현해서 제공할 수도 있음.
+  - 지금 구상 중인 방법은, `skills/` dir에다가 프롬프트들을 왕창 넣어두고, 늑구가 알아서 골라서 쓰게 하는 거임
+    - 스킬을 추가하고 삭제하고 관리하기 위한 gui를 따로 만들자!
+    - 3번째 fake turn으로 `<read><path>skills/</path></read>`를 넣어도 괜찮을 듯!
+      - skills라는 dir이 이미 존재하면?
+  - 사용자가 특정 skill을 fire하고 싶으면? 91번 이슈로 엮어서 해결해야하나??
+    - 지금 내가 생각하는 skill들은 사용자가 fire할만한게 없음...
+    - 특정 시점에 summary agent를 호출하고 싶으면? 일단 summary agent랑 skill이랑은 미묘하게 다른 것 같음...
+     - 근데 특정 시점에 summary agent를 호출하는 기능 자체는 괜찮을듯?
+     - 이런 기능들을 묶어서 제공할까? 근데 summary agent말고 또 뭐 있는데?
+98. use neukgu to improve neukgu
+  - add gemini api
+  - add openai chat-completion api
+  - debug anthropic search api
+99. change config at working dir
+  - 이제 config ui가 생겼으니까 working dir에서도 이거 보여주자! -> 이거만 하면 87번 이슈도 해결 가능!!
+100. run 하고 stdout이나 stderr이 길어서 truncate 됐으면 agent한테 추가로 알려주자! `...(XXX truncated)...`가 중간에 끼어있으니까 잘 안 보임 ㅠㅠ 아닌가 AI는 잘 보려나? ㅋㅋ
+101. working_dir GUI에 browse라는 버튼도 추가하기!
+102. 브라우저 탭 열 때도 해당 dir이 이미 열려있으면 그 탭으로 그냥 넘기자
+  - 물론 normalize가 안되면 false negative가 생길 수도 있지만, 그냥 best-effort로 하자!
+103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
+  - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 
 ```nu
 cd ~/Documents/Rust/neukgu;

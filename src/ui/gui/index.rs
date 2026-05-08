@@ -22,17 +22,18 @@ use chrono::Local;
 use crate::{
     Config,
     Error,
+    NeukguId,
     Project,
     clean_global_index_dir,
     get_global_index_dir,
     get_neukgu_id,
     init_working_dir,
     load_all_indexes,
-    prettify_time,
+    prettify_timestamp,
     remove_global_index,
     validate_project_name,
 };
-use iced::{Background, Element, Length, Size, Task};
+use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
@@ -52,6 +53,7 @@ use ragit_fs::{
     read_string,
     remove_dir_all,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct IcedContext {
@@ -60,8 +62,10 @@ pub struct IcedContext {
     pub window_size: Size,
     pub recent_projects: Vec<Project>,
     pub current_tabs: Vec<TabPreview>,
+    pub working_dir_tab_indexes: HashMap<NeukguId, usize>,
     pub zoom: f32,
     pub now: String,
+    pub battery: Option<(battery::State, f32)>,
     pub hovered_tab: Option<TabId>,
     pub curr_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
@@ -83,8 +87,10 @@ impl IcedContext {
             window_size: Size::new(0.0, 0.0),
             recent_projects: vec![],
             current_tabs: vec![],
+            working_dir_tab_indexes: HashMap::new(),
             zoom: 1.0,
             now: Local::now().to_rfc2822(),
+            battery: None,
             hovered_tab: None,
             curr_popup: None,
             copy_buffer: None,
@@ -92,6 +98,18 @@ impl IcedContext {
             new_project_config: Config::default(),
             short_text_editor_content: TextEditorContent::new(),
             long_text_editor_content: TextEditorContent::new(),
+        }
+    }
+
+    pub fn update_battery_state(&mut self) {
+        if let Ok(manager) = battery::Manager::new() {
+            if let Ok(mut iterator) = manager.batteries() {
+                if let Some(Ok(battery)) = iterator.next() {
+                    let state = battery.state();
+                    let charged = format!("{:?}", battery.state_of_charge()).parse::<f32>().unwrap();
+                    self.battery = Some((state, charged));
+                }
+            }
         }
     }
 
@@ -142,7 +160,7 @@ pub enum IcedMessage {
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
     HoverOnTab(Option<TabId>),
-    NewTab(Tab),
+    NewTab { tab: Tab, force_new_tab: bool },
     OpenTab { id: TabId, index: usize },
     NewProject,
     DeleteProject {
@@ -188,6 +206,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Tick => {
             context.now = Local::now().to_rfc2822();
             context.recent_projects = load_all_indexes(&context.global_index_dir);
+            context.update_battery_state();
+            context.working_dir_tab_indexes = context.current_tabs.iter().enumerate().filter_map(
+                |(i, tab)| tab.neukgu_id.map(|id| (id, i))
+            ).collect();
 
             // let's just assume that there's no overflow!
             context.recent_projects.sort_by_key(|p| -p.updated_at);
@@ -203,7 +225,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("t"), false, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None })));
+                    return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir: context.home_dir.to_string(), file: None }, force_new_tab: true }));
                 }
             },
             (Key::Character("y"), false, false, false) => {
@@ -225,7 +247,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::HoverOnTab(id) => {
             context.hovered_tab = id;
         },
-        IcedMessage::NewTab(_) => unreachable!(),
+        IcedMessage::NewTab { .. } => unreachable!(),
         IcedMessage::OpenTab { .. } => unreachable!(),
         IcedMessage::NewProject => {
             let project_name = context.short_text_editor_content.text();
@@ -235,7 +257,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             create_dir(&project_path)?;
             init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), true)?;
             context.close_popup();
-            return Ok(Task::done(IcedMessage::NewTab(Tab::WorkingDir(project_path))));
+            return Ok(Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }));
         },
         IcedMessage::DeleteProject { project_name, working_dir } => {
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
@@ -246,7 +268,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::done(IcedMessage::Tick));
         },
         IcedMessage::OpenPopup(popup) => {
-            // TODO: we need an error handler for index tab
             context.open_popup(popup)?;
         },
         IcedMessage::ClosePopup => {
@@ -271,7 +292,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let c = Column::from_vec(vec![
-        text!("{}", context.now).size(context.zoom * 14.0).into(),
+        Row::from_vec(vec![
+            text!("{}", context.now).size(context.zoom * 14.0).into(),
+            render_battery_state(context),
+        ])
+            .padding(context.zoom * 8.0)
+            .spacing(context.zoom * 8.0)
+            .into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
                 text!("Recent projects").size(context.zoom * 14.0).into(),
@@ -308,7 +335,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 if context.curr_popup.is_some() {
                     disabled_button("New (t)ab", skyblue(), context.zoom).into()
                 } else {
-                    button("New (t)ab", IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None }), skyblue(), context.zoom).into()
+                    button("New (t)ab", IcedMessage::NewTab { tab: Tab::Browser { dir: context.home_dir.to_string(), file: None }, force_new_tab: true }, skyblue(), context.zoom).into()
                 },
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             Container::new(Scrollable::new(render_tabs(context)).width(Length::Fill)).style(
@@ -390,7 +417,6 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let now = Local::now().timestamp_millis();
     let column: Vec<Element<IcedMessage>> = context.recent_projects.iter().map(
         |project| {
             let path = if project.is_in_global_index_dir {
@@ -398,16 +424,10 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             } else {
                 project.working_dir.to_string()
             };
-
-            let elapsed = match now - project.updated_at {
-                ..0 => String::from("past"),
-                ..10_000 => String::from("now"),
-                d => format!("{} ago", prettify_time(d as u64)),
-            };
             let elapsed = if project.error.is_some() {
                 String::new()
             } else {
-                format!("({elapsed})")
+                format!("({})", prettify_timestamp(project.updated_at))
             };
 
             Container::new(
@@ -415,10 +435,13 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     text!("{path} {elapsed}").size(context.zoom * 14.0).width(context.window_size.width).into(),
                     if let Some(error) = &project.error {
                         text!("{error}").size(context.zoom * 14.0).color(red()).into()
-                    }
-                    else if context.curr_popup.is_some() {
+                    } else if context.curr_popup.is_some() {
                         Row::from_vec(vec![
-                            disabled_button("Launch", green(), context.zoom).into(),
+                            if context.working_dir_tab_indexes.contains_key(&project.neukgu_id) {
+                                disabled_button("Switch", green(), context.zoom).into()
+                            } else {
+                                disabled_button("Launch", green(), context.zoom).into()
+                            },
                             disabled_button("Browse", skyblue(), context.zoom).into(),
                             disabled_button("Instruction", yellow(), context.zoom).into(),
                             if project.is_in_global_index_dir {
@@ -428,9 +451,14 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                             },
                         ]).spacing(context.zoom * 4.0).into()
                     } else {
+                        // TODO: see summaries of the session
                         Row::from_vec(vec![
-                            button("Launch", IcedMessage::NewTab(Tab::WorkingDir(project.working_dir.to_string())), green(), context.zoom).into(),
-                            button("Browse", IcedMessage::NewTab(Tab::Browser { dir: project.working_dir.to_string(), file: None }), skyblue(), context.zoom).into(),
+                            if context.working_dir_tab_indexes.contains_key(&project.neukgu_id) {
+                                button("Switch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom).into()
+                            } else {
+                                button("Launch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom).into()
+                            },
+                            button("Browse", IcedMessage::NewTab { tab: Tab::Browser { dir: project.working_dir.to_string(), file: None }, force_new_tab: false }, skyblue(), context.zoom).into(),
                             button("Instruction", IcedMessage::OpenPopup(Popup::Instruction { working_dir: project.working_dir.to_string() }), yellow(), context.zoom).into(),
                             if project.is_in_global_index_dir {
                                 button("Delete", IcedMessage::OpenPopup(Popup::AskDelete {
@@ -527,7 +555,6 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     Column::from_vec(column).spacing(context.zoom * 8.0).into()
 }
 
-// TODO: It's copy-paste of `ui::gui::browser::render_create_popup`. I have to create a generic function.
 fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let short_text_editor = TextEditor::new(&context.short_text_editor_content)
         .size(context.zoom * 14.0)
@@ -556,4 +583,72 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
             .into(),
         context,
     )
+}
+
+fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    fn cell<'c>(on: bool, color: Color, zoom: f32) -> Element<'c, IcedMessage> {
+        let mut cell = Container::new(text!(" ").size(zoom * 14.0));
+        let background = if on {
+            Some(Background::Color(color))
+        } else {
+            None
+        };
+
+        if on {
+            cell = cell.style(move |_| Style {
+                background,
+                border: Border {
+                    color: white(),
+                    width: 0.0,
+                    radius: Radius::new(zoom * 2.0),
+                },
+                ..Style::default()
+            });
+        }
+
+        cell.into()
+    }
+
+    match context.battery {
+        Some((state, charged)) => {
+            let cell_color = if charged < 0.3 {
+                red()
+            } else if charged < 0.7 {
+                yellow()
+            } else {
+                green()
+            };
+
+            let battery = Container::new(
+                Row::from_vec(vec![
+                    cell(charged > 0.0, cell_color, context.zoom),
+                    cell(charged > 0.2, cell_color, context.zoom),
+                    cell(charged > 0.4, cell_color, context.zoom),
+                    cell(charged > 0.6, cell_color, context.zoom),
+                    cell(charged > 0.8, cell_color, context.zoom),
+                ])
+            ).style(move |_| Style {
+                background: None,
+                border: Border {
+                    color: white(),
+                    width: context.zoom * 4.0,
+                    radius: Radius::new(context.zoom * 6.0),
+                },
+                ..Style::default()
+            }).padding(context.zoom * 2.0);
+
+            Row::from_vec(vec![
+                battery.into(),
+                if state == battery::State::Charging {
+                    circle(context.zoom * 4.0, green())
+                } else {
+                    Space::new().into()
+                },
+            ])
+                .align_y(Vertical::Center)
+                .spacing(context.zoom * 4.0)
+                .into()
+        },
+        None => Space::new().into(),
+    }
 }

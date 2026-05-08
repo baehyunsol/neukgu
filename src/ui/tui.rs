@@ -1,5 +1,5 @@
 use super::{FeContext, Truncation, spawn_be_process};
-use crate::{Error, TurnResultSummary, prettify_time};
+use crate::{Error, TurnResultSummary, prettify_time, prettify_timestamp};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -24,14 +24,20 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
         curr_buffer.push(format!("{}", context.top_bar()));
 
         for (i, preview) in context.iter_previews().into_iter().enumerate() {
+            let rollback = if context.snapshots.contains(&preview.id) {
+                "\x1b[101mR\x1b[0m"
+            } else {
+                " "
+            };
             let truncation = match context.truncation.get(&preview.id).unwrap() {
                 Truncation::Hidden => "\x1b[101m   \x1b[0m",
                 Truncation::FullRender => "\x1b[102m   \x1b[0m",
                 Truncation::ShortRender => "\x1b[104m   \x1b[0m",
             };
+            let elapsed = format!("({})", prettify_timestamp(preview.timestamp_millis));
 
             curr_buffer.push(format!(
-                "{truncation}{i:>3}. [{}] {}{}\n{}(LLM: {}, TOOL: {})",
+                "{rollback} {truncation}{i:>3}. [{}] {}{}\n{}{elapsed}{}(LLM: {}, TOOL: {})",
                 preview.timestamp,
                 preview.preview_title_truncated,
                 match preview.result {
@@ -39,7 +45,8 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
                     TurnResultSummary::ToolCallError => " \x1b[103m(tool-call-error)\x1b[0m",
                     TurnResultSummary::ToolCallSuccess => "",
                 },
-                " ".repeat(40),
+                " ".repeat(10),
+                " ".repeat(32 - elapsed.len()),
                 prettify_time(preview.llm_elapsed_ms),
                 prettify_time(preview.tool_elapsed_ms),
             ));
@@ -60,8 +67,7 @@ pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
             println!("{}", curr_buffer.join("\n"));
         }
 
-        sleep(Duration::from_millis(3000));
-        // TODO: user interaction
+        sleep(Duration::from_millis(1000));
         context.end_frame(None, None, None)?;
         has_to_erase_terminal = true;
     }

@@ -7,6 +7,7 @@ use crate::{
     Error,
     LogId,
     NeukguId,
+    SessionSummary,
     TokenUsage,
     ToolCall,
     Turn,
@@ -150,6 +151,7 @@ pub struct FeContext {
     pub working_dir: String,
     pub neukgu_id: NeukguId,
     pub history: Vec<TurnSummary>,
+    pub summaries: Vec<SessionSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub curr_tool_call_elapsed: Option<u64>,
     pub config: Config,
@@ -227,6 +229,12 @@ impl FeContext {
         let history: Vec<TurnSummary> = be_context.history.iter().map(
             |t| t.get_turn_summary()
         ).collect();
+        let mut summaries = Vec::with_capacity(be_context.summaries.len());
+
+        for turn_id in be_context.summaries.iter() {
+            summaries.push(turn_id.get_session_summary(working_dir)?);
+        }
+
         let mut curr_tool_call = None;
         let mut curr_tool_call_elapsed = None;
         let mut snapshots = HashSet::new();
@@ -301,6 +309,7 @@ impl FeContext {
             working_dir: working_dir.to_string(),
             neukgu_id: be_context.neukgu_id,
             history,
+            summaries,
             curr_tool_call,
             curr_tool_call_elapsed,
             last_api_error,

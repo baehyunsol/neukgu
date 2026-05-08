@@ -22,7 +22,7 @@ use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle}
 use iced::widget::container::{Container, Style as ContainerStyle};
 use iced::widget::operation::scroll_to;
 use iced::widget::scrollable::AbsoluteOffset;
-use ragit_fs::current_dir;
+use ragit_fs::{basename, current_dir};
 
 pub struct IcedContext {
     pub home_dir: String,
@@ -59,7 +59,7 @@ pub enum IcedMessage {
     Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
-    NewTab(Tab),
+    NewTab { tab: Tab, force_new_tab: bool },
     SelectTab(usize),
 
     // KillTab sends kill signal to the tab.
@@ -79,7 +79,7 @@ pub enum Tab {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
-        IcedMessage::Index(IndexMessage::NewTab(tab)) => Task::done(IcedMessage::NewTab(tab)),
+        IcedMessage::Index(IndexMessage::NewTab { tab, force_new_tab }) => Task::done(IcedMessage::NewTab { tab, force_new_tab }),
         IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
             if let Some(tab) = context.tabs.get(index) && tab.id == id {
                 context.selected_tab = Some(index);
@@ -92,7 +92,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
         },
         IcedMessage::Tab { id: _, message: TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file }) } => {
-            Task::done(IcedMessage::NewTab(Tab::Browser { dir, file }))
+            Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir, file }, force_new_tab: false })
         },
         IcedMessage::Tab { id, message: TabMessage::Dead } => {
             for (i, tab) in context.tabs.iter().enumerate() {
@@ -127,7 +127,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::batch(tasks)
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
-            (Key::Character("t"), true, false, false) => Task::done(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None })),
+            (Key::Character("t"), true, false, false) => Task::done(IcedMessage::NewTab {
+                tab: Tab::Browser { dir: context.home_dir.to_string(), file: None },
+                force_new_tab: true,
+            }),
             (Key::Character("w"), true, false, false) => match context.selected_tab {
                 Some(selected_tab) => {
                     let id = context.tabs[selected_tab].id;
@@ -178,25 +181,40 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             Task::batch(tasks)
         },
-        IcedMessage::NewTab(tab) => {
+        IcedMessage::NewTab { tab, force_new_tab } => {
             let mut already_open = None;
 
-            match &tab {
-                Tab::WorkingDir(w) => match get_neukgu_id(w) {
-                    Ok(id) => {
+            if !force_new_tab {
+                match &tab {
+                    Tab::WorkingDir(w) => match get_neukgu_id(w) {
+                        Ok(id) => {
+                            for (i, tab) in context.tabs.iter().enumerate() {
+                                if let TabContext { local: LocalContext::WorkingDir(w), .. } = tab && w.fe_context.neukgu_id == id {
+                                    already_open = Some(i);
+                                    break;
+                                }
+                            }
+                        },
+
+                        // `TabContext::new` will encounter the same error and will handle that
+                        Err(_) => {},
+                    },
+                    Tab::Browser { dir, file } => {
+                        let file = file.as_ref().map(|file| basename(file).unwrap_or(String::new()));
+
                         for (i, tab) in context.tabs.iter().enumerate() {
-                            if let TabContext { local: LocalContext::WorkingDir(w), .. } = tab && w.fe_context.neukgu_id == id {
-                                already_open = Some(i);
-                                break;
+                            if let TabContext { local: LocalContext::Browser(b), .. } = tab {
+                                if let Ok((tab_dir, tab_file)) = b.get_open_dir_and_file() {
+                                    if dir == &tab_dir && file == tab_file {
+                                        already_open = Some(i);
+                                        break;
+                                    }
+                                }
                             }
                         }
                     },
-
-                    // `TabContext::new` will encounter the same error and will handle that
-                    Err(_) => {},
-                },
-                Tab::Browser { .. } => {},
-            };
+                }
+            }
 
             if let Some(index) = already_open {
                 context.selected_tab = Some(index);
@@ -204,12 +222,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             }
 
             else {
-                // TODO: if `context.selected_tab` is `Some(i)`, the new tab should be at `i + 1`,
-                //       not at the end of the tabs
-                context.selected_tab = Some(context.tabs.len());
                 let new_tab = TabContext::new(&context.home_dir, tab, context.window_size);
+                let new_tab_index = match context.selected_tab {
+                    Some(i) => i + 1,
+                    None => 0,
+                };
                 let scroll_id = new_tab.get_scroll_id();
-                context.tabs.push(new_tab);
+                context.tabs.insert(new_tab_index, new_tab);
+                context.selected_tab = Some(new_tab_index);
 
                 if let Some(scroll_id) = scroll_id {
                     scroll_to(scroll_id, AbsoluteOffset { x: 0.0, y: 0.0 })
@@ -333,7 +353,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 ..ButtonStyle::default()
             },
         }
-    ).on_press(IcedMessage::NewTab(Tab::Browser { dir: context.home_dir.to_string(), file: None }));
+    ).on_press(IcedMessage::NewTab { tab: Tab::Browser { dir: context.home_dir.to_string(), file: None }, force_new_tab: true });
 
     row.push(Space::new().width(8.0).into());
     row.push(new_tab.into());
