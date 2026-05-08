@@ -439,11 +439,13 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
         &serde_json::to_string_pretty(&snapshot.context)?,
         RagitFsWriteMode::CreateOrTruncate,
     )?;
-    write_string(
-        &join3(working_dir, ".neukgu", "config.json")?,
-        &serde_json::to_string_pretty(&snapshot.config)?,
-        RagitFsWriteMode::CreateOrTruncate,
-    )?;
+
+    // It doesn't rollback configs. I'm not sure whether I should rollback it or not...
+    // write_string(
+    //     &join3(working_dir, ".neukgu", "config.json")?,
+    //     &serde_json::to_string_pretty(&snapshot.config)?,
+    //     RagitFsWriteMode::CreateOrTruncate,
+    // )?;
 
     if let Some(mock_state) = &snapshot.mock_state {
         write_string(

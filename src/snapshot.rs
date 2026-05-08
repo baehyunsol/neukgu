@@ -27,7 +27,11 @@ pub struct Snapshot {
     pub seq: usize,
     pub turn: TurnId,
     pub context: ContextJson,
+
+    // It does remember the config, but it doesn't rollback the config.
+    // I haven't yet decided whether I should rollback it or not.
     pub config: Config,
+
     pub mock_state: Option<MockState>,
 }
 
