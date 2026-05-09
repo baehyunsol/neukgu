@@ -614,9 +614,14 @@ impl ToolCall {
                 "Run `{}`",
                 join_command_args(command),
             ),
-            ToolCall::Ask { to, .. } => format!(
-                "Ask to {}",
+            ToolCall::Ask { to, question, .. } => format!(
+                "Ask to {} {:?}",
                 format!("{to:?}").to_ascii_lowercase(),
+                if question.chars().count() < 42 {
+                    question.to_string()
+                } else {
+                    format!("{}...", question.chars().take(39).collect::<String>())
+                },
             ),
             ToolCall::Render { script, input, output } => format!(
                 "Render `{}` to `{}`{}",

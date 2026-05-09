@@ -125,6 +125,7 @@ pub struct IcedContext {
     pub logs_view_id: Id,
     pub short_text_editor_id: Id,
     pub long_text_editor_id: Id,
+    pub popup_scroll_id: Id,
     pub turn_view_scrolled: AbsoluteOffset,
 
     // hovered_turn: mouse
@@ -178,6 +179,7 @@ impl IcedContext {
             logs_view_id: Id::unique(),
             short_text_editor_id: Id::unique(),
             long_text_editor_id: Id::unique(),
+            popup_scroll_id: Id::unique(),
             turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             hovered_turn: None,
             selected_turn: None,
@@ -530,11 +532,25 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     let scroll_index = context.select_turn(if ctrl { -10 } else { -1 });
                     return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
                 }
+
+                else if ctrl {
+                    return Ok(Task::batch(vec![
+                        snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }),
+                        snap_to(context.logs_view_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }),
+                    ]));
+                }
             },
             (Key::Named(NamedKey::ArrowDown), ctrl, false, false) => {
                 if context.curr_popup.is_none() && context.llm_request.is_none() {
                     let scroll_index = context.select_turn(if ctrl { 10 } else { 1 });
                     return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                }
+
+                else if ctrl {
+                    return Ok(Task::batch(vec![
+                        snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
+                        snap_to(context.logs_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
+                    ]));
                 }
             },
             (Key::Named(NamedKey::ArrowLeft), false, false, false) => {
@@ -927,8 +943,8 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
                 text!("{line}").size(context.zoom * 14.0).color(color).into()
             }
-        ).collect());
-        let diff_view = Scrollable::new(diff_view);
+        ).collect()).width(Length::Fill);
+        let diff_view = Scrollable::new(diff_view).id(context.popup_scroll_id.clone());
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1042,7 +1058,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(Scrollable::new(text_editor).width(Length::Fill).into(), context),
+            into_popup(Scrollable::new(text_editor).width(Length::Fill).id(context.popup_scroll_id.clone()).into(), context),
         ]).into();
     }
 
@@ -1229,7 +1245,9 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
         turn_content.push(Row::from_vec(buttons).spacing(context.zoom * 8.0).into());
     }
 
-    let turn_content = Scrollable::new(Column::from_vec(turn_content).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).width(Length::Fill)).width(Length::Fill);
+    let turn_content = Scrollable::new(
+        Column::from_vec(turn_content).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).width(Length::Fill)
+    ).id(context.popup_scroll_id.clone()).width(Length::Fill);
     into_popup(turn_content.into(), context)
 }
 
@@ -1365,7 +1383,7 @@ fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedCo
             ).collect())
                 .padding(context.zoom * 8.0)
                 .spacing(context.zoom * 16.0)
-        ).into(),
+        ).id(context.popup_scroll_id.clone()).into(),
         context,
     )
 }
@@ -1384,7 +1402,7 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
                     .highlight("md", iced::highlighter::Theme::SolarizedDark)
                     .into(),
             ]).padding(context.zoom * 8.0).spacing(context.zoom * 20.0)
-        ).into(),
+        ).id(context.popup_scroll_id.clone()).into(),
         context,
     )
 }

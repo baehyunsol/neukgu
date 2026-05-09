@@ -216,6 +216,15 @@
   - 외부에서 늑구한테 질문/요청할 때는 늑구가 대답할 방법이 없음. 그나마 할 수 있는 건 `logs/`에 파일을 작성하는 것 뿐
     - 그럼 슬랙이랑 늑구 사이에 작은 agent를 더 넣자.
     - 사용자가 늑구한테 대답을 요청했으면, agent가 늑구한테 "~에 대한 대답을 logs/XXX에 작성해줘"라고 전달하는 거임. 늑구가 해당 파일을 작성했으면 이 agent가 다시 슬랙으로 메시지를 보내는 거지
+107. sandbox & snapshot
+  - working dir이 큰 경우, 오버헤드가 엄청 크고 자꾸 디스크가 터짐...
+  - 추가적인 이슈, sandbox 왔다갔다 하니까 rust의 incremental compilation이 작동을 안함...
+108. popup이 길 때 손으로 스크롤하기 귀찮음, popup의 맨 아래로 내려가는 key binding (혹은 빠르게 내려가는 key binding) 추가하기!
+109. diff view -> scrollbar가 오른쪽 끝에 붙었으면 좋겠음
+110. ask tool의 title 만들 때, 지금은 question을 통째로 넣고 있거든?
+  - preview에서는 자동으로 truncate가 되고 popup에서는 통째로 다 보임.
+  - 이걸 애초에 title을 만들 때부터 truncate를 해버리자. popup에서 통째로 다 보이니까 너무 정신 사나움...
+111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
 
 ```nu
 cd ~/Documents/Rust/neukgu;
