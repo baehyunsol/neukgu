@@ -197,10 +197,12 @@
     - 특정 시점에 summary agent를 호출하고 싶으면? 일단 summary agent랑 skill이랑은 미묘하게 다른 것 같음...
      - 근데 특정 시점에 summary agent를 호출하는 기능 자체는 괜찮을듯?
      - 이런 기능들을 묶어서 제공할까? 근데 summary agent말고 또 뭐 있는데?
+  - 아니면, tool을 추가/삭제하기 쉽게 할까? 지금은 새로운 tool 구현하기가 좀 빡세긴 함
 98. use neukgu to improve neukgu
   - add gemini api
   - add openai chat-completion api
   - debug anthropic search api
+  - 일단, request 보내는 것만 따로 테스트할 수 있는 코드를 짜달라고 하자!
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files
@@ -209,6 +211,11 @@
   - images도 포함
   - 나중에 trajectory 공유하고 싶을 수도 있잖아...
   - reset session 할 때 기존 session을 저장하고 싶으면 이걸 쓸까?
+106. slack이나 기타 메신저랑 연동하기
+  - 늑구가 외부에 질문할 때는 chat interface가 있으니까 이걸 그대로 붙이면 됨
+  - 외부에서 늑구한테 질문/요청할 때는 늑구가 대답할 방법이 없음. 그나마 할 수 있는 건 `logs/`에 파일을 작성하는 것 뿐
+    - 그럼 슬랙이랑 늑구 사이에 작은 agent를 더 넣자.
+    - 사용자가 늑구한테 대답을 요청했으면, agent가 늑구한테 "~에 대한 대답을 logs/XXX에 작성해줘"라고 전달하는 거임. 늑구가 해당 파일을 작성했으면 이 agent가 다시 슬랙으로 메시지를 보내는 거지
 
 ```nu
 cd ~/Documents/Rust/neukgu;

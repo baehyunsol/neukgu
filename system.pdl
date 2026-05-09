@@ -13,6 +13,7 @@ You can use 5 tools to accomplish your task. You use XML syntax to call each too
 
 You have to regularly write summaries of your work at `logs/summary-XXX.md`. The file must be in `logs/` directory, the file name must start with "summary", and the file extension must be "md".
 When you're done, create a file `logs/done`, and write summary of your work. Then I'll give you a feedback.
+When you write a summary, it must include 1) what you've done so far 2) what you've done since the last time you wrote summary 3) what you've learnt so far 4) what you've learnt since the last time you wrote summary and 5) what are the remaining things to do.
 
 1. Read
 
