@@ -42,6 +42,7 @@ impl IcedContext {
                     local: local_context,
                 }
             },
+            Tab::Chat => todo!(),
             Tab::WorkingDir(dir) => {
                 // TODO: make `no_backend` configurable
                 let local_context = match WorkingDirContext::new(false, &dir, window_size, 1.0) {
@@ -132,6 +133,7 @@ pub enum IcedMessage {
     Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
+    Focus,
 
     // Kill: The caller wants to kill this tab.
     // Dead: Tell the caller that this tab is okay to be closed.
@@ -208,6 +210,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.cwd = path.to_string();
             browser::update(c, BrowserMessage::ChDir(path)).map(|t| IcedMessage::Browser(t))
         },
+        (LocalContext::Browser(c), IcedMessage::Focus) => browser::update(c, BrowserMessage::Focus).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
         (LocalContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::WorkingDir(t)),
@@ -215,9 +218,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             c.window_size = s;
             Task::none()
         },
+        (LocalContext::WorkingDir(c), IcedMessage::Focus) => working_dir::update(c, WorkingDirMessage::Focus).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Error(t)),
-        (LocalContext::Error(_), IcedMessage::Tick) => Task::none(),
+        (LocalContext::Error(_), IcedMessage::Tick | IcedMessage::Focus) => Task::none(),
         (context, IcedMessage::Kill) => match context {
             LocalContext::Browser(c) => browser::update(c, BrowserMessage::Kill).map(|m| IcedMessage::Browser(m)),
             LocalContext::WorkingDir(c) => working_dir::update(c, WorkingDirMessage::Kill).map(|m| IcedMessage::WorkingDir(m)),

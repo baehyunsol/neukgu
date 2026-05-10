@@ -289,6 +289,7 @@ pub enum IcedMessage {
     EditLongText(TextEditorAction),
     SetProjectConfig(SetProjectConfig),
     Error(String),
+    Focus,
 
     // Kill: The caller wants to kill this tab.
     // Dead: Tell the caller that this tab is okay to be closed.
@@ -480,6 +481,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
         },
+        IcedMessage::Focus => {
+            return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
+        },
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::Kill => {
             return Ok(Task::done(IcedMessage::Dead));
@@ -496,7 +500,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ).collect();
 
     // It makes rooms for popups when there're not enough entries.
-    entries.push(text!("").width(context.window_size.width).height(context.window_size.height).into());
+    entries.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.5).into());
 
     let entries_stretched = Column::from_vec(entries)
         .padding(context.zoom * 8.0)

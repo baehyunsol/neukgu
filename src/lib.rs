@@ -15,6 +15,7 @@ use std::fs::TryLockError;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+mod chat;
 mod config;
 mod context;
 mod error;
@@ -120,9 +121,11 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
 
     clean_dangling_sandboxes(&context.working_dir)?;
     let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir, true /* copy index dir */)?;
+    let mut has_new_turn = false;
 
     match step_inner(context, config).await {
-        Ok(()) => {
+        Ok(f) => {
+            has_new_turn = f;
             clean_sandbox(&config.sandbox_root, &backup_dir, &context.working_dir)?;
         },
         Err(e) => {
@@ -137,14 +140,17 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
     // It sleeps 500ms in order to add *stability* to the program.
     // This is the safest place in the loop. The frontend can read the index
     // because every state is complete, and it's safe to kill the backend here.
-    update_global_index(&context)?;
-    sleep(Duration::from_millis(500));
+    if has_new_turn {
+        update_global_index(&context)?;
+    }
 
+    sleep(Duration::from_millis(500));
     drop(lock_file);
     Ok(())
 }
 
-async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error> {
+// The boolean tells whether a new turn is added to the context or not.
+async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Error> {
     if let Some((id, interrupt)) = context.check_question_from_user()? {
         context.process_question_from_user(id, interrupt, config)?;
         context.store()?;
@@ -156,7 +162,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
     //       but I need a better solution.
     if context.is_marked_done()? {
         sleep(Duration::from_millis(1_000));  // prevent busy-loop
-        return Ok(());
+        return Ok(false);
     }
 
     let mut user_interrupt = false;
@@ -194,14 +200,14 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
         context.discard_current_turn();
         sleep(Duration::from_millis(300));  // wait for fe to update its state
         context.sync_with_fe()?;
-        return Ok(());
+        return Ok(false);
     }
 
     context.store()?;
     context.sync_with_fe()?;
 
     if context.is_paused()? {
-        return Ok(());
+        return Ok(true);
     }
 
     let tool_call_started_at = Instant::now();
@@ -270,7 +276,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<(), Error>
         context.create_snapshot()?;
     }
 
-    Ok(())
+    Ok(true)
 }
 
 pub fn validate_project_name(name: &str) -> Result<(), Error> {

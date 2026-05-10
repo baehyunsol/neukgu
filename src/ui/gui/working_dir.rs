@@ -410,6 +410,7 @@ pub enum IcedMessage {
     EditLongText(TextEditorAction),
     OpenBrowser { dir: String, file: Option<String> },
     Error(String),
+    Focus,
 
     // Kill: The caller wants to kill this tab. This tab will show a popup "quit session?".
     // KillBeProcess: If the user clicked "yes" for "quit session?", this message is produced.
@@ -827,6 +828,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
+        IcedMessage::Focus => {
+            return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
+        },
         IcedMessage::Kill => {
             return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
         },
@@ -852,7 +856,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     // It makes rooms for popups when there're not enough turns.
-    turns.push(text!("").width(context.window_size.width).height(context.window_size.height).into());
+    turns.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.5).into());
 
     let turns_stretched = Column::from_vec(turns)
         .padding(context.zoom * 8.0)

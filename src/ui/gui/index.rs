@@ -3,6 +3,7 @@ use super::{
     PopupMessage,
     SetProjectConfig,
     black,
+    brown,
     button,
     circle,
     config_ui,
@@ -37,8 +38,9 @@ use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, MouseArea, Row, Scrollable, Space, Stack, text};
+use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, text};
 use iced::widget::container::{Container, Style};
+use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
@@ -61,8 +63,11 @@ pub struct IcedContext {
     pub global_index_dir: String,
     pub window_size: Size,
     pub recent_projects: Vec<Project>,
+    pub recent_chats: Vec<(/* TODO */)>,
     pub current_tabs: Vec<TabPreview>,
     pub working_dir_tab_indexes: HashMap<NeukguId, usize>,
+    pub main_view_id: Id,
+    pub main_view_scrolled: AbsoluteOffset,
     pub zoom: f32,
     pub now: String,
     pub battery: Option<(battery::State, f32)>,
@@ -86,8 +91,11 @@ impl IcedContext {
             global_index_dir,
             window_size: Size::new(0.0, 0.0),
             recent_projects: vec![],
+            recent_chats: vec![],
             current_tabs: vec![],
             working_dir_tab_indexes: HashMap::new(),
+            main_view_id: Id::unique(),
+            main_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             zoom: 1.0,
             now: Local::now().to_rfc2822(),
             battery: None,
@@ -173,6 +181,8 @@ pub enum IcedMessage {
     EditLongText(TextEditorAction),
     EditShortText(TextEditorAction),
     SetProjectConfig(SetProjectConfig),
+    MainViewScrolled(AbsoluteOffset),
+    Focus,
 }
 
 impl PopupMessage for IcedMessage {
@@ -206,6 +216,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Tick => {
             context.now = Local::now().to_rfc2822();
             context.recent_projects = load_all_indexes(&context.global_index_dir);
+            // context.recent_chats = load_all_chats(&context.global_index_dir);
             context.update_battery_state();
             context.working_dir_tab_indexes = context.current_tabs.iter().enumerate().filter_map(
                 |(i, tab)| tab.neukgu_id.map(|id| (id, i))
@@ -213,10 +224,26 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
             // let's just assume that there's no overflow!
             context.recent_projects.sort_by_key(|p| -p.updated_at);
+            // context.recent_chats.sort_by_key(|c| -c.updated_at);
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
                 return Ok(Task::done(IcedMessage::ClosePopup));
+            },
+            (Key::Named(NamedKey::ArrowUp), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(snap_to(context.main_view_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }));
+                }
+            },
+            (Key::Named(NamedKey::ArrowDown), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(snap_to(context.main_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }));
+                }
+            },
+            (Key::Character("c"), false, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat, force_new_tab: true }));
+                }
             },
             (Key::Character("p"), false, false, false) => {
                 if context.curr_popup.is_none() {
@@ -285,30 +312,34 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
         },
+        IcedMessage::MainViewScrolled(o) => {
+            context.main_view_scrolled = o;
+        },
+        IcedMessage::Focus => {
+            return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
+        },
     }
 
     Ok(Task::none())
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let c = Column::from_vec(vec![
-        Row::from_vec(vec![
-            text!("{}", context.now).size(context.zoom * 14.0).into(),
-            render_battery_state(context),
-        ])
-            .padding(context.zoom * 8.0)
-            .spacing(context.zoom * 8.0)
-            .into(),
+    fn section<'c>(
+        title: &'static str,
+        button: Button<'c, IcedMessage>,
+        entries: Element<'c, IcedMessage>,
+        context: &'c IcedContext,
+    ) -> Column<'c, IcedMessage> {
         Column::from_vec(vec![
             Row::from_vec(vec![
-                text!("Recent projects").size(context.zoom * 14.0).into(),
+                text!("{title}").size(context.zoom * 14.0).into(),
                 if context.curr_popup.is_some() {
-                    disabled_button("New (p)roject", green(), context.zoom).into()
+                    button.on_press_maybe(None).into()
                 } else {
-                    button("New (p)roject", IcedMessage::OpenPopup(Popup::NewProject), green(), context.zoom).into()
+                    button.into()
                 },
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
-            Container::new(Scrollable::new(render_projects(context)).width(Length::Fill)).style(
+            Container::new(Scrollable::new(entries).width(Length::Fill)).style(
                 |_| Style {
                     background: Some(Background::Color(black())),
                     border: Border {
@@ -328,40 +359,61 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .spacing(context.zoom * 8.0)
             .width(context.window_size.width)
             .height(context.window_size.height * 0.5)
-            .into(),
-        Column::from_vec(vec![
-            Row::from_vec(vec![
-                text!("Current tabs").size(context.zoom * 14.0).into(),
-                if context.curr_popup.is_some() {
-                    disabled_button("New (t)ab", skyblue(), context.zoom).into()
-                } else {
-                    button("New (t)ab", IcedMessage::NewTab { tab: Tab::Browser { dir: context.home_dir.to_string(), file: None }, force_new_tab: true }, skyblue(), context.zoom).into()
-                },
-            ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
-            Container::new(Scrollable::new(render_tabs(context)).width(Length::Fill)).style(
-                |_| Style {
-                    background: Some(Background::Color(black())),
-                    border: Border {
-                        color: white(),
-                        width: 0.0,
-                        radius: Radius::new(8.0),
-                    },
-                    ..Style::default()
-                }
-            )
-                .padding(context.zoom * 8.0)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
+    }
+
+    let c = Column::from_vec(vec![
+        Row::from_vec(vec![
+            text!("{}", context.now).size(context.zoom * 14.0).into(),
+            render_battery_state(context),
         ])
             .padding(context.zoom * 8.0)
             .spacing(context.zoom * 8.0)
-            .width(context.window_size.width)
-            .height(context.window_size.height * 0.5)
             .into(),
+        section(
+            "Recent projects",
+            button(
+                "New (p)roject",
+                IcedMessage::OpenPopup(Popup::NewProject),
+                green(),
+                context.zoom,
+            ),
+            render_projects(context),
+            context,
+        ).into(),
+        section(
+            "Recent chats",
+            button(
+                "New (c)hat",
+                IcedMessage::NewTab {
+                    tab: Tab::Chat,
+                    force_new_tab: true,
+                },
+                brown(),
+                context.zoom,
+            ),
+            render_chats(context),
+            context,
+        ).into(),
+        section(
+            "Current tabs",
+            button(
+                "New (t)ab",
+                IcedMessage::NewTab {
+                    tab: Tab::Browser { dir: context.home_dir.to_string(), file: None },
+                    force_new_tab: true,
+                },
+                skyblue(),
+                context.zoom,
+            ),
+            render_tabs(context),
+            context,
+        ).into(),
     ]).spacing(context.zoom * 8.0);
 
-    let mut full_view_stacked: Element<IcedMessage> = Scrollable::new(c).into();
+    let mut full_view_stacked: Element<IcedMessage> = Scrollable::new(c)
+        .id(context.main_view_id.clone())
+        .on_scroll(|v| IcedMessage::MainViewScrolled(v.absolute_offset()))
+        .into();
 
     if let Some(Popup::NewProject) = context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
@@ -485,6 +537,10 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         }
     ).collect();
     Column::from_vec(column).spacing(context.zoom * 8.0).into()
+}
+
+fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    Space::new().into()
 }
 
 fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {

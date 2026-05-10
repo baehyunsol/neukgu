@@ -74,6 +74,7 @@ pub enum IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Tab {
     Browser { dir: String, file: Option<String> },
+    Chat,
     WorkingDir(String),
 }
 
@@ -82,10 +83,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::Index(IndexMessage::NewTab { tab, force_new_tab }) => Task::done(IcedMessage::NewTab { tab, force_new_tab }),
         IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
             if let Some(tab) = context.tabs.get(index) && tab.id == id {
+                let id = context.tabs[index].id;
                 context.selected_tab = Some(index);
+                tab::update(&mut context.tabs[index], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
             }
 
-            Task::none()
+            else {
+                Task::none()
+            }
         },
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => unreachable!(),
@@ -153,13 +158,25 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                     _ => unreachable!(),
                 };
 
-                if let Some(selected_tab) = selected_tab && selected_tab >= context.tabs.len() {}
-
-                else {
-                    context.selected_tab = selected_tab;
+                if let Some(selected_tab) = selected_tab && selected_tab >= context.tabs.len() {
+                    Task::none()
                 }
 
-                Task::none()
+                else if context.selected_tab != selected_tab {
+                    context.selected_tab = selected_tab;
+
+                    match context.selected_tab {
+                        Some(i) => {
+                            let id = context.tabs[i].id;
+                            tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+                        },
+                        None => index::update(&mut context.index, IndexMessage::Focus).map(|m| IcedMessage::Index(m)),
+                    }
+                }
+
+                else {
+                    Task::none()
+                }
             },
             _ => match context.selected_tab {
                 Some(selected_tab) => {
@@ -213,12 +230,20 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                             }
                         }
                     },
+                    Tab::Chat => todo!(),
                 }
             }
 
             if let Some(index) = already_open {
-                context.selected_tab = Some(index);
-                Task::none()
+                if context.selected_tab != Some(index) {
+                    let id = context.tabs[index].id;
+                    context.selected_tab = Some(index);
+                    tab::update(&mut context.tabs[index], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+                }
+
+                else {
+                    Task::none()
+                }
             }
 
             else {
@@ -239,8 +264,15 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             }
         },
         IcedMessage::SelectTab(i) => {
-            context.selected_tab = Some(i);
-            Task::none()
+            if Some(i) != context.selected_tab {
+                let id = context.tabs[i].id;
+                context.selected_tab = Some(i);
+                tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+            }
+
+            else {
+                Task::none()
+            }
         },
         IcedMessage::KillTab(i) => {
             let id = context.tabs[i].id;
@@ -256,18 +288,29 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.tabs.remove(i);
 
             if let Some(selected_tab) = context.selected_tab && selected_tab >= i && selected_tab > 0 {
-                *context.selected_tab.as_mut().unwrap() -= 1;
+                let id = context.tabs[selected_tab - 1].id;
+                context.selected_tab = Some(selected_tab - 1);
+                tab::update(&mut context.tabs[selected_tab - 1], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
             }
 
-            if context.tabs.is_empty() {
+            else if context.tabs.is_empty() {
                 context.selected_tab = None;
+                index::update(&mut context.index, IndexMessage::Focus).map(|m| IcedMessage::Index(m))
             }
 
-            Task::none()
+            else {
+                Task::none()
+            }
         },
         IcedMessage::SelectIndex => {
-            context.selected_tab = None;
-            Task::none()
+            if context.selected_tab.is_some() {
+                context.selected_tab = None;
+                index::update(&mut context.index, IndexMessage::Focus).map(|m| IcedMessage::Index(m))
+            }
+
+            else {
+                Task::none()
+            }
         },
         IcedMessage::None => Task::none(),
     }

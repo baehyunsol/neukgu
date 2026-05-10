@@ -225,6 +225,17 @@
   - preview에서는 자동으로 truncate가 되고 popup에서는 통째로 다 보임.
   - 이걸 애초에 title을 만들 때부터 truncate를 해버리자. popup에서 통째로 다 보이니까 너무 정신 사나움...
 111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
+112. 다른 탭 갔다가 오면 scroll이 다 초기화 돼 있음...
+113. 이미 끝난 project를 launch하면, turn이 추가가 안되는데 updated_at은 갱신이 됨. updated_at은 마지막 turn을 기준으로 해야지...
+114. Scratch-pad
+  - zed/vsc를 쓸 때 보통 탭을 가로로 여러개 띄워놓고 쓰잖아? 이게 neukgu에서도 가능해야함
+  - 그냥 `tab::view()`를 2번 호출한 다음에 둘을 `iced::widget::Row`에 집어넣어도 되는데, 그럼 너무 못생겼을 거 같음
+  - 그래서 scratch pad라는 개념을 만들까... 생각하는 중!
+  - scratch pad는 항상 왼쪽이나 오른쪽에 작게 떠 있는 popup임.
+  - 다른 popup들보다 가장 마지막에 render되기 때문에, scratch pad는 항상 보임!
+  - 현재 tab/popup을 scratch pad로 띄우는 단축키가 존재
+  - scratch pad를 hide/show/close 하는 단축키가 존재
+  - tab을 넘기는 것과 scratch pad는 완전 별도로 동작함
 
 ```nu
 cd ~/Documents/Rust/neukgu;

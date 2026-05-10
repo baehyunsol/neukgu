@@ -121,6 +121,10 @@ fn yellow() -> Color {
     Color::from_rgb(0.8, 0.8, 0.2)
 }
 
+fn brown() -> Color {
+    Color::from_rgb(0.5, 0.3, 0.2)
+}
+
 fn pink() -> Color {
     Color::from_rgb(0.9, 0.6, 0.7)
 }
