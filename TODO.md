@@ -192,6 +192,9 @@
     - python script
       - basically, a custom tool is just `<run>`
   - system.pdl도 parametric하게 바꿔야함.
+  - visualize agent를 custom tool로 구현하기?
+    - custom tool에서 sub-agent를 호출할 수 있어야함!
+    - 아직 sub-agent를 어떻게 할지도 안 정해졌는데...
 98. use neukgu to improve neukgu
   - add gemini api
   - add openai chat-completion api
