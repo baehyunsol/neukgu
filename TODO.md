@@ -198,11 +198,16 @@
      - 근데 특정 시점에 summary agent를 호출하는 기능 자체는 괜찮을듯?
      - 이런 기능들을 묶어서 제공할까? 근데 summary agent말고 또 뭐 있는데?
   - 아니면, tool을 추가/삭제하기 쉽게 할까? 지금은 새로운 tool 구현하기가 좀 빡세긴 함
+  - custom tool을 추가할 수 있게할까?
+    - system prompt에 툴 설명 추가하는 거는 쉬움!
+    - arg parse 하는 것도 generic 하게 빼기 쉬움
+    - 이거를 python으로 짤까 rust로 짤까...
+      - rust로 짜면 새로 compile해야해서 귀찮을 듯 ㅠㅠ
+    - 이거 python으로 하면 hg_prompt랑 똑같아지는 거 아님??? ㅋㅋㅋㅋㅋ
+    - tool이 다른 tool 호출할 수 있게하기 -> ㄹㅇ hg_prompt인데?
 98. use neukgu to improve neukgu
   - add gemini api
   - add openai chat-completion api
-  - debug anthropic search api
-  - 일단, request 보내는 것만 따로 테스트할 수 있는 코드를 짜달라고 하자!
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files
@@ -216,27 +221,6 @@
   - 외부에서 늑구한테 질문/요청할 때는 늑구가 대답할 방법이 없음. 그나마 할 수 있는 건 `logs/`에 파일을 작성하는 것 뿐
     - 그럼 슬랙이랑 늑구 사이에 작은 agent를 더 넣자.
     - 사용자가 늑구한테 대답을 요청했으면, agent가 늑구한테 "~에 대한 대답을 logs/XXX에 작성해줘"라고 전달하는 거임. 늑구가 해당 파일을 작성했으면 이 agent가 다시 슬랙으로 메시지를 보내는 거지
-107. sandbox & snapshot
-  - working dir이 큰 경우, 오버헤드가 엄청 크고 자꾸 디스크가 터짐...
-  - 추가적인 이슈, sandbox 왔다갔다 하니까 rust의 incremental compilation이 작동을 안함...
-  - 98번 이슈가 이거때문에 진도를 못 나가고 있음.
-  - 현재 sandbox/snapshot의 역할
-    - 롤백
-    - AI가 애먼 파일 못 건드리게 하기
-      - AI가 마음 먹고 건드리려고 하면 충분히 건드릴 수 있긴 함...
-    - `<run>`이 도는 도중에 안전하게 중단하기
-      - 사실 이것도 완전히 안전하지는 않음. `<run>`이 끝나고 sandbox를 현재 dir로 가져오는 동안에 Ctrl+C를 해버리면 문제의 소지가 있음
-    - `step_inner`에서 문제가 생기면 `import_from_sandbox`를 하기
-      - 이거는 index_dir만 백업해도 되지 않을까...
-  - 조금 낫게 고치자면
-    - 롤백용 snapshot은 지금이랑 동일하게 두기
-    - `<run>`이 돌 때 sandbox 만드는 것도 지금이랑 동일하게 두기
-    - `step_inner` 전후에는 index_dir만 백업하기, 단 snap-shot은 건드리지 말기!!
-108. popup이 길 때 손으로 스크롤하기 귀찮음, popup의 맨 아래로 내려가는 key binding (혹은 빠르게 내려가는 key binding) 추가하기!
-109. diff view -> scrollbar가 오른쪽 끝에 붙었으면 좋겠음
-110. ask tool의 title 만들 때, 지금은 question을 통째로 넣고 있거든?
-  - preview에서는 자동으로 truncate가 되고 popup에서는 통째로 다 보임.
-  - 이걸 애초에 title을 만들 때부터 truncate를 해버리자. popup에서 통째로 다 보이니까 너무 정신 사나움...
 111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
 114. Scratch-pad
   - zed/vsc를 쓸 때 보통 탭을 가로로 여러개 띄워놓고 쓰잖아? 이게 neukgu에서도 가능해야함
@@ -249,6 +233,18 @@
   - tab을 넘기는 것과 scratch pad는 완전 별도로 동작함
 115. working_dir tab에서 TextEditor를 맨 아래에 두자! I 눌러서 여는 것보다 텍스트 창이 항상 있는게 더 나을 거 같음...
   - 이렇게 하려면 단축키 시스템도 좀 바꿔야함. 아마 대부분에 Ctrl이나 Alt 붙여야 할 듯? 이참에 단축키 한번 정리를 해보자.
+  - 이걸 하긴 했는데, 불편한게 엄청 많음
+    - interrupt text editor를 focus/unfocus 하는 key binding이 필요함!
+    - interrupt를 전송하는 key binding이 필요함!!
+    - 지금은 interrupt 버튼을 2번 클릭해야함. 첫번째 클릭에서 text editor의 focus가 풀리고, 두번째 클릭에서 interrupt가 됨. 이거를 한번에 해야지...
+    - 여기에 적용된 ux 코드를 다른 text_editor에도 전부 적용하자 (short editor 포함)!
+  - key를 추가하자
+    - Ctrl+Tab: interrupt text editor 선택/비선택 (working dir에서만)
+    - Ctrl+Enter: 현재 포커스된 text editor 완료
+      - working_dir/reset, working_dir/llm_request, working_dir/interrupt, working_dir/find
+      - create, init에서도 동일, 단 create에서 project name 입력했으면 instruction 입력하는 창으로 포커스가 넘어감
+    - interrupt 버튼: 이거 MouseArea로 하면 해결이 되려나?
+      - `button(.., IcedMessage::None, ..)`으로 하고 (이래야 visual effect가 다 먹음) 저 위에다가 MouseArea를 하나 더 씌우는 거임!!!
 116. cron neukgu
   - 진짜 cron으로 띄우기 vs neukgu daemon이 돌고 있다가 띄우기
     - 주기적으로 떠야하는 작업만 생각하면 전자가 나을 거 같긴한데, 그럼 CLI 보강을 좀 해야할듯?
@@ -258,6 +254,8 @@
   - 여러 설정을 할 수 있음
     - 특정 dir에서 돌리기 vs 빈 dir 만들고 거기서 돌리기
     - 다 돈 다음에 working dir 초기화 하기 vs 계속 파일 쌓기
+
+## mock API
 
 ```nu
 cd ~/Documents/Rust/neukgu;
@@ -272,6 +270,18 @@ echo "initializing tttt...";
 cd ~/Documents/Rust/neukgu;
 echo "spawning gui...";
 ~/Documents/Rust/neukgu/target/debug/neukgu gui;
+```
+
+## Real API
+
+```nu
+cargo run -- ai-request --model=gpt-mini --web-search --prompt="Give me a list of nice AI papers/articles published last week."
+
+cargo run -- ai-request --model=gpt-mini --no-web-search --prompt="Give me a list of nice AI papers/articles published last week."
+
+cargo run -- ai-request --model=haiku --web-search --prompt="Give me a list of nice AI papers/articles published last week."
+
+cargo run -- ai-request --model=haiku --no-web-search --prompt="Give me a list of nice AI papers/articles published last week."
 ```
 
 ---
