@@ -27,6 +27,7 @@ use ragit_fs::{basename, current_dir};
 pub struct IcedContext {
     pub home_dir: String,
     pub window_size: Size,
+    pub frame: usize,
 
     // If it's `None`, the index tab is selected.
     pub selected_tab: Option<usize>,
@@ -45,6 +46,7 @@ impl IcedContext {
         IcedContext {
             home_dir: home_dir.to_string(),
             window_size: Size::new(0.0, 0.0),
+            frame: 0,
             selected_tab: None,
             index: IndexContext::new(&home_dir),
             tabs: vec![],
@@ -119,13 +121,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::Tick => {
             let mut tasks = vec![];
+            context.frame += 1;
 
             for t in context.tabs.iter_mut() {
                 let id = t.id;
-                tasks.push(tab::update(t, TabMessage::Tick).map(move |message| IcedMessage::Tab { id, message }));
+                tasks.push(tab::update(t, TabMessage::Tick { frame: context.frame, force_update: false }).map(move |message| IcedMessage::Tab { id, message }));
             }
 
-            tasks.push(index::update(&mut context.index, IndexMessage::Tick).map(|m| IcedMessage::Index(m)));
+            tasks.push(index::update(&mut context.index, IndexMessage::Tick { frame: context.frame, force_update: false }).map(|m| IcedMessage::Index(m)));
             context.index.current_tabs = context.tabs.iter().enumerate().map(
                 |(i, t)| t.get_preview(i)
             ).collect();

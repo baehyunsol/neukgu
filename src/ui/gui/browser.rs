@@ -280,7 +280,7 @@ impl PopupContext for IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
-    Tick,
+    Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
     EntryViewScrolled(AbsoluteOffset),
     HoverOnEntry(Option<String>),
@@ -342,10 +342,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
-        IcedMessage::Tick => {
-            if context.curr_popup.is_none() {
-                context.entries = load_entries(&context.cwd)?;
-                context.has_neukgu_index = check_neukgu_index(&context.cwd)?;
+        IcedMessage::Tick { frame, force_update } => {
+            if frame % 4 == 0 || force_update {
+                if context.curr_popup.is_none() {
+                    context.entries = load_entries(&context.cwd)?;
+                    context.has_neukgu_index = check_neukgu_index(&context.cwd)?;
+                }
             }
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
@@ -390,22 +392,22 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
-            (Key::Character("c"), false, false, false) => {
+            (Key::Character("c"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() })));
                 }
             },
-            (Key::Character("h"), false, false, false) => {
+            (Key::Character("h"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
                 }
             },
-            (Key::Character("i"), false, false, false) => {
+            (Key::Character("i"), true, false, false) => {
                 if context.curr_popup.is_none() && !context.has_neukgu_index {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() })));
                 }
             },
-            (Key::Character("l"), false, false, false) => {
+            (Key::Character("l"), true, false, false) => {
                 if context.curr_popup.is_none() && context.has_neukgu_index {
                     return Ok(Task::done(IcedMessage::Launch { path: context.cwd.clone() }));
                 }
@@ -471,12 +473,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(instruction, &project_path, context.new_project_config.clone(), false)?;
+            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
-            init_working_dir(instruction, &path, context.new_project_config.clone(), false)?;
+            init_working_dir(Some(instruction), &path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),

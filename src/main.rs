@@ -22,13 +22,13 @@ neukgu: an opinionated AI agent
 
 Commands
 
-neukgu new <project_name> [--instruction=<instruction>]
+neukgu new <project_name> [--model=<model>] [--instruction=<instruction>]
     creates a new project and initialize a neukgu directory
 
     If you don't give the instruction, you have to manually initialize the
     `neukgu-instruction.md` file.
 
-neukgu init [--instruction=<instruction>]
+neukgu init [--model=<model>] [--instruction=<instruction>]
     initializes a neukgu directory in the current directory
 
     If you don't give the instruction, you have to manually initialize the
@@ -40,6 +40,11 @@ neukgu headless [--working-dir=<path=.>] [--attach-fe]
     It must already be initialized.
     You don't need this command unless you're building something on top of neukgu.
     This is mostly used by frontend, with --attach-fe flag.
+
+neukgu ai-request --model=<model> --prompt=<prompt> [--log-dir=<dir>] [--[no-]web-search] [--no-think | --adaptive-think | --think]
+    sends ai request directly
+
+    This is usually for debugging neukgu, so you don't need this.
 
 neukgu tui [--no-backend]
     runs neukgu tui
@@ -108,7 +113,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction.unwrap_or(String::new()), &project_name, config, false)?;
+            init_working_dir(instruction, &project_name, config, false)?;
             Ok(())
         },
         Some("init") => {
@@ -126,7 +131,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 config.agents = Agents::single(model);
             }
 
-            init_working_dir(instruction.unwrap_or(String::new()), ".", config, false)?;
+            init_working_dir(instruction, ".", config, false)?;
             Ok(())
         },
         Some("headless") => {

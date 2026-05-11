@@ -30,7 +30,7 @@ pub fn run() -> Result<(), Error> {
         .font(include_bytes!("../../resources/SpaceMono-Regular.ttf"))
         .default_font(DEFAULT_MONO_FONT)
         .subscription(|_| Subscription::batch([
-            time::every(Duration::from_millis(500)).map(|_| TabsMessage::Tick),
+            time::every(Duration::from_millis(100)).map(|_| TabsMessage::Tick),
             iced::event::listen().map(|event| match event {
                 Event::Keyboard(KeyboardEvent::KeyPressed { key, modifiers, .. }) => TabsMessage::KeyPressed { key, modifiers },
                 Event::Window(WindowEvent::Opened { size, .. } | WindowEvent::Resized(size)) => TabsMessage::WindowResized(size),

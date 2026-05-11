@@ -130,7 +130,7 @@ pub enum IcedMessage {
     Browser(BrowserMessage),
     WorkingDir(WorkingDirMessage),
     Error(ErrorMessage),
-    Tick,
+    Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
     Focus,
@@ -200,7 +200,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             Task::none()
         },
-        (LocalContext::Browser(c), IcedMessage::Tick) => browser::update(c, BrowserMessage::Tick).map(|t| IcedMessage::Browser(t)),
+        (LocalContext::Browser(c), IcedMessage::Tick { frame, force_update }) => browser::update(c, BrowserMessage::Tick { frame, force_update }).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::KeyPressed { key, modifiers }) => browser::update(c, BrowserMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
@@ -212,7 +212,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (LocalContext::Browser(c), IcedMessage::Focus) => browser::update(c, BrowserMessage::Focus).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
-        (LocalContext::WorkingDir(c), IcedMessage::Tick) => working_dir::update(c, WorkingDirMessage::Tick).map(|t| IcedMessage::WorkingDir(t)),
+        (LocalContext::WorkingDir(c), IcedMessage::Tick { frame, force_update }) => working_dir::update(c, WorkingDirMessage::Tick { frame, force_update }).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
@@ -221,7 +221,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         (LocalContext::WorkingDir(c), IcedMessage::Focus) => working_dir::update(c, WorkingDirMessage::Focus).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Error(t)),
-        (LocalContext::Error(_), IcedMessage::Tick | IcedMessage::Focus) => Task::none(),
+        (LocalContext::Error(_), IcedMessage::Tick { .. } | IcedMessage::Focus) => Task::none(),
         (context, IcedMessage::Kill) => match context {
             LocalContext::Browser(c) => browser::update(c, BrowserMessage::Kill).map(|m| IcedMessage::Browser(m)),
             LocalContext::WorkingDir(c) => working_dir::update(c, WorkingDirMessage::Kill).map(|m| IcedMessage::WorkingDir(m)),

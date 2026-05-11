@@ -50,10 +50,10 @@ use iced::{Background, ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
-use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, scroll_to, snap_to};
+use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
@@ -125,6 +125,7 @@ pub struct IcedContext {
     pub logs_view_id: Id,
     pub short_text_editor_id: Id,
     pub long_text_editor_id: Id,
+    pub interrupt_text_editor_id: Id,
     pub popup_scroll_id: Id,
     pub turn_view_scrolled: AbsoluteOffset,
 
@@ -145,6 +146,8 @@ pub struct IcedContext {
     pub zoom: f32,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
+    pub interrupt_text_editor_content: TextEditorContent,
+    pub is_interrupt_text_editor_focused: bool,
     pub syntax_highlight: Option<String>,
 
     // If it's set, it'll display "diff" button in the turn popup.
@@ -180,6 +183,7 @@ impl IcedContext {
             short_text_editor_id: Id::unique(),
             long_text_editor_id: Id::unique(),
             popup_scroll_id: Id::unique(),
+            interrupt_text_editor_id: Id::unique(),
             turn_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             hovered_turn: None,
             selected_turn: None,
@@ -195,6 +199,8 @@ impl IcedContext {
             zoom,
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
+            interrupt_text_editor_content: TextEditorContent::new(),
+            is_interrupt_text_editor_focused: false,
             syntax_highlight: None,
             text_diff: None,
             turn_result_path: None,
@@ -253,8 +259,6 @@ impl IcedContext {
                 ));
                 self.loaded_turn = Some((index, turn));
             },
-            // There's nothing to load
-            Popup::Interrupt => {},
             Popup::Logs => {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
                 let logs = load_logs_tail(&log_dir)?;
@@ -340,6 +344,12 @@ impl IcedContext {
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
     }
 
+    pub fn set_interrupt_text_editor_content(&mut self, c: String) {
+        self.interrupt_text_editor_content.perform(TextEditorAction::SelectAll);
+        self.interrupt_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
+        self.interrupt_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
+    }
+
     pub fn update_find_result(&mut self) {
         self.find_result = HashMap::new();
 
@@ -373,6 +383,10 @@ impl IcedContext {
 
         Ok(())
     }
+
+    pub fn can_click_turn_entry(&self) -> bool {
+        self.curr_popup.is_none() && self.llm_request.is_none() && !self.is_interrupt_text_editor_focused
+    }
 }
 
 impl PopupContext for IcedContext {
@@ -384,7 +398,7 @@ impl PopupContext for IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
-    Tick,
+    Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
     TurnViewScrolled(AbsoluteOffset),
     HoverOnTurn(Option<TurnId>),
@@ -408,6 +422,8 @@ pub enum IcedMessage {
     DismissLLMRequest,
     EditShortText(String),
     EditLongText(TextEditorAction),
+    EditInterruptText(TextEditorAction),
+    IsInterruptTextEditorFocused(bool),
     OpenBrowser { dir: String, file: Option<String> },
     Error(String),
     Focus,
@@ -430,7 +446,6 @@ impl PopupMessage for IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Popup {
     Turn(usize, TurnId),
-    Interrupt,
     Logs,
     Log(LogId),
     Summaries,
@@ -453,7 +468,7 @@ impl Popup {
     }
 
     pub fn has_long_text_input(&self) -> bool {
-        matches!(self, Popup::Interrupt | Popup::Reset)
+        matches!(self, Popup::Reset)
     }
 }
 
@@ -466,49 +481,53 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
-        IcedMessage::Tick => {
-            context.fe_context.end_frame(
-                context.pause.take(),
-                context.question_from_user.take(),
-                context.user_response.take(),
-                context.has_to_update_config,
-            )?;
-            context.has_to_update_config = false;
-            context.update_find_result();
+        IcedMessage::Tick { frame, force_update } => {
+            if frame % 4 == 0 || force_update {
+                context.fe_context.end_frame(
+                    context.pause.take(),
+                    context.question_from_user.take(),
+                    context.user_response.take(),
+                    context.has_to_update_config,
+                )?;
+                context.has_to_update_config = false;
+                context.update_find_result();
 
-            if context.loaded_logs.is_some() {
-                let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
-                let logs = load_logs_tail(&log_dir)?;
-                context.copy_buffer = Some(logs.join("\n"));
-                context.loaded_logs = Some(logs);
-            }
-
-            if let Some(Popup::TokenUsage) = &context.curr_popup {
-                let token_usage = context.fe_context.get_token_usage()?;
-                context.set_long_text_editor_content(token_usage.to_string());
-                context.copy_buffer = Some(token_usage.to_string());
-            }
-
-            let llm_request = context.fe_context.get_llm_request()?;
-
-            if let Some((id, _)) = &llm_request {
-                if !context.processed_llm_requests.contains(id) {
-                    if context.llm_request.is_none() {
-                        context.close_popup();
-                        context.user_response_timeout_counter = Instant::now();
-                    }
-
-                    context.llm_request = llm_request;
+                if context.loaded_logs.is_some() {
+                    let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
+                    let logs = load_logs_tail(&log_dir)?;
+                    context.copy_buffer = Some(logs.join("\n"));
+                    context.loaded_logs = Some(logs);
                 }
+
+                if let Some(Popup::TokenUsage) = &context.curr_popup {
+                    let token_usage = context.fe_context.get_token_usage()?;
+                    context.set_long_text_editor_content(token_usage.to_string());
+                    context.copy_buffer = Some(token_usage.to_string());
+                }
+
+                let llm_request = context.fe_context.get_llm_request()?;
+
+                if let Some((id, _)) = &llm_request {
+                    if !context.processed_llm_requests.contains(id) {
+                        if context.llm_request.is_none() {
+                            context.close_popup();
+                            context.user_response_timeout_counter = Instant::now();
+                        }
+
+                        context.llm_request = llm_request;
+                    }
+                }
+
+                else if context.llm_request.is_some() {
+                    context.llm_request = None;
+                    context.close_popup();
+                }
+
+                context.is_paused = context.fe_context.is_paused()?;
+                context.fe_context.start_frame()?;
             }
 
-            else if context.llm_request.is_some() {
-                context.llm_request = None;
-                context.close_popup();
-            }
-
-            context.is_paused = context.fe_context.is_paused()?;
-            context.fe_context.start_frame()?;
+            return Ok(is_focused(context.interrupt_text_editor_id.clone()).map(|is_focused| IcedMessage::IsInterruptTextEditorFocused(is_focused)));
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Backspace), false, false, false) => {
@@ -519,7 +538,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Named(NamedKey::Escape), false, false, false) => {
                 // It shouldn't close the llm request popup.
                 if context.llm_request.is_none() {
-                    if context.curr_popup.is_some() {
+                    if !context.can_click_turn_entry() {
                         return Ok(Task::done(IcedMessage::ClosePopup));
                     }
 
@@ -529,12 +548,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                if context.can_click_turn_entry() {
                     let scroll_index = context.select_turn(if ctrl { -10 } else { -1 });
                     return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
                 }
 
-                else if ctrl {
+                else if ctrl && context.curr_popup.is_some() {
                     return Ok(Task::batch(vec![
                         snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }),
                         snap_to(context.logs_view_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }),
@@ -542,12 +561,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::ArrowDown), ctrl, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                if context.can_click_turn_entry() {
                     let scroll_index = context.select_turn(if ctrl { 10 } else { 1 });
                     return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
                 }
 
-                else if ctrl {
+                else if ctrl && context.curr_popup.is_some() {
                     return Ok(Task::batch(vec![
                         snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
                         snap_to(context.logs_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
@@ -570,7 +589,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::Enter), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() && let Some(i) = context.selected_turn {
+                if context.can_click_turn_entry() && let Some(i) = context.selected_turn {
                     match context.fe_context.history.get(i) {
                         Some(turn) => {
                             return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(i, turn.id.clone()), prev: None }));
@@ -580,7 +599,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::Space), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+                if context.can_click_turn_entry() {
                     if context.is_paused {
                         return Ok(Task::done(IcedMessage::ResumeNeukgu));
                     } else {
@@ -588,45 +607,40 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
-            (Key::Character("b"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("b"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }));
                 }
             },
-            (Key::Character("c"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("c"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     if let Some(i) = context.selected_turn && let Some(turn) = &context.fe_context.history.get(i) {
                         return Ok(Task::done(IcedMessage::ToggleTurnVisibility(turn.id.clone())));
                     }
                 }
             },
-            (Key::Character("d"), false, false, false) => {
+            (Key::Character("d"), true, false, false) => {
                 if let Some(Popup::Turn(_, _)) = &context.curr_popup && context.text_diff.is_some() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Diff, prev: context.curr_popup.clone() }));
                 }
             },
-            (Key::Character("f"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("f"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }));
                 }
             },
-            (Key::Character("h"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("h"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Help, prev: None }));
                 }
             },
-            (Key::Character("i"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }));
-                }
-            },
-            (Key::Character("l"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("l"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }));
                 }
             },
-            (Key::Character("o"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("o"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Config, prev: None }));
                 }
 
@@ -634,27 +648,27 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenBrowser { dir: dir.to_string(), file: file.clone() }));
                 }
             },
-            (Key::Character("r"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("r"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }));
                 }
             },
-            (Key::Character("q"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("q"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
                 }
             },
-            (Key::Character("t"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
-                }
-            },
-            (Key::Character("u"), false, false, false) => {
-                if context.curr_popup.is_none() && context.llm_request.is_none() {
+            (Key::Character("s"), true, false, false) => {
+                if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }));
                 }
             },
-            (Key::Character("y"), false, false, false) => {
+            (Key::Character("t"), true, false, false) => {
+                if context.can_click_turn_entry() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
+                }
+            },
+            (Key::Character("y"), true, false, false) => {
                 if let Some(Popup::AskRollBack { id, .. }) = &context.curr_popup && context.llm_request.is_none() {
                     return Ok(Task::done(IcedMessage::RollBackNeukgu(id.clone())));
                 }
@@ -730,21 +744,25 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             }
 
             context.fe_context.interrupt_be()?;
-            return Ok(Task::done(IcedMessage::Tick));
+            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::PauseNeukgu => {
             context.pause = Some(true);
             context.fe_context.interrupt_be()?;
-            return Ok(Task::done(IcedMessage::Tick));
+            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::ResumeNeukgu => {
             context.pause = Some(false);
         },
         IcedMessage::InterruptNeukgu => {
-            context.question_from_user = Some((rand::random::<u64>(), context.long_text_editor_content.text()));
-            context.close_popup();
-            context.fe_context.interrupt_be()?;
-            return Ok(Task::done(IcedMessage::Tick));
+            let question = context.interrupt_text_editor_content.text();
+
+            if !question.is_empty() {
+                context.question_from_user = Some((rand::random::<u64>(), question));
+                context.set_interrupt_text_editor_content(String::new());
+                context.fe_context.interrupt_be()?;
+                return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
+            }
         },
         IcedMessage::ResetNeukgu => {
             context.kill_be_process()?;
@@ -752,7 +770,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             context.close_popup();
-            return Ok(Task::done(IcedMessage::Tick));
+            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::RollBackNeukgu(id) => {
             context.kill_be_process()?;
@@ -769,7 +787,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
-            return Ok(Task::done(IcedMessage::Tick));
+            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::SetTmpConfig(c) => {
             set_project_config(&mut context.tmp_config, c);
@@ -781,7 +799,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.fe_context.config = context.tmp_config.clone();
                 context.fe_context.interrupt_be()?;
                 context.has_to_update_config = true;
-                return Ok(Task::done(IcedMessage::Tick));
+                return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
             }
         },
         IcedMessage::Find => {
@@ -826,6 +844,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditLongText(a) => {
             context.long_text_editor_content.perform(a);
         },
+        IcedMessage::EditInterruptText(a) => {
+            context.interrupt_text_editor_content.perform(a);
+        },
+        IcedMessage::IsInterruptTextEditorFocused(f) => {
+            context.is_interrupt_text_editor_focused = f;
+        },
         IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::Focus => {
@@ -855,8 +879,8 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         turns.push(text!("{error}").size(context.zoom * 14.0).color(red()).into());
     }
 
-    // It makes rooms for popups when there're not enough turns.
-    turns.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.5).into());
+    // Without this, interrupt_text_editor will hide the error message
+    turns.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.8).into());
 
     let turns_stretched = Column::from_vec(turns)
         .padding(context.zoom * 8.0)
@@ -864,7 +888,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let mut turns_scrollable = Scrollable::new(turns_stretched).id(context.turn_view_id.clone());
 
-    if context.curr_popup.is_none() && context.llm_request.is_none() {
+    if context.can_click_turn_entry() {
         turns_scrollable = turns_scrollable.on_scroll(|v| IcedMessage::TurnViewScrolled(v.absolute_offset()));
     }
 
@@ -886,8 +910,16 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     full_view.push(turns_colored.into());
 
+    // Without this, interrupt_text_editor won't be seen if there are too small turns
+    full_view.push(Space::new().width(context.window_size.width).height(context.window_size.height).into());
+
     let full_view = Column::from_vec(full_view);
-    let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view).into();
+    let full_view_with_text_input = Stack::from_vec(vec![
+        full_view.into(),
+        render_interrupt_text_editor(context),
+    ]);
+
+    let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view_with_text_input).into();
 
     if context.llm_request.is_some() {
         full_view_stacked = Stack::from_vec(vec![
@@ -956,23 +988,6 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Interrupt) = context.curr_popup {
-        let text_editor = TextEditor::new(&context.long_text_editor_content)
-            .placeholder("Say something to neukgu!")
-            .size(context.zoom * 14.0)
-            .id(context.long_text_editor_id.clone())
-            .on_action(|action| IcedMessage::EditLongText(action));
-        let interrupt_edit = Column::from_vec(vec![
-            text_editor.into(),
-            button("Send", IcedMessage::InterruptNeukgu, green(), context.zoom).padding(context.zoom * 20.0).into(),
-        ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
-
-        full_view_stacked = Stack::from_vec(vec![
-            full_view_stacked,
-            into_popup(interrupt_edit.into(), context).into(),
-        ]).into();
-    }
-
     else if let Some(Popup::Config) = context.curr_popup {
         let config_popup = Column::from_vec(vec![
             text!("Config").size(context.zoom * 18.0).into(),
@@ -997,6 +1012,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             text_editor.into(),
             button("Reset", IcedMessage::ResetNeukgu, green(), context.zoom).padding(context.zoom * 20.0).into(),
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
+        let reset_edit = Scrollable::new(reset_edit);
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1070,29 +1086,35 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 }
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    if context.curr_popup.is_some() || context.llm_request.is_some() {
-        return Container::new(text!("")).padding(context.zoom * 8.0).into();
-    }
-
-    let mut buttons_row1: Vec<Element<IcedMessage>> = if context.is_paused {
-        vec![button("Resume", IcedMessage::ResumeNeukgu, blue(), context.zoom).into()]
+    let mut buttons_row1: Vec<Button<IcedMessage>> = if context.is_paused {
+        vec![button("Resume", IcedMessage::ResumeNeukgu, blue(), context.zoom)]
     } else {
-        vec![button("Pause", IcedMessage::PauseNeukgu, blue(), context.zoom).into()]
+        vec![button("Pause", IcedMessage::PauseNeukgu, blue(), context.zoom)]
     };
-    let mut buttons_row2: Vec<Element<IcedMessage>> = vec![];
+    let mut buttons_row2: Vec<Button<IcedMessage>> = vec![];
 
-    buttons_row1.push(button("(Q)uit", IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }, red(), context.zoom).into());
-    buttons_row1.push(button("(I)nterrupt", IcedMessage::OpenPopup { curr: Popup::Interrupt, prev: None }, blue(), context.zoom).into());
-    buttons_row1.push(button("See (l)ogs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, yellow(), context.zoom).into());
-    buttons_row1.push(button("See s(u)mmaries", IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }, yellow(), context.zoom).into());
-    buttons_row1.push(button("(T)oken usage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, yellow(), context.zoom).into());
-    buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom).into());
+    buttons_row1.push(button("(Q)uit", IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }, red(), context.zoom));
+    buttons_row1.push(button("See (l)ogs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, yellow(), context.zoom));
+    buttons_row1.push(button("See (s)ummaries", IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }, yellow(), context.zoom));
+    buttons_row1.push(button("Token (u)sage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, yellow(), context.zoom));
+    buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom));
 
-    buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom).into());
-    buttons_row2.push(button("C(o)nfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom).into());
-    buttons_row2.push(button("(B)rowser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom).into());
-    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom).into());
-    buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom).into());
+    buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom));
+    buttons_row2.push(button("C(o)nfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom));
+    buttons_row2.push(button("(B)rowser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));
+    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom));
+    buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom));
+
+    let buttons_row1 = if !context.can_click_turn_entry() {
+        buttons_row1.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+    } else {
+        buttons_row1.into_iter().map(|button| button.into()).collect()
+    };
+    let buttons_row2 = if !context.can_click_turn_entry() {
+        buttons_row2.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+    } else {
+        buttons_row2.into_iter().map(|button| button.into()).collect()
+    };
 
     Column::from_vec(vec![
         Row::from_vec(buttons_row1).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
@@ -1102,15 +1124,11 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 
 fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let roll_back = {
-        let (color, text, mut enabled) = if context.fe_context.snapshots.contains(&p.id) {
-            (red(), "R", true)
+        let (color, text, enabled) = if context.fe_context.snapshots.contains(&p.id) {
+            (red(), "R", context.can_click_turn_entry())
         } else {
             (gray(0.2), " ", false)
         };
-
-        if context.curr_popup.is_some() || context.llm_request.is_some() {
-            enabled = false;
-        }
 
         if enabled {
             button(text, IcedMessage::OpenPopup { curr: Popup::AskRollBack { id: p.id.clone(), title: format!("{index:>3}. [{}] {}", p.timestamp, p.preview_title_truncated) }, prev: None }, color, context.zoom)
@@ -1184,7 +1202,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         with_color = with_color.style(|_| set_bg(gray(0.15)));
     }
 
-    let with_mouse_area: Element<IcedMessage> = if context.curr_popup.is_none() && context.llm_request.is_none() {
+    let with_mouse_area: Element<IcedMessage> = if context.can_click_turn_entry() {
         MouseArea::new(with_color)
             .on_enter(IcedMessage::HoverOnTurn(Some(p.id.clone())))
             .on_exit(IcedMessage::HoverOnTurn(None))
@@ -1320,6 +1338,39 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         ]).padding(context.zoom * 20.0).spacing(context.zoom * 20.0).into(),
         context,
     )
+}
+
+fn render_interrupt_text_editor<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let window_width = context.window_size.width;
+    let window_height = context.window_size.height;
+    let is_focused = context.is_interrupt_text_editor_focused;
+    let mut text_editor = TextEditor::new(&context.interrupt_text_editor_content)
+        .id(context.interrupt_text_editor_id.clone())
+        .width(window_width * 0.75)
+        .height(window_height * if is_focused { 0.25 } else { 0.05 });
+
+    if context.curr_popup.is_none() && context.llm_request.is_none() {
+        text_editor = text_editor.on_action(|action| IcedMessage::EditInterruptText(action));
+    }
+
+    let text_editor = Container::new(
+        Row::from_vec(vec![
+            Space::new().width(window_width * 0.05).into(),
+            text_editor.into(),
+            Space::new().width(window_width * 0.05).into(),
+            button("Interrupt", IcedMessage::InterruptNeukgu, blue(), context.zoom).into(),
+        ])
+            .height(Length::Fill)
+            .align_y(Vertical::Center)
+    )
+        .width(window_width)
+        .height(window_height * if is_focused { 0.35 } else { 0.15 })
+        .style(|_| set_bg(gray(0.35)));
+
+    Column::from_vec(vec![
+        Space::new().height(window_height * if is_focused { 0.65 } else { 0.85 }).into(),
+        text_editor.into(),
+    ]).into()
 }
 
 fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {

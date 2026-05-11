@@ -164,7 +164,7 @@ impl PopupContext for IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
-    Tick,
+    Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
     HoverOnTab(Option<TabId>),
@@ -213,18 +213,24 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
-        IcedMessage::Tick => {
+        IcedMessage::Tick { frame, force_update } => {
             context.now = Local::now().to_rfc2822();
-            context.recent_projects = load_all_indexes(&context.global_index_dir);
-            // context.recent_chats = load_all_chats(&context.global_index_dir);
-            context.update_battery_state();
+
+            if frame % 8 == 0 || force_update {
+                context.recent_projects = load_all_indexes(&context.global_index_dir);
+                // context.recent_chats = load_all_chats(&context.global_index_dir);
+
+                // let's just assume that there's no overflow!
+                context.recent_projects.sort_by_key(|p| -p.updated_at);
+                // context.recent_chats.sort_by_key(|c| -c.updated_at);
+
+                context.update_battery_state();
+            }
+
             context.working_dir_tab_indexes = context.current_tabs.iter().enumerate().filter_map(
                 |(i, tab)| tab.neukgu_id.map(|id| (id, i))
             ).collect();
 
-            // let's just assume that there's no overflow!
-            context.recent_projects.sort_by_key(|p| -p.updated_at);
-            // context.recent_chats.sort_by_key(|c| -c.updated_at);
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
@@ -240,22 +246,23 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(snap_to(context.main_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }));
                 }
             },
-            (Key::Character("c"), false, false, false) => {
+            (Key::Character("c"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat, force_new_tab: true }));
                 }
             },
-            (Key::Character("p"), false, false, false) => {
+            (Key::Character("p"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::NewProject)));
                 }
             },
-            (Key::Character("t"), false, false, false) => {
-                if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir: context.home_dir.to_string(), file: None }, force_new_tab: true }));
-                }
-            },
-            (Key::Character("y"), false, false, false) => {
+            // tabs::update will do the exact same thing with the exact same key binding
+            // (Key::Character("t"), true, false, false) => {
+            //     if context.curr_popup.is_none() {
+            //         return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir: context.home_dir.to_string(), file: None }, force_new_tab: true }));
+            //     }
+            // },
+            (Key::Character("y"), true, false, false) => {
                 if let Some(Popup::AskDelete { project_name, working_dir }) = &context.curr_popup {
                     return Ok(Task::done(IcedMessage::DeleteProject { project_name: project_name.to_string(), working_dir: working_dir.to_string() }));
                 }
@@ -282,7 +289,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(instruction, &project_path, context.new_project_config.clone(), true)?;
+            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), true)?;
             context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }));
         },
@@ -292,7 +299,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             remove_dir_all(&project_path)?;
             remove_global_index(&context.global_index_dir, neukgu_id)?;
             context.close_popup();
-            return Ok(Task::done(IcedMessage::Tick));
+            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::OpenPopup(popup) => {
             context.open_popup(popup)?;
