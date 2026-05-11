@@ -107,7 +107,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction, &project_name, config, false)?;
+            init_working_dir(instruction.unwrap_or(String::new()), &project_name, config, false)?;
             Ok(())
         },
         Some("init") => {
@@ -125,7 +125,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 config.agents = Agents::single(model);
             }
 
-            init_working_dir(instruction, ".", config, false)?;
+            init_working_dir(instruction.unwrap_or(String::new()), ".", config, false)?;
             Ok(())
         },
         Some("headless") => {

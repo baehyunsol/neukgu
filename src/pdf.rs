@@ -82,7 +82,7 @@ pub fn render_first_10_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize
             let total_pages = pdf.pages().len();
             let mut pages = vec![];
 
-            for page in pdf.pages().iter().take(5) {
+            for page in pdf.pages().iter().take(10) {
                 let pixmap = render(
                     page,
                     &Default::default(),

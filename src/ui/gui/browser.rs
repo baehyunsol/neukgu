@@ -45,6 +45,7 @@ use iced::widget::text_editor::{
 use ragit_fs::{
     basename,
     create_dir,
+    exists,
     extension,
     file_size,
     is_dir,
@@ -53,6 +54,7 @@ use ragit_fs::{
     read_bytes,
     read_bytes_offset,
     read_dir,
+    read_string,
     remove_dir_all,
     remove_file,
 };
@@ -161,7 +163,13 @@ impl IcedContext {
 
         match popup {
             Popup::Create { .. } => {},
-            Popup::Init { .. } => {},
+            Popup::Init { path } => {
+                let instruction_at = join(&path, "neukgu-instruction.md")?;
+
+                if exists(&instruction_at) {
+                    self.set_text_editor_content(read_string(&instruction_at)?);
+                }
+            },
             Popup::EntryError(e) => {
                 self.copy_buffer = Some(e.to_string());
                 self.set_text_editor_content(e.to_string());
@@ -463,12 +471,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), false)?;
+            init_working_dir(instruction, &project_path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
-            init_working_dir(Some(instruction), &path, context.new_project_config.clone(), false)?;
+            init_working_dir(instruction, &path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),

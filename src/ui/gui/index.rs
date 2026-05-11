@@ -282,7 +282,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), true)?;
+            init_working_dir(instruction, &project_path, context.new_project_config.clone(), true)?;
             context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }));
         },

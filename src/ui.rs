@@ -27,7 +27,6 @@ use ragit_fs::{
     WriteMode,
     basename,
     exists,
-    into_abs_path,
     join,
     join3,
     join4,

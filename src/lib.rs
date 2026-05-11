@@ -290,7 +290,7 @@ pub fn validate_project_name(name: &str) -> Result<(), Error> {
 }
 
 pub fn init_working_dir(
-    instruction: Option<String>,
+    instruction: String,
     working_dir: &str,
     config: Config,
     is_in_global_index_dir: bool,
@@ -302,13 +302,9 @@ pub fn init_working_dir(
     if !exists(&join(working_dir, "neukgu-instruction.md")?) {
         write_string(
             &join(working_dir, "neukgu-instruction.md")?,
-            &instruction.unwrap_or(String::new()),
+            &instruction,
             RagitFsWriteMode::AlwaysCreate,
         )?;
-    }
-
-    else if instruction.is_some() {
-        return Err(Error::InstructionAlreadyExists);
     }
 
     for d in ["logs", "bins"] {
