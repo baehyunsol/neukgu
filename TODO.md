@@ -183,25 +183,15 @@
   - Issues are stored in `.neukgu/`.
   - It provides github-like interface.
   - Neukgu will read the issues and tries to fix them, and close them.
-97. skills
-  - 어떤 작업을 하는 방법을 프롬프트로 설명할 수도 있고, 그 작업을 스크립트로 구현해서 제공할 수도 있음.
-  - 지금 구상 중인 방법은, `skills/` dir에다가 프롬프트들을 왕창 넣어두고, 늑구가 알아서 골라서 쓰게 하는 거임
-    - 스킬을 추가하고 삭제하고 관리하기 위한 gui를 따로 만들자!
-    - 3번째 fake turn으로 `<read><path>skills/</path></read>`를 넣어도 괜찮을 듯!
-      - skills라는 dir이 이미 존재하면?
-  - 사용자가 특정 skill을 fire하고 싶으면? 91번 이슈로 엮어서 해결해야하나??
-    - 지금 내가 생각하는 skill들은 사용자가 fire할만한게 없음...
-    - 특정 시점에 summary agent를 호출하고 싶으면? 일단 summary agent랑 skill이랑은 미묘하게 다른 것 같음...
-     - 근데 특정 시점에 summary agent를 호출하는 기능 자체는 괜찮을듯?
-     - 이런 기능들을 묶어서 제공할까? 근데 summary agent말고 또 뭐 있는데?
-  - 아니면, tool을 추가/삭제하기 쉽게 할까? 지금은 새로운 tool 구현하기가 좀 빡세긴 함
-  - custom tool을 추가할 수 있게할까?
-    - system prompt에 툴 설명 추가하는 거는 쉬움!
-    - arg parse 하는 것도 generic 하게 빼기 쉬움
-    - 이거를 python으로 짤까 rust로 짤까...
-      - rust로 짜면 새로 compile해야해서 귀찮을 듯 ㅠㅠ
-    - 이거 python으로 하면 hg_prompt랑 똑같아지는 거 아님??? ㅋㅋㅋㅋㅋ
-    - tool이 다른 tool 호출할 수 있게하기 -> ㄹㅇ hg_prompt인데?
+97. Custom tools
+  - 첫번째 4개의 tool (read, write, run, ask)는 필수고 chrome은 optional하게 만들자
+  - config_ui에서 tool도 고를 수 있게 하자!!
+  - what consists a tool...
+    - parameters (name, type, optional)
+    - document (like those in `system.pdl`)
+    - python script
+      - basically, a custom tool is just `<run>`
+  - system.pdl도 parametric하게 바꿔야함.
 98. use neukgu to improve neukgu
   - add gemini api
   - add openai chat-completion api
@@ -228,20 +218,7 @@
   - 현재 tab/popup을 scratch pad로 띄우는 단축키가 존재
   - scratch pad를 hide/show/close 하는 단축키가 존재
   - tab을 넘기는 것과 scratch pad는 완전 별도로 동작함
-115. working_dir tab에서 TextEditor를 맨 아래에 두자! I 눌러서 여는 것보다 텍스트 창이 항상 있는게 더 나을 거 같음...
-  - 이렇게 하려면 단축키 시스템도 좀 바꿔야함. 아마 대부분에 Ctrl이나 Alt 붙여야 할 듯? 이참에 단축키 한번 정리를 해보자.
-  - 이걸 하긴 했는데, 불편한게 엄청 많음
-    - interrupt text editor를 focus/unfocus 하는 key binding이 필요함!
-    - interrupt를 전송하는 key binding이 필요함!!
-    - 지금은 interrupt 버튼을 2번 클릭해야함. 첫번째 클릭에서 text editor의 focus가 풀리고, 두번째 클릭에서 interrupt가 됨. 이거를 한번에 해야지...
-    - 여기에 적용된 ux 코드를 다른 text_editor에도 전부 적용하자 (short editor 포함)!
-  - key를 추가하자
-    - Ctrl+Tab: interrupt text editor 선택/비선택 (working dir에서만)
-    - Ctrl+Enter: 현재 포커스된 text editor 완료
-      - working_dir/reset, working_dir/llm_request, working_dir/interrupt, working_dir/find
-      - create, init에서도 동일, 단 create에서 project name 입력했으면 instruction 입력하는 창으로 포커스가 넘어감
-    - interrupt 버튼: 이거 MouseArea로 하면 해결이 되려나?
-      - `button(.., IcedMessage::None, ..)`으로 하고 (이래야 visual effect가 다 먹음) 저 위에다가 MouseArea를 하나 더 씌우는 거임!!!
+  - scratch pad로 메모장도 띄울 수 있게 하자! 그냥 TextEditor 하나만 덜렁 뜨는 거임!
 116. cron neukgu
   - 진짜 cron으로 띄우기 vs neukgu daemon이 돌고 있다가 띄우기
     - 주기적으로 떠야하는 작업만 생각하면 전자가 나을 거 같긴한데, 그럼 CLI 보강을 좀 해야할듯?

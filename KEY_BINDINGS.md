@@ -41,6 +41,7 @@ This is an internal document. I'll update the GUI help messages as soon as possi
 - Ctrl+Plus/Minus: zoom
 - Ctrl+Tab: toggle focus interrupt_text_edit
 - Ctrl+Enter: enter text (when long-text-editor is focused)
+  - TODO: it only works with interrupt_text_edit now
 - Ctrl+C: configs
   - If there's a popup and a copiable content, it copies the content
 - Ctrl+D: see diff (in turn popup)

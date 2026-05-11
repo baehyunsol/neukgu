@@ -51,47 +51,76 @@ pub enum ParseError {
         tool: String,
         arg: String,
     },
+    ArgTypeError {
+        tool: String,
+        expected_type: ArgType,
+        arg_name: String,
+        arg: String,
+    },
+    InvalidIntegerRange {
+        tool: String,
+        arg_name: String,
+        min: Option<i64>,
+        max: Option<i64>,
+        n: i64,
+    },
     InvalidWriteMode(String),
     NotBash,
     InvalidAskTo(String),
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum ArgType {
+    Integer,
+}
+
 impl ParseError {
     pub fn to_llm_tokens(&self) -> Vec<LLMToken> {
-        match self {
-            ParseError::NoTool => vec![LLMToken::String(String::from("
+        let s = match self {
+            ParseError::NoTool => String::from("
 I can't find any XML-syntaxed tool calls in your response.
 Please call a tool.
-"))],
-            ParseError::InvalidTool(tool) => vec![LLMToken::String(format!(
+"),
+            ParseError::InvalidTool(tool) => format!(
                 "`{tool}` is not a valid tool. Available tools are {}.",
                 ToolKind::all().iter().map(
                     |tool| format!("<{tool:?}>").to_ascii_lowercase()
                 ).collect::<Vec<_>>().join(", "),
-            ))],
-            // Why the fuck is claude calling multiple tools in a single turn?
-            ParseError::MultipleTools => vec![LLMToken::String(String::from("
+            ),
+            ParseError::MultipleTools => String::from("
 Failed to call tools.
 
 You tried to call multiple tools in a single turn. I see multiple XML syntaxes in your response.
 NONE OF YOUR ACTIONS IN YOUR PREVIOUS TURN WAS RUN.
 You can call exactly 1 tool per turn. You have to call exactly 1 tool per turn, do you understand?
 I repeat, just call a single tool and finish your turn.
-            "))],
-            ParseError::InvalidArg { tool, arg, valid_args } => vec![LLMToken::String(format!(
+            "),
+            ParseError::InvalidArg { tool, arg, valid_args } => format!(
                 "`<{arg}>` is not a valid argument for tool `{tool}`. Available arguments are {}.",
                 valid_args.iter().map(|arg| format!("<{arg}>")).collect::<Vec<_>>().join(", "),
-            ))],
-            ParseError::MissingArg { tool, arg } => vec![LLMToken::String(format!(
+            ),
+            ParseError::MissingArg { tool, arg } => format!(
                 "Argument `{arg}` in tool `{tool}` is missing. I can't find `<{arg}>..</{arg}>`.",
-            ))],
-            ParseError::UnterminatedArg { tool, arg } => vec![LLMToken::String(format!(
-"Argument `{arg}` in tool `{tool}` is not terminated properly. I can't find `</{arg}>`.",
-            ))],
-            ParseError::InvalidWriteMode(mode) => vec![LLMToken::String(format!(
+            ),
+            ParseError::UnterminatedArg { tool, arg } => format!(
+                "Argument `{arg}` in tool `{tool}` is not terminated properly. I can't find `</{arg}>`.",
+            ),
+            ParseError::ArgTypeError { tool, expected_type, arg_name, arg } => format!(
+                "Argument `{arg_name}` in `{tool}` is expected to have type `{expected_type:?}`, but it doesn't. I've got `{arg}`.",
+            ),
+            ParseError::InvalidIntegerRange { tool, arg_name, min, max, n } => format!(
+                "Argument `{arg_name}` in `{tool}` is supposed to be in range {}, but is {n}.",
+                match (min, max) {
+                    (Some(min), Some(max)) => format!("{min}..={max}"),
+                    (Some(min), _) => format!("{min}.."),
+                    (_, Some(max)) => format!("..={max}"),
+                    (None, None) => unreachable!(),
+                },
+            ),
+            ParseError::InvalidWriteMode(mode) => format!(
                 "`{mode}` is not a valid <mode>. Available modes are create, truncate and append.",
-            ))],
-            ParseError::NotBash => vec![LLMToken::String(String::from("
+            ),
+            ParseError::NotBash => String::from("
 Failed to run the command.
 
 You're not using bash. You're directly executing the binary with the arguments.
@@ -113,11 +142,13 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
 <run>
 <command>python3 tests/your_e2e_test.py</command>
 </run>
-"))],
-            ParseError::InvalidAskTo(to) => vec![LLMToken::String(format!(
+"),
+            ParseError::InvalidAskTo(to) => format!(
                 "You can't ask to `{to}`. You can ask to either user or web.",
-            ))],
-        }
+            ),
+        };
+
+        vec![LLMToken::String(s)]
     }
 }
 
@@ -158,33 +189,27 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
                     tool_call_start = cursor;
 
                     match maybe_tag {
-                        Some(t @ (b"read" | b"write" | b"run" | b"ask" | b"render")) => {
-                            let tool_kind = match t {
-                                b"read" => ToolKind::Read,
-                                b"write" => ToolKind::Write,
-                                b"run" => ToolKind::Run,
-                                b"ask" => ToolKind::Ask,
-                                b"render" => ToolKind::Render,
-                                _ => unreachable!(),
-                            };
-                            curr_tag_name = t.to_vec();
-                            args = HashMap::new();
+                        Some(t) => match ToolKind::from_name(t) {
+                            Some(tool_kind) => {
+                                curr_tag_name = t.to_vec();
+                                args = HashMap::new();
 
-                            if !buffer.is_empty() {
-                                segments.push(ParsedSegment::String(String::from_utf8_lossy(&buffer).to_string()));
-                                buffer = vec![];
-                            }
+                                if !buffer.is_empty() {
+                                    segments.push(ParsedSegment::String(String::from_utf8_lossy(&buffer).to_string()));
+                                    buffer = vec![];
+                                }
 
-                            cursor += t.len() + 2;  // 2 for '<' and '>'.
-                            state = ParseState::Tool { kind: tool_kind, top_level: true };
-                        },
-                        Some(t) => {
-                            if first_tag_but_wrong_name.is_none() {
-                                first_tag_but_wrong_name = Some(t.to_vec());
-                            }
+                                cursor += t.len() + 2;  // 2 for '<' and '>'.
+                                state = ParseState::Tool { kind: tool_kind, top_level: true };
+                            },
+                            None => {
+                                if first_tag_but_wrong_name.is_none() {
+                                    first_tag_but_wrong_name = Some(t.to_vec());
+                                }
 
-                            buffer.push(b'<');
-                            cursor += 1;
+                                buffer.push(b'<');
+                                cursor += 1;
+                            },
                         },
                         None => {
                             buffer.push(b'<');
@@ -309,8 +334,16 @@ impl ToolCall {
                         });
                     },
                 };
-                let start = parse_int_arg(args, "start").map(|n| n as u64);
-                let end = parse_int_arg(args, "end").map(|n| n as u64);
+                let start = match parse_int_arg("read", args, "start", Some(1), None) {
+                    Some(Ok(n)) => Some(n as u64),
+                    Some(Err(e)) => return Err(e),
+                    None => None,
+                };
+                let end = match parse_int_arg("read", args, "end", Some(1), None) {
+                    Some(Ok(n)) => Some(n as u64),
+                    Some(Err(e)) => return Err(e),
+                    None => None,
+                };
                 Ok(ToolCall::Read { path, start, end })
             },
             ToolKind::Write => {
@@ -378,7 +411,11 @@ impl ToolCall {
                         });
                     },
                 };
-                let timeout = parse_int_arg(args, "timeout").map(|n| n as u64);
+                let timeout = match parse_int_arg("run", args, "timeout", Some(1), None) {
+                    Some(Ok(n)) => Some(n as u64),
+                    Some(Err(e)) => return Err(e),
+                    None => None,
+                };
                 let stdout = parse_path_arg(args, "stdout");
                 let stderr = parse_path_arg(args, "stderr");
                 Ok(ToolCall::Run { timeout, command, stdout, stderr })
@@ -410,13 +447,13 @@ impl ToolCall {
                 };
                 Ok(ToolCall::Ask { id: rand::random::<u64>(), to, question })
             },
-            ToolKind::Render => {
+            ToolKind::Chrome => {
                 let script = parse_string_arg(args, "script");
                 let input = match parse_path_arg(args, "input") {
                     Some(input) => input,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tool: String::from("render"),
+                            tool: String::from("chrome"),
                             arg: String::from("input"),
                         });
                     },
@@ -425,12 +462,12 @@ impl ToolCall {
                     Some(output) => output,
                     None => {
                         return Err(ParseError::MissingArg {
-                            tool: String::from("render"),
+                            tool: String::from("chrome"),
                             arg: String::from("output"),
                         });
                     },
                 };
-                Ok(ToolCall::Render { script, input, output })
+                Ok(ToolCall::Chrome { script, input, output })
             },
         }
     }
@@ -442,10 +479,36 @@ fn parse_path_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Vec<Str
     Some(path.split("/").map(|s| s.to_string()).collect())
 }
 
-fn parse_int_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<i64> {
+fn parse_int_arg(
+    tool: &str,
+    args: &HashMap<Vec<u8>, Vec<u8>>,
+    arg: &str,
+
+    // both are inclusive
+    min: Option<i64>,
+    max: Option<i64>,
+) -> Option<Result<i64, ParseError>> {
     let n = args.get(arg.as_bytes())?;
     let n = String::from_utf8_lossy(n);
-    n.parse::<i64>().ok()
+    let n = n.parse::<i64>().map_err(|_| ParseError::ArgTypeError { tool: tool.to_string(), expected_type: ArgType::Integer, arg_name: arg.to_string(), arg: n.to_string() });
+
+    if let Ok(n) = n {
+        if let Some(min) = min && n < min {
+            Some(Err(ParseError::InvalidIntegerRange { tool: tool.to_string(), arg_name: arg.to_string(), min: Some(min), max, n }))
+        }
+
+        else if let Some(max) = max && n > max {
+            Some(Err(ParseError::InvalidIntegerRange { tool: tool.to_string(), arg_name: arg.to_string(), min, max: Some(max), n }))
+        }
+
+        else {
+            Some(Ok(n))
+        }
+    }
+
+    else {
+        Some(n)
+    }
 }
 
 fn parse_string_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<String> {

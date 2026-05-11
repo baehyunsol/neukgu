@@ -122,16 +122,16 @@ If you ask a question to the AI agent, it will search web and give you an answer
 <question>Find a rust library that can read pdf files. Write a sample code with the library.</question>
 </ask>
 
-5. Render
+5. Chrome
 
 You might want to convert an html/svg file to an image file, so that you can see how it looks like.
-You can use this tool to render an html/svg file (or any file that you can view with a web browser).
-It spawns a chrome browser, opens the input file, captures a screenshot of the browser, then save it to the file.
+You can use chrome tool to render an html/svg file (or any file that you can view with chrome browser).
+It opens the input file with chrome, captures a screenshot of the browser, then save it to the file.
 
-<render>
+<chrome>
 <input>output.svg</input>
 <output>output.png</output>
-</render>
+</chrome>
 
 If you're rendering an html file, you can execute an arbitrary javascript code before capturing a screenshot.
 It'll execute the code, capture the screenshot, and will give you the returned value of the javascipt.

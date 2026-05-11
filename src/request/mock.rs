@@ -19,7 +19,7 @@ impl Request {
     }
 
     pub async fn send_mock_request(&self, working_dir: &str) -> Result<Response, Error> {
-        sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
+        // sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
         let mut state = MockState::load(working_dir)?;
         state.check_prev_turn_output(&self.query)?;
         let response = state.get_next_turn();
@@ -162,6 +162,27 @@ fn mock_requests() -> Vec<MockRequest> {
             "<write>\n<mode>create</mode>\n<path>logs/summary-files.md</path>\n<content>\nI have inspected the working directory and the instruction file, but there's no instructions.\n</content>\n</write>",
             None,
         ),
+
+        // parse test
+        MockRequest::new(
+            "<read><from>2</from></read>",
+            Some("not a valid argument"),
+        ),
+        MockRequest::new(
+            "<read><start>2</start></read>",
+            Some("`path` in tool `read` is missing"),
+        ),
+        MockRequest::new(
+            "<read><start>abc</start><path>neukgu-instruction.md</path></read>",
+            Some("expected to have type `Integer`"),
+        ),
+        MockRequest::new(
+            "<read><start>-1</start><path>neukgu-instruction.md</path></read>",
+            Some("is supposed to be in range"),
+        ),
+        // parse test end
+
+        // cargo test
         MockRequest::new(
             "<run>\n<command>cargo new new_crate</command>\n</run>",
             Some("<exit_code>0</exit_code>"),
@@ -202,6 +223,7 @@ edition = "2024"
             "<write>\n<mode>create</mode>\n<path>logs/summary-cargo.md</path>\n<content>\nI have tested cargo and it's working.\n</content>\n</write>",
             None,
         ),
+        // cargo test end
 
         // git test
         MockRequest::new(
@@ -236,19 +258,19 @@ edition = "2024"
             None,
         ),
         MockRequest::new(
-            "<render><input>hello.html</input><output>hello.png</output><script>31627 * 31627</script></render>",
+            "<chrome><input>hello.html</input><output>hello.png</output><script>31627 * 31627</script></chrome>",
             Some("1000267129"),
         ),
         MockRequest::new(
-            "<render><input>hello.html</input><output>hello-2.png</output></render>",
+            "<chrome><input>hello.html</input><output>hello-2.png</output></chrome>",
             None,
         ),
         MockRequest::new(
-            "<render><input>https://youtube.com</input><output>youtube.png</output></render>",
+            "<chrome><input>https://youtube.com</input><output>youtube.png</output></chrome>",
             None,
         ),
         MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-browser.md</path>\n<content>\nI have tested the <render> tool and it's working.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>logs/summary-browser.md</path>\n<content>\nI have tested the <chrome> tool and it's working.\n</content>\n</write>",
             None,
         ),
         // browser test end

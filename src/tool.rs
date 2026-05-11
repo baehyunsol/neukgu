@@ -46,12 +46,13 @@ use similar::udiff::unified_diff;
 use std::time::{Duration, Instant};
 
 mod ask;
+mod chrome;
 mod read;
-mod render;
 mod run;
 mod write;
 
 pub use ask::{AskTo, ask_question_to_web};
+pub use chrome::WebOrFile;
 pub use read::{
     FileEntry,
     RangeType,
@@ -59,7 +60,6 @@ pub use read::{
     check_read_permission,
     read_file,
 };
-pub use render::WebOrFile;
 pub use run::{check_python_venv, load_available_binaries};
 pub use write::{DumpOrRedirect, WriteMode, check_write_permission};
 
@@ -93,7 +93,7 @@ pub enum ToolCall {
         to: AskTo,
         question: String,
     },
-    Render {
+    Chrome {
         input: Path,
         output: Path,
         script: Option<String>,
@@ -510,7 +510,7 @@ impl ToolCall {
                 },
             },
             // TODO: error if `script` is set and `input` is not an html
-            ToolCall::Render { script, input, output } => {
+            ToolCall::Chrome { script, input, output } => {
                 let joined_output = output.join("/");
                 let joined_input = input.join("/");
 
@@ -551,7 +551,7 @@ impl ToolCall {
 
                             let png_data = read_bytes(&real_output_path)?;
                             let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
-                            return Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id, script_output: None }));
+                            return Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output: None }));
                         }
                     }
 
@@ -580,7 +580,7 @@ impl ToolCall {
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
                 let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
                 write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
-                Ok(Ok(ToolCallSuccess::Render { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
+                Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
             },
         }
     }
@@ -623,8 +623,8 @@ impl ToolCall {
                     format!("{}...", question.chars().take(39).collect::<String>())
                 },
             ),
-            ToolCall::Render { script, input, output } => format!(
-                "Render `{}` to `{}`{}",
+            ToolCall::Chrome { script, input, output } => format!(
+                "Open chrome and render `{}` to `{}`{}",
                 input.join("/"),
                 output.join("/"),
                 if let Some(script) = script { format!(" (script: {script})") } else { String::new() },
@@ -683,7 +683,7 @@ pub enum ToolCallSuccess {
         to: AskTo,
         answer: String,
     },
-    Render {
+    Chrome {
         input: String,
         output_path: String,
         output_image: ImageId,
@@ -776,7 +776,7 @@ impl ToolCallSuccess {
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Ask { answer, .. } => vec![LLMToken::String(answer.to_string())],
-            ToolCallSuccess::Render { input, output_path, output_image, script_output } => vec![
+            ToolCallSuccess::Chrome { input, output_path, output_image, script_output } => vec![
                 LLMToken::String(format!(
                     "Successfully opened `{input}`{}{}, captured a screenshot, and saved it to `{output_path}`.{}",
                     if input.ends_with(".svg") { "" } else { " with chrome" },
@@ -794,7 +794,7 @@ impl ToolCallSuccess {
             ToolCallSuccess::ReadPdf { path, .. } |
             ToolCallSuccess::ReadImage { path, .. } |
             ToolCallSuccess::Write { path, .. } |
-            ToolCallSuccess::Render { input: path, .. } => Ok(Some((parent(path)?, Some(basename(path)?)))),
+            ToolCallSuccess::Chrome { input: path, .. } => Ok(Some((parent(path)?, Some(basename(path)?)))),
             ToolCallSuccess::ReadDir { path, .. } => Ok(Some((path.to_string(), None))),
             _ => Ok(None),
         }
@@ -1011,7 +1011,7 @@ pub enum ToolKind {
     Write,
     Run,
     Ask,
-    Render,
+    Chrome,
 }
 
 impl ToolKind {
@@ -1021,8 +1021,19 @@ impl ToolKind {
             ToolKind::Write,
             ToolKind::Run,
             ToolKind::Ask,
-            ToolKind::Render,
+            ToolKind::Chrome,
         ]
+    }
+
+    pub fn from_name(name: &[u8]) -> Option<ToolKind> {
+        match name {
+            b"read" => Some(ToolKind::Read),
+            b"write" => Some(ToolKind::Write),
+            b"run" => Some(ToolKind::Run),
+            b"ask" => Some(ToolKind::Ask),
+            b"chrome" => Some(ToolKind::Chrome),
+            _ => None,
+        }
     }
 
     pub fn check_arg_name(&self, arg: &[u8]) -> bool {
@@ -1035,8 +1046,8 @@ impl ToolKind {
             (ToolKind::Run, _) => false,
             (ToolKind::Ask, b"to" | b"question") => true,
             (ToolKind::Ask, _) => false,
-            (ToolKind::Render, b"input" | b"output" | b"script") => true,
-            (ToolKind::Render, _) => false,
+            (ToolKind::Chrome, b"input" | b"output" | b"script") => true,
+            (ToolKind::Chrome, _) => false,
         }
     }
 
@@ -1046,7 +1057,7 @@ impl ToolKind {
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Run => vec!["timeout", "command", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
-            ToolKind::Render => vec!["input", "output", "script"],
+            ToolKind::Chrome => vec!["input", "output", "script"],
         }.iter().map(|arg| arg.to_string()).collect()
     }
 }
