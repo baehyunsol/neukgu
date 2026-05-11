@@ -56,8 +56,10 @@ use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
+    Binding,
     Content as TextEditorContent,
     Edit as TextEditorEdit,
+    KeyPress,
     TextEditor,
 };
 use ragit_fs::{join, join3};
@@ -598,6 +600,17 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
+            (Key::Named(NamedKey::Tab), true, false, false) => {
+                if context.can_click_turn_entry() {
+                    context.is_interrupt_text_editor_focused = true;
+                    return Ok(focus(context.interrupt_text_editor_id.clone()));
+                }
+
+                // This doesn't work because when the editor is focused, the key presses are not passed to this branch.
+                // else if context.is_interrupt_text_editor_focused {
+                //     return Ok(Task::done(IcedMessage::InterruptNeukgu));
+                // }
+            },
             (Key::Named(NamedKey::Space), false, false, false) => {
                 if context.can_click_turn_entry() {
                     if context.is_paused {
@@ -607,16 +620,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
-            (Key::Character("b"), true, false, false) => {
-                if context.can_click_turn_entry() {
-                    return Ok(Task::done(IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }));
-                }
-            },
             (Key::Character("c"), true, false, false) => {
                 if context.can_click_turn_entry() {
-                    if let Some(i) = context.selected_turn && let Some(turn) = &context.fe_context.history.get(i) {
-                        return Ok(Task::done(IcedMessage::ToggleTurnVisibility(turn.id.clone())));
-                    }
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Config, prev: None }));
+                }
+
+                else if context.copy_buffer.is_some() {
+                    return Ok(Task::done(IcedMessage::CopyPopupContent));
                 }
             },
             (Key::Character("d"), true, false, false) => {
@@ -641,7 +651,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("o"), true, false, false) => {
                 if context.can_click_turn_entry() {
-                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Config, prev: None }));
+                    return Ok(Task::done(IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }));
                 }
 
                 else if let Some(Popup::Turn(_, _)) = &context.curr_popup && let Some((dir, file)) = &context.turn_result_path {
@@ -663,9 +673,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }));
                 }
             },
-            (Key::Character("t"), true, false, false) => {
+            (Key::Character("u"), true, false, false) => {
                 if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
+                }
+            },
+            (Key::Character("v"), true, false, false) => {
+                if context.can_click_turn_entry() {
+                    if let Some(i) = context.selected_turn && let Some(turn) = &context.fe_context.history.get(i) {
+                        return Ok(Task::done(IcedMessage::ToggleTurnVisibility(turn.id.clone())));
+                    }
                 }
             },
             (Key::Character("y"), true, false, false) => {
@@ -1100,8 +1117,8 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom));
 
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom));
-    buttons_row2.push(button("C(o)nfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom));
-    buttons_row2.push(button("(B)rowser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));
+    buttons_row2.push(button("(C)onfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom));
+    buttons_row2.push(button("Br(o)wser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom));
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom));
 
@@ -1149,7 +1166,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
             (None, None) => "      ",
         };
 
-        if context.curr_popup.is_none() && context.llm_request.is_none() {
+        if context.can_click_turn_entry() {
             button(text, IcedMessage::ToggleTurnVisibility(p.id.clone()), color, context.zoom)
         } else {
             disabled_button(text, color, context.zoom)
@@ -1350,7 +1367,17 @@ fn render_interrupt_text_editor<'c>(context: &'c IcedContext) -> Element<'c, Ice
         .height(window_height * if is_focused { 0.25 } else { 0.05 });
 
     if context.curr_popup.is_none() && context.llm_request.is_none() {
-        text_editor = text_editor.on_action(|action| IcedMessage::EditInterruptText(action));
+        text_editor = text_editor
+            .on_action(|action| IcedMessage::EditInterruptText(action))
+            .key_binding(|key_press| {
+                let KeyPress { key, modifiers, .. } = &key_press;
+
+                match (key.as_ref(), modifiers.control()) {
+                    (Key::Named(NamedKey::Enter), true) => Some(Binding::Sequence(vec![Binding::Unfocus, Binding::Custom(IcedMessage::InterruptNeukgu)])),
+                    (Key::Named(NamedKey::Tab), true) => Some(Binding::Unfocus),
+                    _ => Binding::from_key_press(key_press),
+                }
+            });
     }
 
     let text_editor = Container::new(

@@ -39,19 +39,21 @@ This is an internal document. I'll update the GUI help messages as soon as possi
   - If there's a popup, Ctrl+Up/Down will scroll to top/bottom
 - Left/Right: prev/next turn entry (in turn popup)
 - Ctrl+Plus/Minus: zoom
-- Ctrl+B: open browser
-- Ctrl+C: toggle visibility of the current turn
+- Ctrl+Tab: toggle focus interrupt_text_edit
+- Ctrl+Enter: enter text (when long-text-editor is focused)
+- Ctrl+C: configs
+  - If there's a popup and a copiable content, it copies the content
 - Ctrl+D: see diff (in turn popup)
 - Ctrl+F: find in page
 - Ctrl+H: help message
 - Ctrl+L: see logs
-- Ctrl+O: config
-  - If there's a turn popup, it opens a browser
+- Ctrl+O: open browser
 - Ctrl+R: reset
 - Ctrl+Q: quit
 - Ctrl+S: see summaries
 - Ctrl+T: new tab
 - Ctrl+U: see token usage
+- Ctrl+V: toggle visibility of the current turn
 - Ctrl+W: close tab
 - Ctrl+Y: yes (confirm popup)
 - Alt+Num: switch tab

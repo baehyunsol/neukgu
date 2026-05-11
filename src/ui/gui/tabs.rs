@@ -95,7 +95,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             }
         },
         IcedMessage::Index(m) => match context.selected_tab {
-            Some(_) => unreachable!(),
+            Some(_) => Task::none(),
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
         },
         IcedMessage::Tab { id: _, message: TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file }) } => {
@@ -108,7 +108,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 }
             }
 
-            unreachable!()
+            // perhaps it's already dead?
+            Task::none()
         },
         IcedMessage::Tab { id, message } => {
             for tab in context.tabs.iter_mut() {
@@ -117,7 +118,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 }
             }
 
-            unreachable!()
+            // perhaps it's already dead?
+            Task::none()
         },
         IcedMessage::Tick => {
             let mut tasks = vec![];
