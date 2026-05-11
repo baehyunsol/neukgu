@@ -704,10 +704,8 @@ impl Context {
 }
 
 fn spawn_be_process(working_dir: &str) -> Result<Child, Error> {
-    let bin_path = into_abs_path(&std::env::args().next().unwrap())?;
-
     Ok(
-        Command::new(&bin_path)
+        Command::new(&std::env::current_exe()?)
             .args(["headless", "--attach-fe"])
             .current_dir(working_dir)
             .stdout(Stdio::piped())
