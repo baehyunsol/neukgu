@@ -121,7 +121,7 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
 
     clean_dangling_sandboxes(&context.working_dir)?;
     let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir, true /* copy index dir */)?;
-    let mut has_new_turn = false;
+    let has_new_turn;
 
     match step_inner(context, config).await {
         Ok(f) => {
@@ -149,7 +149,7 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
     Ok(())
 }
 
-// The boolean tells whether a new turn is added to the context or not.
+// The returned boolean tells whether a new turn is added to the context or not.
 async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Error> {
     if let Some((id, interrupt)) = context.check_question_from_user()? {
         context.process_question_from_user(id, interrupt, config)?;
@@ -177,7 +177,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
             },
             None => {
                 let llm_call_started_at = Instant::now();
-                let mut request = context.to_request(config)?;
+                let request = context.to_request(config)?;
                 let response = match request.request(&context.working_dir, &context.logger).await {
                     Ok(response) => response.response.to_string(),
                     Err(Error::UserInterrupt) => {
@@ -472,7 +472,7 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
         RagitFsWriteMode::CreateOrTruncate,
     )?;
 
-    let logger = Logger::new(working_dir);
+    let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, true, true);
     logger.log(LogEntry::RollBack(id.clone()))?;
 
     drop(lock_file);

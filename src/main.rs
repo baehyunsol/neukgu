@@ -3,7 +3,10 @@ use neukgu::{
     Config,
     Context,
     Error,
+    LLMToken,
     Model,
+    Request,
+    Thinking,
     gui,
     init_working_dir,
     step,
@@ -165,6 +168,41 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                     }
                 }
             })?;
+            Ok(())
+        },
+        Some("ai-request") => {
+            let parsed_args = ArgParser::new()
+                .args(ArgType::String, ArgCount::None)
+                .arg_flag("--model", ArgType::enum_(&Model::short_names()))
+                .arg_flag("--prompt", ArgType::String)
+                .optional_arg_flag("--log-dir", ArgType::String)
+                .flag_with_default(&["--no-web-search", "--web-search"])
+                .flag_with_default(&["--no-think", "--adaptive-think", "--think"])
+                .parse(&args, 2)?;
+
+            let model: Model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap()).unwrap();
+            let prompt = parsed_args.arg_flags.get("--prompt").unwrap().to_string();
+            let log_dir = parsed_args.arg_flags.get("--log-dir").cloned();
+            let web_search = parsed_args.get_flag(0).unwrap() == "--web-search";
+            let thinking = match parsed_args.get_flag(1).unwrap().as_str() {
+                "--no-think" => Thinking::Disabled,
+                "--adaptive-think" => Thinking::Adaptive,
+                "--think" => Thinking::Enabled,
+                _ => unreachable!(),
+            };
+
+            let request = Request {
+                model,
+                system_prompt: String::from("You're a nice AI chatbot."),
+                history: vec![],
+                query: vec![LLMToken::String(prompt)],
+                enable_web_search: web_search,
+                thinking,
+            };
+
+            let tokio_runtime = tokio::runtime::Runtime::new()?;
+            let response = tokio_runtime.block_on(request.bare_request(log_dir))?;
+            println!("{}", response.response);
             Ok(())
         },
         Some("tui") => {

@@ -42,6 +42,9 @@ impl LogId {
 pub struct Logger {
     // `<working_dir>/.neukgu/logs/`
     pub log_dir: String,
+
+    pub compress: bool,
+    pub enabled: bool,
 }
 
 pub enum LogEntry {
@@ -67,9 +70,8 @@ pub enum LogEntry {
 }
 
 impl Logger {
-    pub fn new(working_dir: &str) -> Self {
-        let log_dir = join3(working_dir, ".neukgu", "logs").unwrap();
-        let result = Logger { log_dir: log_dir.to_string() };
+    pub fn new(log_dir: String, compress: bool, enabled: bool) -> Self {
+        let result = Logger { log_dir, compress, enabled };
         result.log(LogEntry::InitLogger).unwrap();
         result
     }
@@ -77,6 +79,8 @@ impl Logger {
     // Many functions rely on the fact that each line in the log file is short.
     // Make sure that each line is shorter than 80 bytes.
     pub fn log(&self, entry: LogEntry) -> Result<(), Error> {
+        if !self.enabled { return Ok(()); }
+
         let now = Local::now();
         let log_id = LogId::new();
         let (title, extra_content, extension) = match entry {
@@ -111,15 +115,25 @@ impl Logger {
         )?;
 
         if let Some(extra_content) = extra_content {
-            let mut compressed = vec![];
-            let mut gz = GzEncoder::new(extra_content.as_bytes(), Compression::new(3));
-            gz.read_to_end(&mut compressed)?;
+            if self.compress {
+                let mut compressed = vec![];
+                let mut gz = GzEncoder::new(extra_content.as_bytes(), Compression::new(3));
+                gz.read_to_end(&mut compressed)?;
 
-            write_bytes(
-                &join(&self.log_dir, &format!("{}.{extension}.gz", log_id.0))?,
-                &compressed,
-                WriteMode::AlwaysCreate,
-            )?;
+                write_bytes(
+                    &join(&self.log_dir, &format!("{}.{extension}.gz", log_id.0))?,
+                    &compressed,
+                    WriteMode::AlwaysCreate,
+                )?;
+            }
+
+            else {
+                write_string(
+                    &join(&self.log_dir, &format!("{}.{extension}", log_id.0))?,
+                    &extra_content,
+                    WriteMode::AlwaysCreate,
+                )?;
+            }
 
             // It makes extra_content files are almost always ordered by creation time.
             sleep(Duration::from_millis(100));
@@ -129,6 +143,8 @@ impl Logger {
     }
 
     pub fn log_api_usage(&self, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {
+        if !self.enabled { return Ok(()); }
+
         let usage_at = join(&self.log_dir, "tokens.json")?;
         let now = Local::now().timestamp().max(0) as u64 / 3600;
         let mut usage: TokenUsage = load_json(&usage_at)?;
@@ -173,17 +189,20 @@ impl TokenUsage {
 
 pub fn load_log(id: &LogId, log_dir: &str) -> Result<(/* log */ String, /* extension */ String), Error> {
     for extension in ["json", "rs", "txt"] {
-        let path = join(log_dir, &format!("{}.{extension}.gz", id.0))?;
+        let path1 = join(log_dir, &format!("{}.{extension}.gz", id.0))?;
+        let path2 = join(log_dir, &format!("{}.{extension}", id.0))?;
 
-        if !exists(&path) {
-            continue;
+        if exists(&path1) {
+            let bytes = read_bytes(&path1)?;
+            let mut decompressed = vec![];
+            let mut gz = GzDecoder::new(&bytes[..]);
+            gz.read_to_end(&mut decompressed)?;
+            return Ok((String::from_utf8(decompressed)?, extension.to_string()));
         }
 
-        let bytes = read_bytes(&path)?;
-        let mut decompressed = vec![];
-        let mut gz = GzDecoder::new(&bytes[..]);
-        gz.read_to_end(&mut decompressed)?;
-        return Ok((String::from_utf8(decompressed)?, extension.to_string()));
+        if exists(&path2) {
+            return Ok((read_string(&path2)?, extension.to_string()));
+        }
     }
 
     Err(Error::InvalidLogId(id.clone()))

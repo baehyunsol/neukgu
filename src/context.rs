@@ -95,7 +95,7 @@ impl Context {
         )?;
         let available_binaries = load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
-        let logger = Logger::new(working_dir);
+        let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, true, true);
 
         Ok(Context {
             neukgu_id: NeukguId(rand::random::<u64>()),

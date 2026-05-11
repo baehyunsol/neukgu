@@ -16,7 +16,7 @@ pub enum AskTo {
 }
 
 pub async fn ask_question_to_web(q: &str, working_dir: &str, logger: &Logger, model: Model) -> Result<String, Error> {
-    let mut request = Request {
+    let request = Request {
         model,
         system_prompt: String::from("Search web and answer the user question."),
         history: vec![],

@@ -42,8 +42,17 @@ pub struct Turn {
 }
 
 impl Request {
+    pub async fn bare_request(&self, log_dir: Option<String>) -> Result<Response, Error> {
+        let logger = match log_dir {
+            Some(log_dir) => Logger::new(log_dir, false, true),
+            None => Logger::new(String::new(), false, false),
+        };
+
+        self.request_inner("", &logger).await
+    }
+
     // VIBE NOTE: gemini 3.1 pro (via perplexity) taught me how to use `tokio::select` macro.
-    pub async fn request(&mut self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
+    pub async fn request(&self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
         let request_future = self.request_inner(working_dir, logger);
         tokio::pin!(request_future);
         let mut interval = tokio::time::interval(Duration::from_millis(200));
@@ -68,7 +77,7 @@ impl Request {
         }
     }
 
-    async fn request_inner(&mut self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
+    async fn request_inner(&self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let mut error = None;
 

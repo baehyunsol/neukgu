@@ -357,7 +357,7 @@ impl IcedContext {
             Some(be) => {
                 be.kill()?;
                 self.be_process = None;
-                let logger = Logger::new(&self.fe_context.working_dir);
+                let logger = Logger::new(join3(&self.fe_context.working_dir, ".neukgu", "logs")?, true, true);
                 logger.log(LogEntry::KillBackend)?;
             },
             None => {},
