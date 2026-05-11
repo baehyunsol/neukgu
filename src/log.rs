@@ -15,7 +15,6 @@ use ragit_fs::{
     exists,
     file_size,
     join,
-    join3,
     read_bytes,
     read_bytes_offset,
     read_string,

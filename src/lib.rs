@@ -119,32 +119,23 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
         },
     }
 
-    clean_dangling_sandboxes(&context.working_dir)?;
-    let backup_dir = export_to_sandbox(&config.sandbox_root, &context.working_dir, true /* copy index dir */)?;
-    let has_new_turn;
-
-    match step_inner(context, config).await {
-        Ok(f) => {
-            has_new_turn = f;
-            clean_sandbox(&config.sandbox_root, &backup_dir, &context.working_dir)?;
-        },
+    let has_new_turn = match step_inner(context, config).await {
+        Ok(f) => f,
         Err(e) => {
-            import_from_sandbox(&backup_dir, &context.working_dir, true /* copy index dir */)?;
-            clean_sandbox(&config.sandbox_root, &backup_dir, &context.working_dir)?;
             context.logger.log(LogEntry::BackendError(format!("{e:?}")))?;
             return Err(e);
         },
-    }
+    };
 
-    // Even if it fails, it's not gonna corrupt the index dir.
-    // It sleeps 500ms in order to add *stability* to the program.
-    // This is the safest place in the loop. The frontend can read the index
-    // because every state is complete, and it's safe to kill the backend here.
     if has_new_turn {
         update_global_index(&context)?;
     }
 
+    // It sleeps 500ms in order to add *stability* to the program.
+    // This is the safest place in the loop. The frontend can read the index
+    // because every state is complete, and it's safe to kill the backend here.
     sleep(Duration::from_millis(500));
+
     drop(lock_file);
     Ok(())
 }
@@ -157,9 +148,6 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
         context.remove_done_mark()?;
     }
 
-    // TODO: When it's marked done, it still creates and removes sandbox-backup everytime,
-    //       which is a gigantic overhead. I temporily alleviated it with a longer sleep,
-    //       but I need a better solution.
     if context.is_marked_done()? {
         sleep(Duration::from_millis(1_000));  // prevent busy-loop
         return Ok(false);
