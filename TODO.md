@@ -219,14 +219,25 @@
 107. sandbox & snapshot
   - working dir이 큰 경우, 오버헤드가 엄청 크고 자꾸 디스크가 터짐...
   - 추가적인 이슈, sandbox 왔다갔다 하니까 rust의 incremental compilation이 작동을 안함...
+  - 98번 이슈가 이거때문에 진도를 못 나가고 있음.
+  - 현재 sandbox/snapshot의 역할
+    - 롤백
+    - AI가 애먼 파일 못 건드리게 하기
+      - AI가 마음 먹고 건드리려고 하면 충분히 건드릴 수 있긴 함...
+    - `<run>`이 도는 도중에 안전하게 중단하기
+      - 사실 이것도 완전히 안전하지는 않음. `<run>`이 끝나고 sandbox를 현재 dir로 가져오는 동안에 Ctrl+C를 해버리면 문제의 소지가 있음
+    - `step_inner`에서 문제가 생기면 `import_from_sandbox`를 하기
+      - 이거는 index_dir만 백업해도 되지 않을까...
+  - 조금 낫게 고치자면
+    - 롤백용 snapshot은 지금이랑 동일하게 두기
+    - `<run>`이 돌 때 sandbox 만드는 것도 지금이랑 동일하게 두기
+    - `step_inner` 전후에는 index_dir만 백업하기, 단 snap-shot은 건드리지 말기!!
 108. popup이 길 때 손으로 스크롤하기 귀찮음, popup의 맨 아래로 내려가는 key binding (혹은 빠르게 내려가는 key binding) 추가하기!
 109. diff view -> scrollbar가 오른쪽 끝에 붙었으면 좋겠음
 110. ask tool의 title 만들 때, 지금은 question을 통째로 넣고 있거든?
   - preview에서는 자동으로 truncate가 되고 popup에서는 통째로 다 보임.
   - 이걸 애초에 title을 만들 때부터 truncate를 해버리자. popup에서 통째로 다 보이니까 너무 정신 사나움...
 111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
-112. 다른 탭 갔다가 오면 scroll이 다 초기화 돼 있음...
-113. 이미 끝난 project를 launch하면, turn이 추가가 안되는데 updated_at은 갱신이 됨. updated_at은 마지막 turn을 기준으로 해야지...
 114. Scratch-pad
   - zed/vsc를 쓸 때 보통 탭을 가로로 여러개 띄워놓고 쓰잖아? 이게 neukgu에서도 가능해야함
   - 그냥 `tab::view()`를 2번 호출한 다음에 둘을 `iced::widget::Row`에 집어넣어도 되는데, 그럼 너무 못생겼을 거 같음
@@ -236,6 +247,17 @@
   - 현재 tab/popup을 scratch pad로 띄우는 단축키가 존재
   - scratch pad를 hide/show/close 하는 단축키가 존재
   - tab을 넘기는 것과 scratch pad는 완전 별도로 동작함
+115. working_dir tab에서 TextEditor를 맨 아래에 두자! I 눌러서 여는 것보다 텍스트 창이 항상 있는게 더 나을 거 같음...
+  - 이렇게 하려면 단축키 시스템도 좀 바꿔야함. 아마 대부분에 Ctrl이나 Alt 붙여야 할 듯? 이참에 단축키 한번 정리를 해보자.
+116. cron neukgu
+  - 진짜 cron으로 띄우기 vs neukgu daemon이 돌고 있다가 띄우기
+    - 주기적으로 떠야하는 작업만 생각하면 전자가 나을 거 같긴한데, 그럼 CLI 보강을 좀 해야할듯?
+    - cron으로 못하는 작업들도 많음. 예를 들어서, github에 이슈가 날아올 때마다 늑구를 띄우고 싶을 수도 있지!
+      - 이것도 cron으로 흉내를 낼 수는 있음. cron으로 5분에 한번씩 github issue를 확인하고, 확인되면 늑구를 띄우는 거지.
+      - 이렇게 할 바에는 neukgu daemon을 띄우는게 나을 듯...
+  - 여러 설정을 할 수 있음
+    - 특정 dir에서 돌리기 vs 빈 dir 만들고 거기서 돌리기
+    - 다 돈 다음에 working dir 초기화 하기 vs 계속 파일 쌓기
 
 ```nu
 cd ~/Documents/Rust/neukgu;
