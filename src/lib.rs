@@ -319,20 +319,12 @@ pub fn init_working_dir(
     create_dir(&join3(working_dir, ".neukgu", "images")?)?;
     create_dir(&join3(working_dir, ".neukgu", "pdfs")?)?;
     create_dir(&join3(working_dir, ".neukgu", "turns")?)?;
-    create_dir(&join3(working_dir, ".neukgu", "logs")?)?;
     create_dir(&join3(working_dir, ".neukgu", "interruptions")?)?;
     create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
 
-    write_string(
-        &join4(working_dir, ".neukgu", "logs", "log")?,
-        "",
-        RagitFsWriteMode::AlwaysCreate,
-    )?;
-    write_string(
-        &join4(working_dir, ".neukgu", "logs", "tokens.json")?,
-        "{}",
-        RagitFsWriteMode::AlwaysCreate,
-    )?;
+    let log_dir = &join3(working_dir, ".neukgu", "logs")?;
+    init_log_dir(&log_dir)?;
+
     write_string(
         &join3(working_dir, ".neukgu", "snapshots.json")?,
         "[]",
@@ -363,6 +355,25 @@ pub fn init_working_dir(
 
     init_global_index_dir(&context.global_index_dir)?;
     update_global_index(&context)?;
+
+    Ok(())
+}
+
+pub fn init_log_dir(log_dir: &str) -> Result<(), Error> {
+    if !exists(log_dir) {
+        create_dir(log_dir)?;
+    }
+
+    for (file, content) in [
+        ("log", ""),
+        ("tokens.json", "{}"),
+    ] {
+        let file = join(log_dir, file)?;
+
+        if !exists(&file) {
+            write_string(&file, content, RagitFsWriteMode::AlwaysCreate)?;
+        }
+    }
 
     Ok(())
 }

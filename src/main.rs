@@ -8,6 +8,7 @@ use neukgu::{
     Request,
     Thinking,
     gui,
+    init_log_dir,
     init_working_dir,
     step,
     tui,
@@ -199,6 +200,10 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 enable_web_search: web_search,
                 thinking,
             };
+
+            if let Some(log_dir) = &log_dir {
+                init_log_dir(log_dir)?;
+            }
 
             let tokio_runtime = tokio::runtime::Runtime::new()?;
             let response = tokio_runtime.block_on(request.bare_request(log_dir))?;
