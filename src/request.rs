@@ -18,6 +18,7 @@ use std::time::Duration;
 mod anthropic;
 mod mock;
 mod openai;
+mod openai_comp;
 
 pub use mock::{MockState, reset_mock_state, revert_mock_state};
 
@@ -95,6 +96,7 @@ impl Request {
             let http_request = match self.model.provider() {
                 ApiProvider::Anthropic => self.to_anthropic_request(working_dir)?,
                 ApiProvider::OpenAi => self.to_openai_request(working_dir)?,
+                ApiProvider::OpenAiComp => self.to_openai_comp_request(working_dir)?,
                 ApiProvider::Mock => self.to_mock_request()?,
             };
             let mut api_log = ApiLog::new();
@@ -136,6 +138,7 @@ impl Request {
                                     let mut response = match self.model.provider() {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
                                         ApiProvider::OpenAi => Response::from_openai(&s)?,
+                                        ApiProvider::OpenAiComp => Response::from_openai_comp(&s)?,
                                         ApiProvider::Mock => unreachable!(),
                                     };
                                     logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;

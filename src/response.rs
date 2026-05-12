@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 mod anthropic;
 mod openai;
+mod openai_comp;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Response {

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum Model {
     GptMini,
     Gpt,
+    OpenAiComp,
     Haiku,
     Sonnet,
     Opus,
@@ -15,15 +16,16 @@ pub enum Model {
 }
 
 impl Model {
-    pub fn api_name(&self) -> &'static str {
+    pub fn api_name(&self) -> String {
         match self {
-            Model::GptMini => "gpt-5.4-mini",
-            Model::Gpt => "gpt-5.5",
-            Model::Haiku => "claude-haiku-4-5",
-            Model::Sonnet => "claude-sonnet-4-6",
-            Model::Opus => "claude-opus-4-7",
-            Model::Mock => "mock",
-            Model::Disabled => "disabled",
+            Model::GptMini => "gpt-5.4-mini".to_string(),
+            Model::Gpt => "gpt-5.5".to_string(),
+            Model::OpenAiComp => std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.5".to_string()),
+            Model::Haiku => "claude-haiku-4-5".to_string(),
+            Model::Sonnet => "claude-sonnet-4-6".to_string(),
+            Model::Opus => "claude-opus-4-7".to_string(),
+            Model::Mock => "mock".to_string(),
+            Model::Disabled => "disabled".to_string(),
         }
     }
 
@@ -31,6 +33,7 @@ impl Model {
         match self {
             Model::GptMini => "gpt-mini",
             Model::Gpt => "gpt",
+            Model::OpenAiComp => "openai-compatible",
             Model::Haiku => "haiku",
             Model::Sonnet => "sonnet",
             Model::Opus => "opus",
@@ -45,6 +48,7 @@ impl Model {
         match s {
             "gpt-mini" => Ok(Model::GptMini),
             "gpt" => Ok(Model::Gpt),
+            "openai-compatible" => Ok(Model::OpenAiComp),
             "haiku" => Ok(Model::Haiku),
             "sonnet" => Ok(Model::Sonnet),
             "opus" => Ok(Model::Opus),
@@ -58,6 +62,7 @@ impl Model {
         match self {
             Model::GptMini => ApiProvider::OpenAi,
             Model::Gpt => ApiProvider::OpenAi,
+            Model::OpenAiComp => ApiProvider::OpenAiComp,
             Model::Haiku => ApiProvider::Anthropic,
             Model::Sonnet => ApiProvider::Anthropic,
             Model::Opus => ApiProvider::Anthropic,
@@ -66,10 +71,11 @@ impl Model {
         }
     }
 
-    pub fn all() -> [Model; 7] {
+    pub fn all() -> [Model; 8] {
         [
             Model::GptMini,
             Model::Gpt,
+            Model::OpenAiComp,
             Model::Haiku,
             Model::Sonnet,
             Model::Opus,
@@ -117,5 +123,6 @@ impl Default for Agents {
 pub enum ApiProvider {
     Anthropic,
     OpenAi,
+    OpenAiComp,
     Mock,
 }

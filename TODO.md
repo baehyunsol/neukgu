@@ -85,6 +85,7 @@
       - If we can disable binaries, what's the point of `Error::UnavailableBinaries`?
   - set api key with GUI
     - 이게 젤 필요함. 지금 너무 귀찮음 ㅠㅠ
+    - OPENAI_MODEL, OPENAI_BASE_URL -> 이것도 gui에서 고칠 수 있게 하자!!
   - Change configs while neukgu is running
     - enable/disable tools/binariess
 64. Remote 늑구
@@ -236,6 +237,14 @@
   - 최대한 빨리 해결하려면, 늑구가 쓸 수 있는 모양으로 cli를 만들어서 tool로 붙이는 거밖에 없음...
   - 근데 대부분의 real-world project가 이럴 거임. 당장 rust compiler만 봐도 디버그하려면 세팅해야하는게 한 트럭임.
   - 근본적으로 해결하려면, 1) 늑구가 쓸 수 있는 tool을 훨씬 더 많이 줘서 모든 상황에 대비할 수 있게 하거나, 2) 그때그때 필요한 tool을 내가 구현해서 늑구한테 붙여주거나 정도임...
+118. 지금 파이썬에 넘어가는 PATH가 `py-venv/bin/`밖에 없거든? 근데 늑구가 ENV VAR를 이용해서 cargo를 호출하려고 파이썬을 쓰려니까 안되네...
+  - 파이썬한테 PATH를 최대한 많이 넘겨주자!! 얼마나 넘겨줘야하지?? 다 넘겨주면 좀 위험할 것 같기도 하고...
+  - 최소한 늑구가 보는 `bins/`에 있는 바이너리는 다 줘야하는 거 아님??
+119. GUI에서 버튼 비활성화 시키기
+  - browser -> popup 있으면 render_buttons에서 비활성화 시켜야함 (지금은 아예 삭제하는 중)
+  - working_dir -> interrupt 버튼이 비활성화가 안됨
+120. tool call을 자꾸 여러번 하려고 함...
+  - tool call을 여러번 했는데 syntax는 다 맞는 경우, 그냥 첫번째 tool call만 남기고 나머지는 다 날려버리자!
 
 ## mock API
 
