@@ -17,6 +17,7 @@ use super::{
     set_project_config,
     skyblue,
     take_chars,
+    white,
 };
 use super::worker::{
     Job,
@@ -373,6 +374,7 @@ pub enum Popup {
         regex: String,
         matches: Vec<RgMatch>,
         truncate: Option<usize>,
+        match_count: usize,
     },
     Help,
 }
@@ -591,14 +593,17 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     _ => {},
                 }
             },
-            JobResultKind::Rg { regex, matches } => {
-                let (matches, truncate) = if matches.len() < 500 {
-                    (matches.to_vec(), None)
-                } else {
-                    (matches[..500].to_vec(), Some(matches.len() - 500))
-                };
+            JobResultKind::Rg { regex, matches, count } => match &context.curr_popup {
+                Some(Popup::Find { job, .. }) if *job == job_result.id => {
+                    let (matches, truncate) = if matches.len() < 512 {
+                        (matches.to_vec(), None)
+                    } else {
+                        (matches[..512].to_vec(), Some(matches.len() - 512))
+                    };
 
-                context.open_popup(Popup::FindResult { regex: regex.to_string(), matches, truncate })?;
+                    context.open_popup(Popup::FindResult { regex: regex.to_string(), matches, truncate, match_count: *count })?;
+                },
+                _ => {},
             },
             _ => {},
         },
@@ -683,10 +688,10 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 context,
             ).into(),
         ]).into();
-    } else if let Some(Popup::FindResult { regex, matches, truncate }) = &context.curr_popup {
+    } else if let Some(Popup::FindResult { regex, matches, truncate, match_count }) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(render_find_result(regex, matches, *truncate, context), context).into(),
+            into_popup(render_find_result(regex, matches, *truncate, *match_count, context), context).into(),
         ]).into();
     } else if let Some(Popup::EntryError(_) | Popup::Preview { .. } | Popup::Help) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
@@ -1075,16 +1080,26 @@ fn dump_hex(bytes: &[u8], offset: usize) -> String {
     ).collect::<Vec<_>>().concat()
 }
 
-fn render_find_result<'f, 'm, 'c>(regex: &'f str, matches: &'m [RgMatch], truncate: Option<usize>, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+fn render_find_result<'f, 'm, 'c>(
+    regex: &'f str,
+    matches: &'m [RgMatch],
+    truncate: Option<usize>,
+    match_count: usize,
+    context: &'c IcedContext,
+) -> Element<'c, IcedMessage> {
     let mut lines = vec![];
     let mut curr_path = String::new();
+    let mut curr_line_no = 0;
 
     for m in matches.iter() {
         if curr_path != m.path {
             lines.push(
                 Row::from_vec(vec![
                     text!("{}", m.path).size(context.zoom * 14.0).into(),
-                    button("Open", IcedMessage::NewBrowser { dir: parent(&m.path).unwrap(), file: Some(basename(&m.path).unwrap()) }, skyblue(), context.zoom).into(),
+                    button("Open", IcedMessage::NewBrowser {
+                        dir: join(&context.cwd, &parent(&m.path).unwrap()).unwrap(),
+                        file: Some(basename(&m.path).unwrap()),
+                    }, skyblue(), context.zoom).into(),
                 ])
                     .padding(context.zoom * 8.0)
                     .spacing(context.zoom * 8.0)
@@ -1092,17 +1107,53 @@ fn render_find_result<'f, 'm, 'c>(regex: &'f str, matches: &'m [RgMatch], trunca
                     .into()
             );
             curr_path = m.path.to_string();
+            curr_line_no = 0;
         }
 
+        else if m.line_number != curr_line_no + 1 {
+            lines.push(Space::new().height(context.zoom * 14.0).into());
+        }
+
+        curr_line_no = m.line_number;
         let mut highlights = vec![
             text!("{:>6} | ", m.line_number).size(context.zoom * 14.0).into(),
         ];
         let mut curr_index = 0;
+        let line = m.line.chars().take(256).collect::<String>();
+        let submatches: Vec<(usize, usize)> = m.submatches.iter().filter_map(
+            |(start, end)| {
+                let start = (*start).min(line.len());
+                let end = (*end).min(line.len());
 
-        for (start, end) in m.submatches.iter() {}
+                if end >= line.len() {
+                    None
+                } else {
+                    Some((start, end))
+                }
+            }
+        ).collect();
 
-        if curr_index < m.line.len() {
-            highlights.push(text!("{}", m.line.get(curr_index..).unwrap().trim_end()).size(context.zoom * 14.0).into());
+        for (start, end) in submatches.iter() {
+            if curr_index < *start {
+                highlights.push(text!("{}", line.get(curr_index..*start).unwrap()).size(context.zoom * 14.0).into());
+            }
+
+            let word = if *end == line.len() {
+                line.get(*start..*end).unwrap().trim_end().to_string()
+            } else {
+                line.get(*start..*end).unwrap().to_string()
+            };
+
+            highlights.push(
+                Container::new(
+                    text!("{word}").color(black()).size(context.zoom * 14.0)
+                ).style(|_| set_bg(white())).into(),
+            );
+            curr_index = *end;
+        }
+
+        if curr_index < line.len() {
+            highlights.push(text!("{}", line.get(curr_index..).unwrap().trim_end()).size(context.zoom * 14.0).into());
         }
 
         lines.push(Row::from_vec(highlights).into());
@@ -1112,9 +1163,9 @@ fn render_find_result<'f, 'm, 'c>(regex: &'f str, matches: &'m [RgMatch], trunca
         text!("find {regex:?}").size(context.zoom * 14.0).into(),
         text!(
             "{} result{}{}",
-            matches.len() + truncate.unwrap_or(0),
-            if matches.len() == 1 { "" } else { "s" },
-            if let Some(truncate) = truncate { format!(" ({truncate} truncated)") } else { String::new() },
+            match_count,
+            if match_count == 1 { "" } else { "s" },
+            if let Some(truncate) = truncate { format!(" (truncated {truncate} lines)") } else { String::new() },
         ).size(context.zoom * 14.0).into(),
         Scrollable::new(
             Column::from_vec(lines).width(context.window_size.width)

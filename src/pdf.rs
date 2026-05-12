@@ -91,7 +91,7 @@ pub fn render_first_10_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize
                         // hayro's default resolution is too small...
                         x_scale: 2.0,
                         y_scale: 2.0,
-        
+
                         bg_color: WHITE,
                         ..Default::default()
                     },

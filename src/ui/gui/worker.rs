@@ -1,4 +1,5 @@
 use super::tab::TabId;
+use base64::Engine;
 use crate::{Error, subprocess, subprocess::Output};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -36,7 +37,7 @@ pub struct JobResult {
 
 #[derive(Clone, Debug)]
 pub enum JobResultKind {
-    Rg { regex: String, matches: Vec<RgMatch> },
+    Rg { regex: String, matches: Vec<RgMatch>, count: usize },
     RgTimeout,
     WorkerError(String),
 }
@@ -187,6 +188,9 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
         pub fn to_string(&self) -> String {
             if let Some(s) = &self.text {
                 s.to_string()
+            } else if let Some(s) = &self.bytes {
+                let bytes = base64::prelude::BASE64_STANDARD.decode(s).unwrap();
+                String::from_utf8_lossy(&bytes).to_string()
             } else {
                 todo!()
             }
@@ -198,24 +202,27 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
     }
 
     let mut matches = vec![];
+    let mut count = 0;
 
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         match serde_json::from_str::<RgMatchLine>(line) {
             Ok(line) => {
-                matches.push(RgMatch {
+                let rg_match = RgMatch {
                     path: line.data.path.to_string(),
                     line: line.data.lines.to_string(),
                     line_number: line.data.line_number,
                     submatches: line.data.submatches.iter().map(
                         |submatch| (submatch.start, submatch.end)
                     ).collect(),
-                });
+                };
+                count += rg_match.submatches.len();
+                matches.push(rg_match);
             },
             Err(_) => {
-                eprintln!("{line:?}");
+                // eprintln!("{line}");
             },
         }
     }
 
-    JobResultKind::Rg { regex, matches }
+    JobResultKind::Rg { regex, matches, count }
 }
