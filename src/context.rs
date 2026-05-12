@@ -16,12 +16,10 @@ use crate::{
     TurnResult,
     TurnResultSummary,
     TurnSummary,
-    get_first_tool_call,
     get_global_index_dir,
     load_available_binaries,
     request,
     revert_mock_state,
-    validate_parse_result,
 };
 use ragit_fs::{
     WriteMode,
@@ -180,7 +178,7 @@ impl Context {
 
     pub fn finish_turn(
         &mut self,
-        parse_result: Option<Vec<ParsedSegment>>,
+        parse_result: Option<ParsedSegment>,
         turn_result: TurnResult,
         tool_elapsed_ms: u64,
         config: &Config,
@@ -419,25 +417,13 @@ impl Context {
         ).collect()))?;
 
         let mut llm_turns = vec![request::Turn {
-            // TODO: better starting message?
             query: vec![LLMToken::String(String::from("Go on."))],
             response: String::new(),
         }];
 
         for (turn, full_render) in chosen_turns.iter() {
             let turn = self.load_turn(&turn.id)?;
-            llm_turns.last_mut().unwrap().response = if *full_render {
-                turn.raw_response.to_string()
-            } else {
-                if let Some(parse_result) = &turn.parse_result {
-                    let Some(ParsedSegment::ToolCall { input, .. }) = get_first_tool_call(parse_result) else { unreachable!() };
-                    input.to_string()
-                }
-
-                else {
-                    turn.raw_response.to_string()
-                }
-            };
+            llm_turns.last_mut().unwrap().response = turn.render_llm_response(*full_render);
             llm_turns.push(request::Turn {
                 query: turn.turn_result.to_llm_tokens(config),
                 response: String::new(),
@@ -458,7 +444,6 @@ impl Context {
         // Let's make sure that the schema is correct.
         self.curr_raw_response = Some((q.to_string(), 0, ApiLog::new()));
         let parse_result = crate::parse::parse(q.as_bytes()).unwrap();
-        let _tool_call = validate_parse_result(&parse_result).unwrap();
 
         let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: interrupt });
         self.finish_turn(

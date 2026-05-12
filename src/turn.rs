@@ -12,7 +12,6 @@ use crate::{
     ToolCallError,
     ToolCallSuccess,
     count_bytes_of_llm_tokens,
-    get_first_tool_call,
 };
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -103,7 +102,7 @@ pub enum TurnKind {
 pub struct Turn {
     pub id: TurnId,
     pub raw_response: String,
-    pub parse_result: Option<Vec<ParsedSegment>>,
+    pub parse_result: Option<ParsedSegment>,
     pub turn_result: TurnResult,
     pub llm_elapsed_ms: u64,
     pub tool_elapsed_ms: u64,
@@ -116,7 +115,7 @@ pub struct Turn {
 impl Turn {
     pub fn new(
         raw_response: String,
-        parse_result: Option<Vec<ParsedSegment>>,
+        parse_result: Option<ParsedSegment>,
         turn_result: TurnResult,
         llm_elapsed_ms: u64,
         tool_elapsed_ms: u64,
@@ -164,6 +163,20 @@ impl Turn {
         )?)
     }
 
+    pub fn render_llm_response(&self, full_render: bool) -> String {
+        if full_render {
+            match &self.parse_result {
+                Some(ParsedSegment { cot, tool_str: Some(tool_str), .. }) => format!("{cot}{tool_str}"),
+                _ => self.raw_response.to_string(),
+            }
+        } else {
+            match &self.parse_result {
+                Some(ParsedSegment { tool_str: Some(tool_str), .. }) => tool_str.to_string(),
+                _ => self.raw_response.to_string(),
+            }
+        }
+    }
+
     // `.summary()` is used by be and fe, and `.preview()` is used by fe.
     pub fn summary(&self, config: &Config) -> TurnSummary {
         let result_len = count_bytes_of_llm_tokens(
@@ -172,14 +185,8 @@ impl Turn {
             // TODO: make it configurable
             /* bytes_per_image: */ 2048,
         );
-        let response_len_full = self.raw_response.len() as u64;
-        let response_len_short = match &self.parse_result {
-            Some(segments) => {
-                let Some(ParsedSegment::ToolCall { input, .. }) = get_first_tool_call(segments) else { unreachable!() };
-                input.len() as u64
-            },
-            None => response_len_full,
-        };
+        let response_len_full = self.render_llm_response(true).len() as u64;
+        let response_len_short = self.render_llm_response(false).len() as u64;
 
         TurnSummary {
             id: self.id.clone(),
@@ -195,8 +202,8 @@ impl Turn {
         let preview_title = match &self.parse_result {
             Some(parse_result) => {
                 match self.kind {
-                    TurnKind::Agent | TurnKind::SessionStart => if let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {
-                        call.preview()
+                    TurnKind::Agent | TurnKind::SessionStart => if let Some(tool) = &parse_result.tool {
+                        tool.preview()
                     } else {
                         String::from("???")
                     },

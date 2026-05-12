@@ -298,7 +298,7 @@ impl IcedContext {
 
 {}",
                     turn.preview().preview_title,
-                    turn.raw_response,
+                    turn.render_llm_response(true),
                     stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
                     turn.introduce_agents(),
                 ));
@@ -1312,7 +1312,7 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
         text!("# {index}. {}", turn.preview().preview_title).size(context.zoom * 14.0).into(),
         text!("<|LLM|>").size(context.zoom * 14.0).into(),
         Container::new(
-            render_llm_tokens(vec![LLMToken::String(turn.raw_response.to_string())], context)
+            render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
         text!("<|result|>").size(context.zoom * 14.0).into(),
         Container::new(

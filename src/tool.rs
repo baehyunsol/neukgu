@@ -15,7 +15,6 @@ use crate::{
     clean_sandbox,
     export_to_sandbox,
     from_browser_error,
-    get_first_tool_call,
     image,
     import_from_sandbox,
     prettify_bytes,
@@ -1102,8 +1101,8 @@ impl Context {
                 //       say "stop reading the instruction and start working". Instead of manual interruptions, the harness
                 //       interrupts the model and nudges it.
                 else if let ToolCall::Read { path, start: None, end: None } = tool {
-                    if let Some(parse_result) = &last_turn.parse_result && let Some(ParsedSegment::ToolCall { call, .. }) = get_first_tool_call(parse_result) {
-                        if let ToolCall::Read { path: last_path, start: None, end: None } = call && normalize_path(path) == normalize_path(last_path) && normalize_path(path).is_some() {
+                    if let Some(ParsedSegment { tool: Some(tool), .. }) = &last_turn.parse_result {
+                        if let ToolCall::Read { path: last_path, start: None, end: None } = tool && normalize_path(path) == normalize_path(last_path) && normalize_path(path).is_some() {
                             return Ok(Err(ToolCallError::ReadingExactSameFile { path: normalize_path(path).unwrap().join("/") }));
                         }
                     }

@@ -4,22 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum ParsedSegment {
-    String(String),
-    ToolCall {
-        call: ToolCall,
-        input: String,
-    },
-}
+pub struct ParsedSegment {
+    pub cot: String,
+    pub tool: Option<ToolCall>,
 
-pub fn get_first_tool_call(r: &[ParsedSegment]) -> Option<&ParsedSegment> {
-    for s in r.iter() {
-        if let ParsedSegment::ToolCall { .. } = s {
-            return Some(s);
-        }
-    }
-
-    None
+    // original str of the tool call
+    pub tool_str: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -37,7 +27,6 @@ pub enum ParseState {
 pub enum ParseError {
     NoTool,
     InvalidTool(String),
-    MultipleTools,
     InvalidArg {
         tool: String,
         arg: String,
@@ -87,14 +76,6 @@ Please call a tool.
                     |tool| format!("<{tool:?}>").to_ascii_lowercase()
                 ).collect::<Vec<_>>().join(", "),
             ),
-            ParseError::MultipleTools => String::from("
-Failed to call tools.
-
-You tried to call multiple tools in a single turn. I see multiple XML syntaxes in your response.
-NONE OF YOUR ACTIONS IN YOUR PREVIOUS TURN WAS RUN.
-You can call exactly 1 tool per turn. You have to call exactly 1 tool per turn, do you understand?
-I repeat, just call a single tool and finish your turn.
-            "),
             ParseError::InvalidArg { tool, arg, valid_args } => format!(
                 "`<{arg}>` is not a valid argument for tool `{tool}`. Available arguments are {}.",
                 valid_args.iter().map(|arg| format!("<{arg}>")).collect::<Vec<_>>().join(", "),
@@ -152,21 +133,14 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
     }
 }
 
-pub fn validate_parse_result(parse_result: &[ParsedSegment]) -> Result<ToolCall, ParseError> {
-    for segment in parse_result.iter() {
-        if let ParsedSegment::ToolCall { call, .. } = segment {
-            return Ok(call.clone())
-        }
-    }
-
-    // NOTE: `parse` already checked that there's only 1 tag
-    // TODO: any other checks to do?
-    unreachable!()
-}
-
-pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
+// Most LLMs, especially gpts try to call multiple tools per turn. I tried to prevent that with
+// prompts, but I couldn't. Instead, if there are multiple tool calls, the parser only takes the
+// first tool and ignores the others.
+pub fn parse(input: &[u8]) -> Result<ParsedSegment, ParseError> {
     let mut cursor = 0;
-    let mut segments = vec![];
+    let mut cot = String::new();
+    let mut tool = None;
+    let mut tool_str = None;
     let mut buffer = vec![];
     let mut state = ParseState::String;
 
@@ -174,7 +148,6 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
     let mut curr_tag_name = vec![];
     let mut curr_arg_name = vec![];
     let mut args = HashMap::new();
-    let mut valid_tag_count = 0;
 
     // If the first found tag is invalid, this var remembers the name.
     // It's later used to generate error messages.
@@ -195,7 +168,7 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
                                 args = HashMap::new();
 
                                 if !buffer.is_empty() {
-                                    segments.push(ParsedSegment::String(String::from_utf8_lossy(&buffer).to_string()));
+                                    cot = String::from_utf8_lossy(&buffer).to_string();
                                     buffer = vec![];
                                 }
 
@@ -223,16 +196,16 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
                 },
                 None => {
                     if !buffer.is_empty() {
-                        segments.push(ParsedSegment::String(String::from_utf8_lossy(&buffer).to_string()));
+                        cot = String::from_utf8_lossy(&buffer).to_string();
                     }
 
-                    return match valid_tag_count {
-                        0 => match first_tag_but_wrong_name {
+                    return if tool_str.is_none() {
+                        match first_tag_but_wrong_name {
                             Some(wrong_tag) => Err(ParseError::InvalidTool(String::from_utf8_lossy(&wrong_tag).to_string())),
                             None => Err(ParseError::NoTool),
-                        },
-                        1 => Ok(segments),
-                        _ => Err(ParseError::MultipleTools),
+                        }
+                    } else {
+                        Ok(ParsedSegment { cot, tool, tool_str })
                     };
                 },
             },
@@ -246,12 +219,9 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
 
                     if input.get(cursor..(cursor + end_tag.len())) == Some(end_tag) {
                         cursor += end_tag.len();
-                        segments.push(ParsedSegment::ToolCall {
-                            call: ToolCall::parse(*kind, &args)?,
-                            input: String::from_utf8_lossy(&input[tool_call_start..cursor]).to_string(),
-                        });
-                        valid_tag_count += 1;
-                        state = ParseState::String;
+                        tool = Some(ToolCall::parse(*kind, &args)?);
+                        tool_str = Some(String::from_utf8_lossy(&input[tool_call_start..cursor]).to_string());
+                        return Ok(ParsedSegment { cot, tool, tool_str });
                     }
 
                     else {
@@ -279,7 +249,7 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
                             first_tag_but_wrong_arg = Some(curr_tag_name.to_vec());
                         }
 
-                        segments.push(ParsedSegment::String(String::from_utf8_lossy(&input[tool_call_start..cursor]).to_string()));
+                        cot = String::from_utf8_lossy(&input[tool_call_start..cursor]).to_string();
                         state = ParseState::String;
                     },
                 },
@@ -288,7 +258,7 @@ pub fn parse(input: &[u8]) -> Result<Vec<ParsedSegment>, ParseError> {
                         first_tag_but_wrong_arg = Some(curr_tag_name.to_vec());
                     }
 
-                    segments.push(ParsedSegment::String(String::from_utf8_lossy(&input[tool_call_start..cursor]).to_string()));
+                    cot = String::from_utf8_lossy(&input[tool_call_start..cursor]).to_string();
                     state = ParseState::String;
                 },
             },

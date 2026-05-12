@@ -181,6 +181,11 @@ fn mock_requests() -> Vec<MockRequest> {
             "<read><start>-1</start><path>neukgu-instruction.md</path></read>",
             Some("is supposed to be in range"),
         ),
+        // If there are multiple tool-calls, the parser only takes the first one.
+        MockRequest::new(
+            "I'll call multiple tools hahaha<read><path>logs/summary-files.md</path></read>I'll read it again haha<read><path>logs/summary-files.md</path></read>",
+            Some("there's no instructions"),
+        ),
         // parse test end
 
         // cargo test

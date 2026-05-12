@@ -59,7 +59,7 @@ pub use image::{ImageId, normalize_and_get_id};
 use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use model::{Agents, ApiProvider, Model};
-pub use parse::{ParseError, ParsedSegment, get_first_tool_call, validate_parse_result};
+pub use parse::{ParseError, ParsedSegment};
 use pdf::{PdfId, render_and_get_id, render_first_10_pages};
 use prettify::{
     prettify_bytes,
@@ -208,42 +208,39 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     let tool_call_started_at = Instant::now();
     let mut wrote_summary = false;
     let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes()) {
-        Ok(parse_result) => match validate_parse_result(&parse_result) {
-            // A valid response has exactly 1 tool-call.
-            Ok(tool_call) => {
-                if let Err(e) = context.validate_tool_call(&tool_call)? {
-                    (Some(parse_result), TurnResult::ToolCallError(e))
+        Ok(ref parse_result @ ParsedSegment { tool: Some(ref tool), .. }) => {
+            if let Err(e) = context.validate_tool_call(tool)? {
+                (Some(parse_result.clone()), TurnResult::ToolCallError(e))
+            }
+
+            else {
+                match tool.run(context, config).await {
+                    Ok(tool_call_result) => {
+                        context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
+
+                        match tool_call_result {
+                            Ok(s) => {
+                                if let ToolCallSuccess::Write { is_summary: true, .. } = &s {
+                                    wrote_summary = true;
+                                }
+
+                                (Some(parse_result.clone()), TurnResult::ToolCallSuccess(s))
+                            },
+                            Err(e) => (Some(parse_result.clone()), TurnResult::ToolCallError(e)),
+                        }
+                    },
+                    Err(Error::UserInterrupt) => {
+                        context.logger.log(LogEntry::UserInterruptWhileToolCall)?;
+                        user_interrupt = true;
+                        (Some(parse_result.clone()), TurnResult::ToolCallError(ToolCallError::UserInterrupt))
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
                 }
-
-                else {
-                    match tool_call.run(context, config).await {
-                        Ok(tool_call_result) => {
-                            context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
-
-                            match tool_call_result {
-                                Ok(s) => {
-                                    if let ToolCallSuccess::Write { is_summary: true, .. } = &s {
-                                        wrote_summary = true;
-                                    }
-
-                                    (Some(parse_result), TurnResult::ToolCallSuccess(s))
-                                },
-                                Err(e) => (Some(parse_result), TurnResult::ToolCallError(e)),
-                            }
-                        },
-                        Err(Error::UserInterrupt) => {
-                            context.logger.log(LogEntry::UserInterruptWhileToolCall)?;
-                            user_interrupt = true;
-                            (Some(parse_result), TurnResult::ToolCallError(ToolCallError::UserInterrupt))
-                        },
-                        Err(e) => {
-                            return Err(e);
-                        },
-                    }
-                }
-            },
-            Err(e) => (Some(parse_result), TurnResult::ParseError(e)),
+            }
         },
+        Ok(_) => unreachable!(),
         Err(e) => (None, TurnResult::ParseError(e)),
     };
 
