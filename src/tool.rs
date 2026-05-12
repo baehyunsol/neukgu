@@ -899,7 +899,7 @@ impl ToolCallError {
             ToolCallError::NoSuchFile { path } => format!("There's no such file: `{path}`."),
             ToolCallError::NoPermissionToRead { path } => format!("You don't have a permission to read: `{path}`."),
             ToolCallError::TextTooLongToRead { path, length, limit } => format!(
-                "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 200 lines with <end>200</end>, or use search tools like ripgrep.",
+                "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 100 lines with <read><end>100</end><path>{path}</path></read>, or use search tools like ripgrep.",
                 prettify_bytes(*length),
                 prettify_bytes(*limit),
             ),

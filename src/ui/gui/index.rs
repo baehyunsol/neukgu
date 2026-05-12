@@ -20,6 +20,7 @@ use super::{
 };
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
+use super::worker::JobResult;
 use chrono::Local;
 use crate::{
     Config,
@@ -39,9 +40,9 @@ use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, text};
+use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::container::{Container, Style};
-use iced::widget::operation::{AbsoluteOffset, RelativeOffset, scroll_to, snap_to};
+use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
@@ -85,6 +86,8 @@ pub struct IcedContext {
     pub current_tabs: Vec<TabPreview>,
     pub working_dir_tab_indexes: HashMap<NeukguId, usize>,
     pub main_view_id: Id,
+    pub short_text_editor_id: Id,
+    pub long_text_editor_id: Id,
     pub main_view_scrolled: AbsoluteOffset,
     pub zoom: f32,
     pub now: String,
@@ -95,7 +98,7 @@ pub struct IcedContext {
     pub syntax_highlight: Option<String>,
 
     pub new_project_config: Config,
-    pub short_text_editor_content: TextEditorContent,
+    pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
 }
 
@@ -113,6 +116,8 @@ impl IcedContext {
             current_tabs: vec![],
             working_dir_tab_indexes: HashMap::new(),
             main_view_id: Id::unique(),
+            short_text_editor_id: Id::unique(),
+            long_text_editor_id: Id::unique(),
             main_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             zoom: 1.0,
             now: Local::now().to_rfc2822(),
@@ -122,7 +127,7 @@ impl IcedContext {
             copy_buffer: None,
             syntax_highlight: None,
             new_project_config: Config::default(),
-            short_text_editor_content: TextEditorContent::new(),
+            short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
         }
     }
@@ -166,7 +171,7 @@ impl IcedContext {
     pub fn close_popup(&mut self) {
         self.curr_popup = None;
         self.copy_buffer = None;
-        self.short_text_editor_content = TextEditorContent::with_text("");
+        self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
         self.syntax_highlight = None;
     }
@@ -201,10 +206,13 @@ pub enum IcedMessage {
     OpenPopup(Popup),
     ClosePopup,
     CopyPopupContent,
+    EditShortText(String),
     EditLongText(TextEditorAction),
-    EditShortText(TextEditorAction),
+    FocusShortTextEdit,
+    FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
     MainViewScrolled(AbsoluteOffset),
+    BackgroundJobResult(JobResult),
     Focus,
 }
 
@@ -313,7 +321,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::NewTab { .. } => unreachable!(),
         IcedMessage::OpenTab { .. } => unreachable!(),
         IcedMessage::NewProject => {
-            let project_name = context.short_text_editor_content.text();
+            let project_name = context.short_text_editor_content.to_string();
             validate_project_name(&project_name)?;
             let instruction = context.long_text_editor_content.text();
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
@@ -339,11 +347,17 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::CopyPopupContent => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
         },
+        IcedMessage::EditShortText(s) => {
+            context.short_text_editor_content = s;
+        },
         IcedMessage::EditLongText(a) => {
             context.long_text_editor_content.perform(a);
         },
-        IcedMessage::EditShortText(a) => {
-            context.short_text_editor_content.perform(a);
+        IcedMessage::FocusShortTextEdit => {
+            return Ok(focus(context.short_text_editor_id.clone()));
+        },
+        IcedMessage::FocusLongTextEdit => {
+            return Ok(focus(context.long_text_editor_id.clone()));
         },
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
@@ -351,6 +365,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::MainViewScrolled(o) => {
             context.main_view_scrolled = o;
         },
+        IcedMessage::BackgroundJobResult(_) => todo!(),
         IcedMessage::Focus => {
             return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
         },
@@ -665,14 +680,16 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let short_text_editor = TextEditor::new(&context.short_text_editor_content)
+    let short_text_editor = TextInput::new("Name of the project", &context.short_text_editor_content)
         .size(context.zoom * 14.0)
-        .placeholder("Name of the project")
-        .on_action(|action| IcedMessage::EditShortText(action));
+        .id(context.short_text_editor_id.clone())
+        .on_input(|input| IcedMessage::EditShortText(input))
+        .on_submit(IcedMessage::FocusLongTextEdit);
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
         .placeholder("What do you want neukgu to do?")
         .size(context.zoom * 14.0)
+        .id(context.long_text_editor_id.clone())
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 

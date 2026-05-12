@@ -16,6 +16,7 @@ mod index;
 mod popup;
 mod tab;
 mod tabs;
+mod worker;
 mod working_dir;
 
 use config::{SetProjectConfig, config_ui, set_project_config};

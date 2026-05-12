@@ -53,7 +53,7 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
         ("    Big Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.big, SetProjectConfig::SetBigAgent),
         ("  Small Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.small, SetProjectConfig::SetSmallAgent),
-        (" Search Agent: ", |m| *m != Model::Mock, config.agents.search, SetProjectConfig::SetSearchAgent),
+        (" Search Agent: ", |m| m.supports_web_search(), config.agents.search, SetProjectConfig::SetSearchAgent),
         ("Summary Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.summary, SetProjectConfig::SetSummaryAgent),
     ];
 

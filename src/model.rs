@@ -58,6 +58,19 @@ impl Model {
         }
     }
 
+    pub fn supports_web_search(&self) -> bool {
+        match self {
+            Model::GptMini => true,  // TODO: I haven't tested yet
+            Model::Gpt => true,
+            Model::OpenAiComp => false,
+            Model::Haiku => false,  // As of 2026-05-12
+            Model::Sonnet => true,
+            Model::Opus => true,
+            Model::Mock => false,
+            Model::Disabled => true,
+        }
+    }
+
     pub fn provider(&self) -> ApiProvider {
         match self {
             Model::GptMini => ApiProvider::OpenAi,

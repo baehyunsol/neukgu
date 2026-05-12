@@ -15,7 +15,16 @@ use super::{
     red,
     set_bg,
     set_project_config,
+    skyblue,
     take_chars,
+};
+use super::worker::{
+    Job,
+    JobId,
+    JobKind,
+    JobResult,
+    JobResultKind,
+    RgMatch,
 };
 use crate::{
     Config,
@@ -29,13 +38,13 @@ use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Stack, text};
+use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{
     Handle as ImageHandle,
     Viewer as ImageViewer,
 };
-use iced::widget::operation::{AbsoluteOffset, scroll_to};
+use iced::widget::operation::{AbsoluteOffset, focus, scroll_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
@@ -96,6 +105,8 @@ pub struct IcedContext {
     pub has_neukgu_index: bool,
     pub window_size: Size,
     pub entry_view_id: Id,
+    pub short_text_editor_id: Id,
+    pub long_text_editor_id: Id,
     pub entry_view_scrolled: AbsoluteOffset,
 
     // hovered_entry: mouse
@@ -111,11 +122,7 @@ pub struct IcedContext {
     pub popup_title: Option<String>,
     pub zoom: f32,
     pub new_project_config: Config,
-
-    // for name of the new project
-    pub short_text_editor_content: TextEditorContent,
-
-    // for `neukgu-instruction.md`
+    pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
 }
 
@@ -133,6 +140,8 @@ impl IcedContext {
             has_neukgu_index: check_neukgu_index(cwd)?,
             window_size,
             entry_view_id: Id::unique(),
+            short_text_editor_id: Id::unique(),
+            long_text_editor_id: Id::unique(),
             entry_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             hovered_entry: None,
             selected_entry: None,
@@ -144,7 +153,7 @@ impl IcedContext {
             popup_title: None,
             zoom: 1.0,
             new_project_config: Config::default(),
-            short_text_editor_content: TextEditorContent::new(),
+            short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
         };
 
@@ -259,6 +268,8 @@ impl IcedContext {
                 }
             },
             Popup::AskDelete { .. } => {},
+            Popup::Find { .. } => {},
+            Popup::FindResult { .. } => {},
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_text_editor_content(HELP_MESSAGE.to_string());
@@ -276,8 +287,8 @@ impl IcedContext {
         self.image_buffer = vec![];
         self.long_preview = None;
         self.popup_title = None;
+        self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
-        self.short_text_editor_content = TextEditorContent::with_text("");
     }
 
     pub fn set_text_editor_content(&mut self, c: String) {
@@ -309,10 +320,16 @@ pub enum IcedMessage {
     Create { path: String },
     Init { path: String },
     Launch { path: String },
-    EditShortText(TextEditorAction),
+    NewBrowser { dir: String, file: Option<String> },
+    Find,
+    EditShortText(String),
     EditLongText(TextEditorAction),
+    FocusShortTextEdit,
+    FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
     Error(String),
+    BackgroundJob(Job),
+    BackgroundJobResult(JobResult),
     Focus,
 
     // Kill: The caller wants to kill this tab.
@@ -346,6 +363,17 @@ pub enum Popup {
     EntryError(String),
     Preview { path: String },
     AskDelete { is_dir: bool, path: String },
+    Find {
+        error: Option<String>,
+
+        // It'll be set when the background worker starts working.
+        job: Option<JobId>,
+    },
+    FindResult {
+        regex: String,
+        matches: Vec<RgMatch>,
+        truncate: Option<usize>,
+    },
     Help,
 }
 
@@ -413,6 +441,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() })));
                 }
             },
+            (Key::Character("f"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Find { error: None, job: None })));
+                }
+            },
             (Key::Character("h"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
@@ -454,8 +487,22 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.hovered_entry = e;
         },
         IcedMessage::OpenPopup(popup) => {
+            let mut tasks: Vec<Task<IcedMessage>> = vec![
+                scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled),
+            ];
+
+            match &popup {
+                Popup::Create { .. } | Popup::Find { .. } => {
+                    tasks.push(focus(context.short_text_editor_id.clone()));
+                },
+                Popup::Init { .. } => {
+                    tasks.push(focus(context.long_text_editor_id.clone()));
+                },
+                _ => {},
+            }
+
             context.open_popup(popup)?;
-            return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::ClosePopup => {
             context.close_popup();
@@ -484,7 +531,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.entries = load_entries(&context.cwd)?;
         },
         IcedMessage::Create { path } => {
-            let project_name = context.short_text_editor_content.text();
+            let project_name = context.short_text_editor_content.to_string();
             validate_project_name(&project_name)?;
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
@@ -498,11 +545,33 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),
+        IcedMessage::NewBrowser { .. } => unreachable!(),
+        IcedMessage::Find => {
+            let job_id = JobId::new();
+
+            if let Some(Popup::Find { job, .. }) = &mut context.curr_popup {
+                *job = Some(job_id);
+            }
+
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: job_id,
+                kind: JobKind::Rg {
+                    path: context.cwd.to_string(),
+                    regex: context.short_text_editor_content.to_string(),
+                },
+            })));
+        },
+        IcedMessage::EditShortText(s) => {
+            context.short_text_editor_content = s;
+        },
         IcedMessage::EditLongText(a) => {
             context.long_text_editor_content.perform(a);
         },
-        IcedMessage::EditShortText(a) => {
-            context.short_text_editor_content.perform(a);
+        IcedMessage::FocusShortTextEdit => {
+            return Ok(focus(context.short_text_editor_id.clone()));
+        },
+        IcedMessage::FocusLongTextEdit => {
+            return Ok(focus(context.long_text_editor_id.clone()));
         },
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
@@ -511,6 +580,28 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
         },
         IcedMessage::Error(_) => unreachable!(),
+        IcedMessage::BackgroundJob(_) => unreachable!(),
+        IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
+            JobResultKind::RgTimeout => {
+                match &mut context.curr_popup {
+                    Some(Popup::Find { error, job }) if *job == job_result.id => {
+                        *job = None;
+                        *error = Some(String::from("ripgrep timeout"));
+                    },
+                    _ => {},
+                }
+            },
+            JobResultKind::Rg { regex, matches } => {
+                let (matches, truncate) = if matches.len() < 500 {
+                    (matches.to_vec(), None)
+                } else {
+                    (matches[..500].to_vec(), Some(matches.len() - 500))
+                };
+
+                context.open_popup(Popup::FindResult { regex: regex.to_string(), matches, truncate })?;
+            },
+            _ => {},
+        },
         IcedMessage::Kill => {
             return Ok(Task::done(IcedMessage::Dead));
         },
@@ -556,6 +647,46 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_create_popup(path, context),
+        ]).into();
+    } else if let Some(Popup::Find { error, job }) = &context.curr_popup {
+        let text_editor = TextInput::new("regex", &context.short_text_editor_content)
+            .size(context.zoom * 14.0)
+            .id(context.short_text_editor_id.clone())
+            .on_input(|input| IcedMessage::EditShortText(input))
+            .on_submit(IcedMessage::Find);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Column::from_vec(vec![
+                    text_editor.into(),
+                    if job.is_some() {
+                        text!("Finding...").size(context.zoom * 14.0).into()
+                    } else {
+                        Space::new().into()
+                    },
+                    if let Some(error) = error {
+                        text!("{error}").size(context.zoom * 14.0).color(red()).into()
+                    } else {
+                        Space::new().into()
+                    },
+                    if job.is_some() {
+                        disabled_button("Find", green(), context.zoom).padding(context.zoom * 20.0).into()
+                    } else {
+                        button("Find", IcedMessage::Find, green(), context.zoom).padding(context.zoom * 20.0).into()
+                    },
+                ])
+                    .spacing(context.zoom * 20.0)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill)
+                    .into(),
+                context,
+            ).into(),
+        ]).into();
+    } else if let Some(Popup::FindResult { regex, matches, truncate }) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(render_find_result(regex, matches, *truncate, context), context).into(),
         ]).into();
     } else if let Some(Popup::EntryError(_) | Popup::Preview { .. } | Popup::Help) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
@@ -637,11 +768,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    if context.curr_popup.is_some() {
-        return Container::new(text!("")).padding(context.zoom * 8.0).into();
-    }
-
-    let mut buttons_row1: Vec<Element<IcedMessage>> = if context.has_neukgu_index {
+    let mut buttons_row1: Vec<Button<IcedMessage>> = if context.has_neukgu_index {
         vec![
             button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into(),
             button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom).into(),
@@ -652,7 +779,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
             button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom).into(),
         ]
     };
-    let mut buttons_row2: Vec<Element<IcedMessage>> = vec![];
+    let mut buttons_row2: Vec<Button<IcedMessage>> = vec![];
 
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
 
@@ -661,6 +788,18 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     }
 
     buttons_row2.push(button("Home", IcedMessage::ChDir(context.home_dir.to_string()), blue(), context.zoom).into());
+    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup(Popup::Find { error: None, job: None }), blue(), context.zoom).into());
+
+    let buttons_row1 = if context.curr_popup.is_some() {
+        buttons_row1.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+    } else {
+        buttons_row1.into_iter().map(|button| button.into()).collect()
+    };
+    let buttons_row2 = if context.curr_popup.is_some() {
+        buttons_row2.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+    } else {
+        buttons_row2.into_iter().map(|button| button.into()).collect()
+    };
 
     Column::from_vec(vec![
         Row::from_vec(buttons_row1).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into(),
@@ -675,7 +814,11 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         row.push(text!(">> ").size(context.zoom * 14.0).into());
     }
 
-    row.push(button("Delete", IcedMessage::OpenPopup(Popup::AskDelete { is_dir: entry.is_dir, path: entry.path.to_string() }), red(), context.zoom).into());
+    if context.curr_popup.is_some() {
+        row.push(disabled_button("Delete", red(), context.zoom).into());
+    } else {
+        row.push(button("Delete", IcedMessage::OpenPopup(Popup::AskDelete { is_dir: entry.is_dir, path: entry.path.to_string() }), red(), context.zoom).into());
+    }
 
     let char_count = count_chars(&entry.name);
     let is_dir = entry.is_dir;
@@ -748,7 +891,13 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     row.push(name_container.into());
 
     if let Some(e) = &entry.error {
-        row.push(button("(!)", IcedMessage::OpenPopup(Popup::EntryError(e.to_string())), red(), context.zoom).into());
+        if context.curr_popup.is_some() {
+            row.push(disabled_button("(!)", red(), context.zoom).into());
+        }
+
+        else {
+            row.push(button("(!)", IcedMessage::OpenPopup(Popup::EntryError(e.to_string())), red(), context.zoom).into());
+        }
     }
 
     if entry.has_neukgu_index {
@@ -760,8 +909,9 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
 
 fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let text_editor = TextEditor::new(&context.long_text_editor_content)
-        .size(context.zoom * 14.0)
         .placeholder("What do you want neukgu to do?")
+        .size(context.zoom * 14.0)
+        .id(context.long_text_editor_id.clone())
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 
@@ -783,14 +933,16 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
 }
 
 fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let short_text_editor = TextEditor::new(&context.short_text_editor_content)
+    let short_text_editor = TextInput::new("Name of the project", &context.short_text_editor_content)
         .size(context.zoom * 14.0)
-        .placeholder("Name of the project")
-        .on_action(|action| IcedMessage::EditShortText(action));
+        .id(context.short_text_editor_id.clone())
+        .on_input(|input| IcedMessage::EditShortText(input))
+        .on_submit(IcedMessage::FocusLongTextEdit);
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
         .placeholder("What do you want neukgu to do?")
         .size(context.zoom * 14.0)
+        .id(context.long_text_editor_id.clone())
         .min_height(400)
         .on_action(|action| IcedMessage::EditLongText(action));
 
@@ -921,4 +1073,51 @@ fn dump_hex(bytes: &[u8], offset: usize) -> String {
             format!("{:08x} | {pre}    {post} | {pre_ascii}  {post_ascii} \n", i * 16 + offset)
         }
     ).collect::<Vec<_>>().concat()
+}
+
+fn render_find_result<'f, 'm, 'c>(regex: &'f str, matches: &'m [RgMatch], truncate: Option<usize>, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let mut lines = vec![];
+    let mut curr_path = String::new();
+
+    for m in matches.iter() {
+        if curr_path != m.path {
+            lines.push(
+                Row::from_vec(vec![
+                    text!("{}", m.path).size(context.zoom * 14.0).into(),
+                    button("Open", IcedMessage::NewBrowser { dir: parent(&m.path).unwrap(), file: Some(basename(&m.path).unwrap()) }, skyblue(), context.zoom).into(),
+                ])
+                    .padding(context.zoom * 8.0)
+                    .spacing(context.zoom * 8.0)
+                    .align_y(Vertical::Center)
+                    .into()
+            );
+            curr_path = m.path.to_string();
+        }
+
+        let mut highlights = vec![
+            text!("{:>6} | ", m.line_number).size(context.zoom * 14.0).into(),
+        ];
+        let mut curr_index = 0;
+
+        for (start, end) in m.submatches.iter() {}
+
+        if curr_index < m.line.len() {
+            highlights.push(text!("{}", m.line.get(curr_index..).unwrap().trim_end()).size(context.zoom * 14.0).into());
+        }
+
+        lines.push(Row::from_vec(highlights).into());
+    }
+
+    Column::from_vec(vec![
+        text!("find {regex:?}").size(context.zoom * 14.0).into(),
+        text!(
+            "{} result{}{}",
+            matches.len() + truncate.unwrap_or(0),
+            if matches.len() == 1 { "" } else { "s" },
+            if let Some(truncate) = truncate { format!(" ({truncate} truncated)") } else { String::new() },
+        ).size(context.zoom * 14.0).into(),
+        Scrollable::new(
+            Column::from_vec(lines).width(context.window_size.width)
+        ).into(),
+    ]).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into()
 }

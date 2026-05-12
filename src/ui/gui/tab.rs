@@ -10,6 +10,7 @@ use super::error::{
     IcedMessage as ErrorMessage,
 };
 use super::tabs::Tab;
+use super::worker::{Job, JobResult};
 use super::working_dir::{
     self,
     IcedContext as WorkingDirContext,
@@ -132,6 +133,8 @@ pub enum IcedMessage {
     Error(ErrorMessage),
     Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
+    BackgroundJob(Job),
+    BackgroundJobResult(JobResult),
     WindowResized(Size),
     Focus,
 
@@ -187,6 +190,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         (_, IcedMessage::Browser(BrowserMessage::Dead) | IcedMessage::WorkingDir(WorkingDirMessage::Dead) | IcedMessage::Error(ErrorMessage::Dead)) => {
             Task::done(IcedMessage::Dead)
         },
+        (_, IcedMessage::Browser(BrowserMessage::BackgroundJob(job)) | IcedMessage::WorkingDir(WorkingDirMessage::BackgroundJob(job))) => {
+            Task::done(IcedMessage::BackgroundJob(job))
+        },
         (context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
             match WorkingDirContext::new(false, &path, context.window_size(), context.zoom()) {
@@ -210,6 +216,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.cwd = path.to_string();
             browser::update(c, BrowserMessage::ChDir(path)).map(|t| IcedMessage::Browser(t))
         },
+        (LocalContext::Browser(c), IcedMessage::BackgroundJobResult(r)) => browser::update(c, BrowserMessage::BackgroundJobResult(r)).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::Focus) => browser::update(c, BrowserMessage::Focus).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
         (LocalContext::WorkingDir(c), IcedMessage::Tick { frame, force_update }) => working_dir::update(c, WorkingDirMessage::Tick { frame, force_update }).map(|t| IcedMessage::WorkingDir(t)),
@@ -218,6 +225,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             c.window_size = s;
             Task::none()
         },
+        (LocalContext::WorkingDir(c), IcedMessage::BackgroundJobResult(r)) => working_dir::update(c, WorkingDirMessage::BackgroundJobResult(r)).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::Focus) => working_dir::update(c, WorkingDirMessage::Focus).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Error(t)),

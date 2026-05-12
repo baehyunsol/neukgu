@@ -1,4 +1,5 @@
 use super::{black, circle, count_chars, gray, set_bg, take_chars, white};
+use super::browser::IcedMessage as BrowserMessage;
 use super::index::{
     self,
     IcedContext as IndexContext,
@@ -11,6 +12,7 @@ use super::tab::{
     LocalContext,
     TabId,
 };
+use super::worker::{JobResult, Workers, init_workers};
 use super::working_dir::IcedMessage as WorkingDirMessage;
 use crate::get_neukgu_id;
 use iced::{Background, Color, Element, Length, Size, Task};
@@ -23,6 +25,7 @@ use iced::widget::container::{Container, Style as ContainerStyle};
 use iced::widget::operation::scroll_to;
 use iced::widget::scrollable::AbsoluteOffset;
 use ragit_fs::{basename, current_dir};
+use std::collections::hash_map::{Entry, HashMap};
 
 pub struct IcedContext {
     pub home_dir: String,
@@ -34,6 +37,7 @@ pub struct IcedContext {
 
     pub index: IndexContext,
     pub tabs: Vec<TabContext>,
+    pub workers: Workers,
 }
 
 impl IcedContext {
@@ -50,6 +54,7 @@ impl IcedContext {
             selected_tab: None,
             index: IndexContext::new(&home_dir),
             tabs: vec![],
+            workers: init_workers(4),
         }
     }
 }
@@ -98,7 +103,11 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Some(_) => Task::none(),
             None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
         },
-        IcedMessage::Tab { id: _, message: TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file }) } => {
+        IcedMessage::Tab { id, message: TabMessage::BackgroundJob(w) } => {
+            context.workers.push(Some(id), w).unwrap();
+            Task::none()
+        },
+        IcedMessage::Tab { id: _, message: TabMessage::Browser(BrowserMessage::NewBrowser { dir, file }) | TabMessage::WorkingDir(WorkingDirMessage::OpenBrowser { dir, file }) } => {
             Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir, file }, force_new_tab: false })
         },
         IcedMessage::Tab { id, message: TabMessage::Dead } => {
@@ -123,11 +132,34 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::Tick => {
             let mut tasks = vec![];
+            let mut job_results_by_tab_id: HashMap<TabId, Vec<JobResult>> = HashMap::new();
             context.frame += 1;
+
+            for (job_result, tab_id) in context.workers.poll() {
+                match tab_id {
+                    Some(tab_id) => match job_results_by_tab_id.entry(tab_id) {
+                        Entry::Occupied(mut e) => {
+                            e.get_mut().push(job_result);
+                        },
+                        Entry::Vacant(e) => {
+                            e.insert(vec![job_result]);
+                        },
+                    },
+                    None => {
+                        tasks.push(index::update(&mut context.index, IndexMessage::BackgroundJobResult(job_result)).map(|m| IcedMessage::Index(m)));
+                    },
+                }
+            }
 
             for t in context.tabs.iter_mut() {
                 let id = t.id;
                 tasks.push(tab::update(t, TabMessage::Tick { frame: context.frame, force_update: false }).map(move |message| IcedMessage::Tab { id, message }));
+
+                if let Some(job_results) = job_results_by_tab_id.remove(&id) {
+                    for job_result in job_results.into_iter() {
+                        tasks.push(tab::update(t, TabMessage::BackgroundJobResult(job_result)).map(move |message| IcedMessage::Tab { id, message }));
+                    }
+                }
             }
 
             tasks.push(index::update(&mut context.index, IndexMessage::Tick { frame: context.frame, force_update: false }).map(|m| IcedMessage::Index(m)));

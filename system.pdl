@@ -147,8 +147,6 @@ It's very useful! Let's say you want to scroll 500 pixels down before taking a s
 ---
 
 You have to use exactly 1 tool per turn. When you call a tool, finish your turn and wait for response.
-I repeat, you can call exactly 1 tool per turn. Finish your turn immediately after calling a tool.
-I repeat, you have to 1) explain what your gonna do, 2) call 1 tool with the XML syntax, 3) then FINISH YOUR TURN IMMEDIATELY.
 
 ---
 

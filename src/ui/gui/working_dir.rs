@@ -21,6 +21,7 @@ use super::{
     white,
     yellow,
 };
+use super::worker::{Job, JobResult};
 use crate::{
     Config,
     Error,
@@ -473,6 +474,8 @@ pub enum IcedMessage {
     IsInterruptTextEditorFocused(bool),
     OpenBrowser { dir: String, file: Option<String> },
     Error(String),
+    BackgroundJob(Job),
+    BackgroundJobResult(JobResult),
     Focus,
 
     // Kill: The caller wants to kill this tab. This tab will show a popup "quit session?".
@@ -918,6 +921,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
+        IcedMessage::BackgroundJob(_) => unreachable!(),
+        IcedMessage::BackgroundJobResult(_) => todo!(),
         IcedMessage::Focus => {
             return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
         },
@@ -1455,7 +1460,11 @@ fn render_interrupt_text_editor<'c>(context: &'c IcedContext) -> Element<'c, Ice
             Space::new().width(window_width * 0.05).into(),
             text_editor.into(),
             Space::new().width(window_width * 0.05).into(),
-            button("Interrupt", IcedMessage::InterruptNeukgu, blue(), context.zoom).into(),
+            if context.curr_popup.is_some() || context.llm_request.is_some() {
+                disabled_button("Interrupt", blue(), context.zoom).into()
+            } else {
+                button("Interrupt", IcedMessage::InterruptNeukgu, blue(), context.zoom).into()
+            },
         ])
             .height(Length::Fill)
             .align_y(Vertical::Center)

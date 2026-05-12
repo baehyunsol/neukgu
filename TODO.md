@@ -71,23 +71,22 @@
 56. search
   - working dir (turns)
     - complete!
+    - 지금은 turn의 title에서만 검색을 하는데 turn의 내용에서 검색하는 것도 필요함...
   - browser에서도 검색 기능이 있으면 좋을 듯?
     - 이거는 rg를 활용할 수도 있음 (어차피 깔려있을테니!). `rg <pattern> --json` 한다음에 결과물을 뜯어서 rendering해도 됨!
     - 근데 rg를 fe에서 돌리면 랙이 엄청 걸릴텐데?? 별도의 process에서 async하게 돌려야함...
   - 온갖 popup에서도 검색이 되면 좋을 듯? 파일 내용을 보다가 그 안에서 검색하기!!
     - 파일 내용 안에서 검색하는 거는 현재 UI에서는 한계가 있음... 파일 내용 popup -> 검색 내용 popup -> 검색 결과 popup 이렇게 3중으로 가야하는데 지금 구현으로는 2중이 최대임...
+    - 파일 내용 안에서 검색하는 거 점점 절실히 필요해짐... 아니면 이런 거 ㅇㄸ: popup 아래에 text_input을 박아두는 거임. 거기서 검색 버튼 누르면 검색 결과 popup이 뜸
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
-  - When initializing a new working-dir, it can
+  - config ui
     - enable/disable tools/binaries
-      - I'm not gonna update the system prompt (or maybe I have to do so...)
-      - when the AI calls the tool, it'll reject it with an error message
+      - when the AI calls a disabled tool/binary, it'll reject it with an error message
       - If we can disable binaries, what's the point of `Error::UnavailableBinaries`?
   - set api key with GUI
     - 이게 젤 필요함. 지금 너무 귀찮음 ㅠㅠ
     - OPENAI_MODEL, OPENAI_BASE_URL -> 이것도 gui에서 고칠 수 있게 하자!!
-  - Change configs while neukgu is running
-    - enable/disable tools/binariess
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
   - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
@@ -103,6 +102,7 @@
   - ClaudeCode: 다른 machine에서 도는 harness를 모바일에서 확인할 수 있대
   - ClaudeCode: inter-session으로 관리되는 memory가 있어서 사용자의 성향을 반영할 수 있대
   - ClaudeCode: instant rewind가 가능하대. 어찌됐든 rollback 기능은 꼭 넣어야 할 듯...
+  - (레딧에서 봄) ClaudeCode: 사용자가 ClaudeCode를 안 쓰는 동안, 최근 session을 검토하면서 새로 알게된 정보들을 정리한대. 이 기능이름이 "dream"임 ㅋㅋ
 69. 지금은 diff를 edit마다 따로 봐야하잖아? 더 긴 기간에 걸친 diff를 한눈에 보고 싶음!!
   - 구현은 쉬움. 첫번째 write의 content와 diff가 있잖아? 저 content에 diff를 rev-apply하면 첫번째 write 이전의 content가 나옴. 그럼 그 content랑 현재의 content를 diff를 떠버리면 됨.
     - 현재의 content를 가져올 때는 반드시 파일을 직접 읽어야함! `<run>`같은 걸로 수정했을 수도 있으니까...
@@ -134,13 +134,6 @@
   - hex view 추가: hex_dump랑 비슷하게 던지기!
   - 지금은 확장자 보고 어떻게 렌더링할지 자동으로 결정하잖아? 이거를 llm한테 결정하게 하는 거임! png 파일을 이미지로 볼지 hex로 볼지 고를 수 있음
   - 온갖 문서 파일들 다 렌더링할까? docx, hwpx등등도 pdf처럼 다루면 좋을 듯...
-77. brainstorming mode
-  - chat with AI to brainstorm, and can launch a new project from this ui
-  - 아니면, working dir 안에서 채팅을 할 수 있게할까?
-    - turn을 다 보면서 채팅을 함? 그럼 대답을 tool-call로 해? 그것도 이상한데...
-  - chat history도 당연히 남겨야 함!
-  - chat에다가 파일 첨부하기..??
-    - 이걸 할거면 걍 에이전트를 넣어버려? 그럼 결국엔 늑구가 되는데? ㅋㅋㅋ
 79. CLI를 좀 더 linux style로 바꾸자
   -  `neukgu gui <path>`
     - dir일 경우 browser, file일 경우 browser + preview
@@ -156,6 +149,7 @@
   - 이거 테스트할 수 있는 환경을 만들어야함!
 88. text edit
   - https://github.com/shareAI-lab/learn-claude-code/blob/main/agents/s02_tool_use.py 보니까 edit를 엄청 무식하게 구현해놨음. old_text랑 new_text 준 다음에 `.replace()` 해버림... 근데 또 생각해보면, 대부분의 경우에서는 잘 동작할 거 같기도?
+  - 늑구를 쓰다보니 이미 AI가 이런 식으로 시도를 함. 내가 `<edit>`을 안 주니까 본인들이 알아서 Python script를 짠 다음에 그 안에서 `.replace()`를 호출해버림! 일단 AI가 이런 작업을 할 역량이 있는 건 확인했으니 툴을 어떻게 예쁘게 만들지만 고민하면 됨!
 90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!! (yellow??!!)
   - 파일 수정 시각
   - dir일 경우, recursive하게 크기 측정
@@ -174,12 +168,7 @@
   - vis agent가 만든 결과물을 main agent가 확인했는데 마음에 안 들면?
   - vis agent가 만든 결과물을 사람이 확인했는데 마음에 안 들면?
   - vis agent가 만든 결과물을 main agent가 확인할 수 있으려면 `<read>`가 쟤네를 전부 지원해야함...
-95. openai-compatible API, anthropic-compatible API
-  - OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL -> 이렇게 3개의 환경변수를 읽어서 동작
-  - openai는 api 형태가 2종류인데? chat-completion vs responses
-    - 이 둘은 어떻게 구분?
-    - 일단 그냥 chat-completion만 받자 ㅋㅋ
-  - big_agent랑 search_agent랑 다른 모델인데 둘다 openai-compatible로 쓰고싶을 경우...
+  - vis agent가 돌면 GUI에서는 어떻게 보임?
 96. Issues (literally, like github)
   - Issues are stored in `.neukgu/`.
   - It provides github-like interface.
@@ -198,7 +187,6 @@
     - 아직 sub-agent를 어떻게 할지도 안 정해졌는데...
 98. use neukgu to improve neukgu
   - add gemini api
-  - add openai chat-completion api
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files
@@ -245,6 +233,17 @@
   - working_dir -> interrupt 버튼이 비활성화가 안됨
 120. tool call을 자꾸 여러번 하려고 함...
   - tool call을 여러번 했는데 syntax는 다 맞는 경우, 그냥 첫번째 tool call만 남기고 나머지는 다 날려버리자!
+121. 파일을 보다가 (혹은 뭐가 됐든 긴 글을 보다가), 그 글을 주고 질문을 할 수 있게 하고 싶음!
+  - 아주 가벼운 ragit을 만드는 거지
+  - 파일 길이가 웬만큼 짧으면, 파일 내용과 질문을 통으로 다 주고 응답을 받으면 됨
+122. chat mode
+  - 일단 `chat.rs`는 있음. 이거 때매 자꾸 warning 뜨는데 빨랑 구현해야함 ㅋㅋㅋ
+  - 이거는 backend를 어떻게 만들지? 아예 새로 만들어야하나??
+    - 아니면 이건 ㅇㄸ? 56번 이슈 해결할 겸 겸사겸사 fe-background-worker를 만들고, 그걸로 실행시켜버리는 거임 ㅋㅋㅋ
+123. background worker (for fe)
+  - 56번 이슈의 rg도 해결하고 122번 이슈의 백엔드도 해결!!
+  - `tabs::Context`에다가 `workers: Vec<Worker>`를 추가하자!
+  - 통신은 어떻게 함?? tab에서 요청을 보내면 tab_id와 req_id를 기억하고 있다가 다시 돌려주면 됨
 
 ## mock API
 
