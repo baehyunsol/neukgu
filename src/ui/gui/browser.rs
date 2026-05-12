@@ -61,15 +61,31 @@ use ragit_fs::{
 use std::sync::Arc;
 
 const HELP_MESSAGE: &str = r#"
-There are multiple ways to work with neukgu.
+# File Browser & Viewer
 
-1. Create a new project and make neukgu work in the new directory.
-   In order to do this, click the "Create new" button.
+## Neukgu working dir
 
-2. You already have a working directory, and you want neukgu to work
-   in the existing directory.
-   In order to do this, go to the directory and click the "Init here" button.
-   If neukgu is already working in the directory, you'll see a "Launch" button.
+You can create or initialize a neukgu working directory in file browser.
+
+1. Creating a new project will create a directory and initialize a neukgu working directory.
+2. `Init here` button will turn the current directory into a neukgu working directory.
+
+## Key bindings
+
+- Esc: close popup
+- Alt+Up: `cd ..`
+- (Ctrl)+Up/Down: prev/next file entry (Ctrl to move faster)
+- Ctrl+Plus/Minus: zoom
+- Ctrl+C: create working dir
+- Ctrl+H: help message
+- Ctrl+I: init working dir
+- Ctrl+L: launch working dir
+- Ctrl+T: new tab
+- Ctrl+W: close tab
+- Ctrl+Y: yes (confirm popup)
+- Alt+Num: switch tab
+- Enter: select file entry
+- Delete: delete selected file entry
 "#;
 
 #[derive(Clone, Debug)]
@@ -412,7 +428,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::Launch { path: context.cwd.clone() }));
                 }
             },
-            (Key::Character("y"), false, false, false) => {
+            (Key::Character("y"), true, false, false) => {
                 if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
                     if *is_dir {
                         return Ok(Task::done(IcedMessage::DeleteDirectory(path.to_string())));
@@ -542,7 +558,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             render_create_popup(path, context),
         ]).into();
     } else if let Some(Popup::EntryError(_) | Popup::Preview { .. } | Popup::Help) = &context.curr_popup {
-        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 14.0);
+        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
 
         if let Some((pre, trunc, post)) = &context.long_preview {
             full_view_stacked = Stack::from_vec(vec![

@@ -14,10 +14,10 @@ This is an internal document. I'll update the GUI help messages as soon as possi
 - Ctrl+L: launch working dir
 - Ctrl+T: new tab
 - Ctrl+W: close tab
+- Ctrl+Y: yes (confirm popup)
 - Alt+Num: switch tab
 - Enter: select file entry
 - Delete: delete selected file entry
-- Y: yes (confirm popup)
 
 ## Index
 

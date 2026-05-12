@@ -77,8 +77,9 @@ impl Logger {
 
     // Many functions rely on the fact that each line in the log file is short.
     // Make sure that each line is shorter than 80 bytes.
-    pub fn log(&self, entry: LogEntry) -> Result<(), Error> {
-        if !self.enabled { return Ok(()); }
+    // If it creates an extra log file, it returns the LogId of the extra log.
+    pub fn log(&self, entry: LogEntry) -> Result<Option<LogId>, Error> {
+        if !self.enabled { return Ok(None); }
 
         let now = Local::now();
         let log_id = LogId::new();
@@ -136,9 +137,12 @@ impl Logger {
 
             // It makes extra_content files are almost always ordered by creation time.
             sleep(Duration::from_millis(100));
+            Ok(Some(log_id))
         }
 
-        Ok(())
+        else {
+            Ok(None)
+        }
     }
 
     pub fn log_api_usage(&self, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {

@@ -11,6 +11,7 @@ use super::{
     gray,
     green,
     into_popup,
+    pink,
     red,
     set_project_config,
     skyblue,
@@ -57,6 +58,23 @@ use ragit_fs::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+
+const HELP_MESSAGE: &str = r#"
+# Neukgu
+
+## Key bindings
+
+- Esc: close popup
+- Ctrl+Up/Down: scroll to top/bottom
+- Ctrl+Plus/Minus: zoom
+- Ctrl+C: new chat
+- Ctrl+H: help message
+- Ctrl+P: new project
+- Ctrl+T: new tab
+- Ctrl+W: close tab
+- Ctrl+Y: yes (confirm popup)
+- Alt+Num: switch tab
+"#;
 
 pub struct IcedContext {
     pub home_dir: String,
@@ -134,6 +152,11 @@ impl IcedContext {
                 self.syntax_highlight = Some(String::from("md"));
             },
             Popup::AskDelete { .. } => {},
+            Popup::Help => {
+                self.copy_buffer = Some(HELP_MESSAGE.to_string());
+                self.set_long_text_editor_content(HELP_MESSAGE.to_string());
+                self.syntax_highlight = Some(String::from("md"));
+            },
             Popup::Error(_) => {},
         }
 
@@ -201,6 +224,7 @@ pub enum Popup {
         project_name: String,
         working_dir: String,
     },
+    Help,
     Error(String),
 }
 
@@ -249,6 +273,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("c"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat, force_new_tab: true }));
+                }
+            },
+            (Key::Character("h"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
                 }
             },
             (Key::Character("p"), true, false, false) => {
@@ -369,9 +398,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     let c = Column::from_vec(vec![
-        Row::from_vec(vec![
-            text!("{}", context.now).size(context.zoom * 14.0).into(),
-            render_battery_state(context),
+        Column::from_vec(vec![
+            Row::from_vec(vec![
+                text!("{}", context.now).size(context.zoom * 14.0).into(),
+                render_battery_state(context),
+            ])
+                .spacing(context.zoom * 8.0)
+                .into(),
+            render_buttons(context),
         ])
             .padding(context.zoom * 8.0)
             .spacing(context.zoom * 8.0)
@@ -460,7 +494,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Instruction { .. }) = context.curr_popup {
+    else if let Some(Popup::Instruction { .. } | Popup::Help) = context.curr_popup {
         let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
             iced::highlighter::Theme::SolarizedDark,
@@ -473,6 +507,18 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     full_view_stacked
+}
+
+fn render_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let mut buttons = vec![
+        button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom),
+    ];
+
+    if context.curr_popup.is_some() {
+        buttons = buttons.into_iter().map(|button| button.on_press_maybe(None)).collect();
+    }
+
+    Row::from_vec(buttons.into_iter().map(|button| button.into()).collect()).spacing(context.zoom * 8.0).into()
 }
 
 fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {

@@ -69,7 +69,7 @@ use std::process::Child;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
-const HELP_MESSAGE: &str = "
+const HELP_MESSAGE: &str = r#"
 This is a neukgu's working directory.
 
 Neukgu reads files, writes files and runs programs inside the directory in order to
@@ -110,14 +110,55 @@ If a turn is marked green or blue, the turn is in the neukgu's context. If it's 
 turn, including LLM's thoughts are included in the context. If it's blue, LLM's thoughts are not
 in the context. You can't control this. Only harness can do.
 
-You can also use C key to toggle a turn's visibility.
+You can also use Ctrl+V key to toggle a turn's visibility.
 
 ## Done
 
 When neukgu finishes his job, he'll create `logs/done` file and go to sleep. If you're
 not satisfied with his work, you can interrupt him to do more work.
 He'll remove `logs/done` file and do more work.
-";
+
+## Reset
+
+You can reset the instruction and restart the session. It resets the session (turns are gone),
+but all the files, except `logs/done` are kept.
+
+## Rollback
+
+You can see red "R" buttons on the left of some turns. By clicking that button, the session, not
+only the turns but also the files in the working directory will be rollback to that turn.
+It doesn't rollback the configs, though.
+
+## Key bindings
+
+- Backspace: to prev popup
+- Esc: close popup
+- (Ctrl)+Up/Down: prev/next turn entry (Ctrl + move faster)
+  - If there's a popup, Ctrl+Up/Down will scroll to top/bottom
+- Left/Right: prev/next turn entry (in turn popup)
+- Ctrl+Plus/Minus: zoom
+- Ctrl+Tab: toggle focus interrupt_text_edit
+- Ctrl+Enter: enter text (when long-text-editor is focused)
+  - TODO: it only works with interrupt_text_edit now
+- Ctrl+C: configs
+  - If there's a popup and a copiable content, it copies the content
+- Ctrl+D: see diff (in turn popup)
+- Ctrl+F: find in page
+- Ctrl+H: help message
+- Ctrl+L: see logs
+- Ctrl+O: open browser
+- Ctrl+R: reset
+- Ctrl+Q: quit
+- Ctrl+S: see summaries
+- Ctrl+T: new tab
+- Ctrl+U: see token usage
+- Ctrl+V: toggle visibility of the current turn
+- Ctrl+W: close tab
+- Ctrl+Y: yes (confirm popup)
+- Alt+Num: switch tab
+- Enter: select turn entry
+- Space: resume/pause
+"#;
 
 pub struct IcedContext {
     pub be_process: Option<Child>,
@@ -151,6 +192,7 @@ pub struct IcedContext {
     pub interrupt_text_editor_content: TextEditorContent,
     pub is_interrupt_text_editor_focused: bool,
     pub syntax_highlight: Option<String>,
+    pub popup_title: Option<String>,
 
     // If it's set, it'll display "diff" button in the turn popup.
     pub text_diff: Option<String>,
@@ -204,6 +246,7 @@ impl IcedContext {
             interrupt_text_editor_content: TextEditorContent::new(),
             is_interrupt_text_editor_focused: false,
             syntax_highlight: None,
+            popup_title: None,
             text_diff: None,
             turn_result_path: None,
             tmp_config: fe_context.config.clone(),
@@ -267,7 +310,7 @@ impl IcedContext {
                 self.copy_buffer = Some(logs.join("\n"));
                 self.loaded_logs = Some(logs);
             },
-            Popup::Log(id) => {
+            Popup::Log((title, id)) => {
                 let log_dir = join3(&self.fe_context.working_dir, ".neukgu", "logs")?;
                 let (mut log, mut extension) = load_log(&id, &log_dir)?;
                 self.copy_buffer = Some(log.to_string());
@@ -279,6 +322,7 @@ impl IcedContext {
 
                 self.set_long_text_editor_content(log.to_string());
                 self.syntax_highlight = Some(extension);
+                self.popup_title = Some(title);
             },
             Popup::Summaries => {},
             Popup::Summary(summary) => {
@@ -338,6 +382,7 @@ impl IcedContext {
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
         self.syntax_highlight = None;
+        self.popup_title = None;
     }
 
     pub fn set_long_text_editor_content(&mut self, c: String) {
@@ -449,7 +494,7 @@ impl PopupMessage for IcedMessage {
 pub enum Popup {
     Turn(usize, TurnId),
     Logs,
-    Log(LogId),
+    Log((String, LogId)),
     Summaries,
     Summary(SessionSummary),
     Help,
@@ -671,6 +716,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("s"), true, false, false) => {
                 if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }));
+                }
+
+                else if let Some((_, turn)) = &context.loaded_turn && let Some(log_id) = &turn.api_log.response_body {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Log((turn.id.0.to_string(), log_id.clone())), prev: context.curr_popup.clone() }));
                 }
             },
             (Key::Character("u"), true, false, false) => {
@@ -1088,6 +1137,9 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction) = &context.curr_popup {
+        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
+            .width(context.window_size.width)
+            .size(context.zoom * 18.0);
         let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
             iced::highlighter::Theme::SolarizedDark,
@@ -1095,7 +1147,16 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(Scrollable::new(text_editor).width(Length::Fill).id(context.popup_scroll_id.clone()).into(), context),
+            into_popup(
+                Scrollable::new(Column::from_vec(vec![
+                    title.into(),
+                    text_editor.into(),
+                ]).spacing(context.zoom * 8.0))
+                    .width(Length::Fill)
+                    .id(context.popup_scroll_id.clone())
+                    .into(),
+                context,
+            ),
         ]).into();
     }
 
@@ -1280,6 +1341,15 @@ fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContex
         ).into());
     }
 
+    if let Some(log_id) = &turn.api_log.response_body {
+        buttons.push(button(
+            "Raw LLM re(s)ponse",
+            IcedMessage::OpenPopup { curr: Popup::Log((turn.id.0.to_string(), log_id.clone())), prev: context.curr_popup.clone() },
+            yellow(),
+            context.zoom,
+        ).into());
+    }
+
     if !buttons.is_empty() {
         turn_content.push(Row::from_vec(buttons).spacing(context.zoom * 8.0).into());
     }
@@ -1301,7 +1371,7 @@ fn render_logs<'a, 'b, 'c>(logs: &'a [String], context: &'b IcedContext) -> Elem
                     Row::from_vec(vec![
                         text!("{log}").size(context.zoom * 14.0).into(),
                         button("see details", IcedMessage::OpenPopup {
-                            curr: Popup::Log(log_id),
+                            curr: Popup::Log((cap.get(0).unwrap().as_str().to_string(), log_id)),
                             prev: Some(Popup::Logs),
                         }, yellow(), context.zoom).into(),
                     ]).align_y(Vertical::Center).spacing(context.zoom * 20.0).into()

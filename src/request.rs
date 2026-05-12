@@ -1,5 +1,15 @@
 use async_std::task::sleep;
-use crate::{ApiProvider, Error, ImageId, Logger, LogEntry, Model, Response, check_interruption};
+use crate::{
+    ApiProvider,
+    Error,
+    ImageId,
+    Logger,
+    LogEntry,
+    LogId,
+    Model,
+    Response,
+    check_interruption,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -87,6 +97,7 @@ impl Request {
                 ApiProvider::OpenAi => self.to_openai_request(working_dir)?,
                 ApiProvider::Mock => self.to_mock_request()?,
             };
+            let mut api_log = ApiLog::new();
             let mut request = client
                 .post(&http_request.url)
                 .json(&http_request.body)
@@ -96,16 +107,17 @@ impl Request {
                 request = request.header(key, value);
             }
 
-            logger.log(LogEntry::SendRequest(request.try_clone().unwrap()))?;
-            logger.log(LogEntry::RequestBody(http_request.body))?;
+            api_log.request_header = logger.log(LogEntry::SendRequest(request.try_clone().unwrap()))?;
+            api_log.request_body = logger.log(LogEntry::RequestBody(http_request.body))?;
 
             // It has to generate all the logs that *real* API calls generate.
             if let ApiProvider::Mock = self.model.provider() {
-                let response = self.send_mock_request(working_dir).await?;
+                let mut response = self.send_mock_request(working_dir).await?;
                 logger.log(LogEntry::GotResponse(200))?;
-                logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
-                logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;
+                api_log.response_header = logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
+                api_log.response_body = logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;
                 logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
+                response.log = api_log;
                 return Ok(response);
             }
 
@@ -113,20 +125,21 @@ impl Request {
                 Ok(response) => {
                     let status_code = response.status().as_u16();
                     logger.log(LogEntry::GotResponse(status_code))?;
-                    logger.log(LogEntry::ResponseHeader(response.headers().iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string())).collect()))?;
+                    api_log.response_header = logger.log(LogEntry::ResponseHeader(response.headers().iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string())).collect()))?;
 
                     match response.text().await {
                         Ok(s) => {
-                            logger.log(LogEntry::ResponseText(s.to_string()))?;
+                            api_log.response_body = logger.log(LogEntry::ResponseText(s.to_string()))?;
 
                             match status_code {
                                 200..=299 => {
-                                    let response = match self.model.provider() {
+                                    let mut response = match self.model.provider() {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
                                         ApiProvider::OpenAi => Response::from_openai(&s)?,
                                         ApiProvider::Mock => unreachable!(),
                                     };
                                     logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
+                                    response.log = api_log;
                                     return Ok(response);
                                 },
                                 429 => {
@@ -194,4 +207,23 @@ pub fn stringify_llm_tokens(tokens: &[LLMToken]) -> String {
     }
 
     ss.join("\n")
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ApiLog {
+    pub request_header: Option<LogId>,
+    pub request_body: Option<LogId>,
+    pub response_header: Option<LogId>,
+    pub response_body: Option<LogId>,
+}
+
+impl ApiLog {
+    pub fn new() -> ApiLog {
+        ApiLog {
+            request_header: None,
+            request_body: None,
+            response_header: None,
+            response_body: None,
+        }
+    }
 }

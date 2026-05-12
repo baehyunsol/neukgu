@@ -67,7 +67,14 @@ use prettify::{
     prettify_timestamp,
     prettify_tokens,
 };
-pub use request::{LLMToken, Request, Thinking, count_bytes_of_llm_tokens, stringify_llm_tokens};
+pub use request::{
+    ApiLog,
+    LLMToken,
+    Request,
+    Thinking,
+    count_bytes_of_llm_tokens,
+    stringify_llm_tokens,
+};
 use request::{MockState, reset_mock_state, revert_mock_state};
 pub use response::Response;
 use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to_sandbox, import_from_sandbox};
@@ -156,29 +163,29 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     let mut user_interrupt = false;
     let mut turn_kind = TurnKind::Agent;
     let raw_response = match &context.curr_raw_response {
-        Some((r, _)) => r.to_string(),
+        Some((r, _, _)) => r.to_string(),
         None => match context.get_fake_turn() {
             Some((r, kind)) => {
                 turn_kind = kind;
-                context.start_turn(r.to_string(), 0);
+                context.start_turn(r.to_string(), 0, ApiLog::new());
                 r
             },
             None => {
                 let llm_call_started_at = Instant::now();
                 let request = context.to_request(config)?;
-                let response = match request.request(&context.working_dir, &context.logger).await {
-                    Ok(response) => response.response.to_string(),
+                let (response, api_log) = match request.request(&context.working_dir, &context.logger).await {
+                    Ok(response) => (response.response.to_string(), response.log.clone()),
                     Err(Error::UserInterrupt) => {
                         context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
                         user_interrupt = true;
-                        String::new()
+                        (String::new(), ApiLog::new())
                     },
                     Err(e) => {
                         return Err(e);
                     },
                 };
                 let llm_elapsed_ms = Instant::now().duration_since(llm_call_started_at).as_millis() as u64;
-                context.start_turn(response.to_string(), llm_elapsed_ms);
+                context.start_turn(response.to_string(), llm_elapsed_ms, api_log);
                 response
             },
         },

@@ -1,6 +1,7 @@
 use chrono::{Local, SecondsFormat};
 use crate::{
     Agents,
+    ApiLog,
     AskTo,
     Config,
     Error,
@@ -109,6 +110,7 @@ pub struct Turn {
     pub timestamp_millis: i64,  // when the turn's finished
     pub agents: Agents,
     pub kind: TurnKind,
+    pub api_log: ApiLog,
 }
 
 impl Turn {
@@ -120,6 +122,7 @@ impl Turn {
         tool_elapsed_ms: u64,
         kind: TurnKind,
         config: &Config,
+        api_log: ApiLog,
     ) -> Turn {
         let mut turn = Turn {
             id: TurnId::dummy(),
@@ -131,6 +134,7 @@ impl Turn {
             timestamp_millis: Local::now().timestamp_millis(),
             agents: config.agents,
             kind,
+            api_log,
         };
         let turn_summary = turn.summary(config);
         let turn_id = get_turn_id(turn_summary);

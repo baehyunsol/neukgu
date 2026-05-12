@@ -1,4 +1,5 @@
 use crate::{
+    ApiLog,
     AskTo,
     Config,
     Error,
@@ -55,7 +56,7 @@ pub struct Context {
 
     // If we have this, that means we already have LLM's response,
     // so we just have to run tool-call (or throw a parse error).
-    pub curr_raw_response: Option<(String, u64)>,
+    pub curr_raw_response: Option<(String, u64, ApiLog)>,
 
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
@@ -79,7 +80,7 @@ pub struct ContextJson {
     pub session_id: SessionId,
     pub history: Vec<TurnId>,
     pub summaries: Vec<TurnId>,
-    pub curr_raw_response: Option<(String, u64)>,
+    pub curr_raw_response: Option<(String, u64, ApiLog)>,
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
@@ -162,9 +163,14 @@ impl Context {
         }
     }
 
-    pub fn start_turn(&mut self, raw_response: String, llm_elapsed_ms: u64) {
+    pub fn start_turn(
+        &mut self,
+        raw_response: String,
+        llm_elapsed_ms: u64,
+        api_log: ApiLog,
+    ) {
         assert!(self.curr_raw_response.is_none());
-        self.curr_raw_response = Some((raw_response, llm_elapsed_ms));
+        self.curr_raw_response = Some((raw_response, llm_elapsed_ms, api_log));
     }
 
     pub fn discard_current_turn(&mut self) {
@@ -180,7 +186,7 @@ impl Context {
         config: &Config,
         kind: TurnKind,
     ) -> Result<TurnId, Error> {
-        let (raw_response, llm_elapsed_ms) = self.curr_raw_response.take().unwrap();
+        let (raw_response, llm_elapsed_ms, logs) = self.curr_raw_response.take().unwrap();
         let new_turn = Turn::new(
             raw_response,
             parse_result,
@@ -189,6 +195,7 @@ impl Context {
             tool_elapsed_ms,
             kind,
             config,
+            logs,
         );
         let new_turn_summary = new_turn.summary(config);
         new_turn.store(&self.working_dir)?;
@@ -449,7 +456,7 @@ impl Context {
 </ask>
 ";
         // Let's make sure that the schema is correct.
-        self.curr_raw_response = Some((q.to_string(), 0));
+        self.curr_raw_response = Some((q.to_string(), 0, ApiLog::new()));
         let parse_result = crate::parse::parse(q.as_bytes()).unwrap();
         let _tool_call = validate_parse_result(&parse_result).unwrap();
 

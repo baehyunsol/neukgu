@@ -1,5 +1,5 @@
 use super::Response;
-use crate::Error;
+use crate::{Error, ApiLog};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -75,6 +75,7 @@ impl Response {
             cached_input_tokens: raw_response.usage.input_tokens_details.cached_tokens,
             input_tokens: raw_response.usage.input_tokens,
             output_tokens: raw_response.usage.output_tokens,
+            log: ApiLog::new(),
         })
     }
 }

@@ -1,3 +1,4 @@
+use crate::ApiLog;
 use serde::{Deserialize, Serialize};
 
 mod anthropic;
@@ -11,4 +12,5 @@ pub struct Response {
     pub cached_input_tokens: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub log: ApiLog,
 }

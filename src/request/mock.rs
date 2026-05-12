@@ -1,4 +1,4 @@
-use super::{HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
+use super::{ApiLog, HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
 use async_std::task::sleep;
 use crate::{Error, Response, load_json};
 use ragit_fs::{WriteMode, exists, join3, remove_file, write_string};
@@ -19,7 +19,7 @@ impl Request {
     }
 
     pub async fn send_mock_request(&self, working_dir: &str) -> Result<Response, Error> {
-        // sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
+        sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
         let mut state = MockState::load(working_dir)?;
         state.check_prev_turn_output(&self.query)?;
         let response = state.get_next_turn();
@@ -34,6 +34,7 @@ impl Request {
                 |turn| count_bytes_of_llm_tokens(&turn.query, 2048) + turn.response.len() as u64
             ).sum::<u64>() + count_bytes_of_llm_tokens(&self.query, 2048),
             output_tokens: 0,
+            log: ApiLog::new(),
         })
     }
 }
