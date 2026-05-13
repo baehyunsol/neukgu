@@ -10,6 +10,7 @@ use iced::widget::container::{Container, Style};
 use iced::window::Event as WindowEvent;
 
 mod browser;
+mod chat;
 mod config;
 mod error;
 mod index;
@@ -19,6 +20,7 @@ mod tabs;
 mod worker;
 mod working_dir;
 
+use chat::{ChatMessage, chat_ui};
 use config::{SetProjectConfig, config_ui, set_project_config};
 use popup::{PopupContext, PopupMessage, into_popup};
 use tabs::{IcedContext as TabsContext, IcedMessage as TabsMessage};

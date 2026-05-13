@@ -36,6 +36,14 @@ mod tool;
 mod turn;
 mod ui;
 
+pub use chat::{
+    Chat,
+    ChatId,
+    ChatTurn,
+    ChatTurnId,
+    init_chat,
+    load_all_chats,
+};
 pub use config::Config;
 pub use context::{
     ChosenTurn,

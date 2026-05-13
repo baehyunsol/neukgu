@@ -56,6 +56,14 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         create_dir(&join(global_index_dir, "projects")?)?;
     }
 
+    if !exists(&join(global_index_dir, "chats")?) {
+        create_dir(&join(global_index_dir, "chats")?)?;
+    }
+
+    if !exists(&join(global_index_dir, "chat-turns")?) {
+        create_dir(&join(global_index_dir, "chat-turns")?)?;
+    }
+
     Ok(())
 }
 

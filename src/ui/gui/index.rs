@@ -23,6 +23,8 @@ use super::tabs::Tab;
 use super::worker::JobResult;
 use chrono::Local;
 use crate::{
+    Chat,
+    ChatId,
     Config,
     Error,
     NeukguId,
@@ -30,7 +32,10 @@ use crate::{
     clean_global_index_dir,
     get_global_index_dir,
     get_neukgu_id,
+    init_chat,
+    init_global_index_dir,
     init_working_dir,
+    load_all_chats,
     load_all_indexes,
     prettify_timestamp,
     remove_global_index,
@@ -82,7 +87,7 @@ pub struct IcedContext {
     pub global_index_dir: String,
     pub window_size: Size,
     pub recent_projects: Vec<Project>,
-    pub recent_chats: Vec<(/* TODO */)>,
+    pub recent_chats: Vec<Chat>,
     pub current_tabs: Vec<TabPreview>,
     pub working_dir_tab_indexes: HashMap<NeukguId, usize>,
     pub main_view_id: Id,
@@ -105,6 +110,7 @@ pub struct IcedContext {
 impl IcedContext {
     pub fn new(home_dir: &str) -> IcedContext {
         let global_index_dir = get_global_index_dir().unwrap();
+        init_global_index_dir(&global_index_dir).unwrap();
         clean_global_index_dir(&global_index_dir).unwrap();
 
         IcedContext {
@@ -150,6 +156,7 @@ impl IcedContext {
 
         match popup {
             Popup::NewProject => {},
+            Popup::NewChat => {},
             Popup::Instruction { working_dir } => {
                 let instruction = read_string(&join(&working_dir, "neukgu-instruction.md")?)?;
                 self.copy_buffer = Some(instruction.to_string());
@@ -199,10 +206,12 @@ pub enum IcedMessage {
     NewTab { tab: Tab, force_new_tab: bool },
     OpenTab { id: TabId, index: usize },
     NewProject,
+    NewChat,
     DeleteProject {
         project_name: String,
         working_dir: String,
     },
+    DeleteChat(ChatId),
     OpenPopup(Popup),
     ClosePopup,
     CopyPopupContent,
@@ -225,6 +234,7 @@ impl PopupMessage for IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Popup {
     NewProject,
+    NewChat,
     Instruction {
         working_dir: String,
     },
@@ -250,11 +260,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
             if frame % 8 == 0 || force_update {
                 context.recent_projects = load_all_indexes(&context.global_index_dir);
-                // context.recent_chats = load_all_chats(&context.global_index_dir);
+                context.recent_chats = load_all_chats(&context.global_index_dir)?;
 
                 // let's just assume that there's no overflow!
                 context.recent_projects.sort_by_key(|p| -p.updated_at);
-                // context.recent_chats.sort_by_key(|c| -c.updated_at);
+                context.recent_chats.sort_by_key(|c| -c.updated_at);
 
                 context.update_battery_state();
             }
@@ -280,7 +290,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("c"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat, force_new_tab: true }));
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::NewChat)));
                 }
             },
             (Key::Character("h"), true, false, false) => {
@@ -330,6 +340,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }));
         },
+        IcedMessage::NewChat => {
+            let chat_id = init_chat(&context.global_index_dir, None)?;
+            return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }));
+        },
         IcedMessage::DeleteProject { project_name, working_dir } => {
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             let neukgu_id = get_neukgu_id(&working_dir)?;
@@ -338,6 +352,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
+        IcedMessage::DeleteChat(chat_id) => todo!(),
         IcedMessage::OpenPopup(popup) => {
             context.open_popup(popup)?;
         },
@@ -440,10 +455,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             "Recent chats",
             button(
                 "New (c)hat",
-                IcedMessage::NewTab {
-                    tab: Tab::Chat,
-                    force_new_tab: true,
-                },
+                IcedMessage::OpenPopup(Popup::NewChat),
                 brown(),
                 context.zoom,
             ),
@@ -475,6 +487,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_new_project_popup(context),
+        ]).into();
+    }
+
+    else if let Some(Popup::NewChat) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_new_chat_popup(context),
         ]).into();
     }
 
@@ -608,7 +627,34 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Space::new().into()
+    let column: Vec<Element<IcedMessage>> = context.recent_chats.iter().map(
+        |chat| Container::new(
+            Column::from_vec(vec![
+                text!(
+                    "{} ({})",
+                    chat.title.as_ref().unwrap_or(&String::from("untitled")),
+                    prettify_timestamp(chat.updated_at),
+                ).size(context.zoom * 14.0).width(context.window_size.width).into(),
+                Row::from_vec(vec![
+                    button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom).into(),
+                    button("Delete", IcedMessage::DeleteChat(chat.id), red(), context.zoom).into(),
+                ]).spacing(context.zoom * 8.0).into(),
+            ]).spacing(context.zoom * 8.0)
+        )
+            .style(|_| Style {
+                background: Some(Background::Color(gray(0.3))),
+                border: Border {
+                    color: white(),
+                    width: 0.0,
+                    radius: Radius::new(context.zoom * 8.0),
+                },
+                ..Style::default()
+            })
+            .padding(context.zoom * 8.0)
+            .into()
+    ).collect();
+
+    Column::from_vec(column).spacing(context.zoom * 8.0).into()
 }
 
 fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
@@ -709,6 +755,10 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
             .into(),
         context,
     )
+}
+
+fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    into_popup(button("Create", IcedMessage::NewChat, brown(), context.zoom).into(), context)
 }
 
 fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {

@@ -1,8 +1,13 @@
-use super::{blue, green, red, skyblue, yellow};
+use super::{blue, brown, green, red, skyblue, yellow};
 use super::browser::{
     self,
     IcedContext as BrowserContext,
     IcedMessage as BrowserMessage,
+};
+use super::chat::{
+    self,
+    IcedContext as ChatContext,
+    IcedMessage as ChatMessage,
 };
 use super::error::{
     self,
@@ -32,7 +37,7 @@ impl IcedContext {
     pub fn new(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
         match tab {
             Tab::Browser { dir, file } => {
-                let local_context = match BrowserContext::new(window_size, home_dir, &dir, &file) {
+                let local_context = match BrowserContext::new(home_dir, &dir, &file, window_size) {
                     Ok(c) => LocalContext::Browser(c),
                     Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
                 };
@@ -43,7 +48,18 @@ impl IcedContext {
                     local: local_context,
                 }
             },
-            Tab::Chat => todo!(),
+            Tab::Chat(id) => {
+                let local_context = match ChatContext::new(id, window_size) {
+                    Ok(c) => LocalContext::Chat(c),
+                    Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
+                };
+
+                IcedContext {
+                    id: TabId(rand::random::<u64>()),
+                    cwd: home_dir.to_string(),
+                    local: local_context,
+                }
+            },
             Tab::WorkingDir(dir) => {
                 // TODO: make `no_backend` configurable
                 let local_context = match WorkingDirContext::new(false, &dir, window_size, 1.0) {
@@ -69,6 +85,10 @@ impl IcedContext {
                 };
                 (title, skyblue())
             },
+            LocalContext::Chat(c) => (
+                format!("Chat {}", c.chat.title.as_ref().unwrap_or(&String::new())),
+                brown(),
+            ),
             LocalContext::WorkingDir(c) => {
                 let flag = match 0 {
                     _ if c.fe_context.curr_error().is_some() => red(),
@@ -86,6 +106,7 @@ impl IcedContext {
     pub fn get_scroll_id(&self) -> Option<Id> {
         match &self.local {
             LocalContext::Browser(c) => Some(c.entry_view_id.clone()),
+            LocalContext::Chat(c) => Some(c.chat_view_id.clone()),
             LocalContext::WorkingDir(c) => Some(c.turn_view_id.clone()),
             LocalContext::Error(_) => None,
         }
@@ -111,7 +132,7 @@ impl IcedContext {
                     )
                 }
             },
-            LocalContext::Browser(_) | LocalContext::Error(_) => (None, None),
+            LocalContext::Browser(_) | LocalContext::Chat(_) | LocalContext::Error(_) => (None, None),
         };
 
         TabPreview {
@@ -129,6 +150,7 @@ impl IcedContext {
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     Browser(BrowserMessage),
+    Chat(ChatMessage),
     WorkingDir(WorkingDirMessage),
     Error(ErrorMessage),
     Tick { frame: usize, force_update: bool },
@@ -144,8 +166,10 @@ pub enum IcedMessage {
     Dead,
 }
 
+#[derive(Debug)]
 pub enum LocalContext {
     Browser(BrowserContext),
+    Chat(ChatContext),
     WorkingDir(WorkingDirContext),
     Error(ErrorContext),
 }
@@ -154,6 +178,7 @@ impl LocalContext {
     pub fn window_size(&self) -> Size {
         match self {
             LocalContext::Browser(c) => c.window_size,
+            LocalContext::Chat(c) => c.window_size,
             LocalContext::WorkingDir(c) => c.window_size,
             LocalContext::Error(c) => c.window_size,
         }
@@ -162,6 +187,7 @@ impl LocalContext {
     pub fn zoom(&self) -> f32 {
         match self {
             LocalContext::Browser(c) => c.zoom,
+            LocalContext::Chat(c) => c.zoom,
             LocalContext::WorkingDir(c) => c.zoom,
             LocalContext::Error(c) => c.zoom,
         }
@@ -183,7 +209,7 @@ pub struct TabPreview {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match (&mut context.local, message) {
-        (context, IcedMessage::Browser(BrowserMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
+        (context, IcedMessage::Browser(BrowserMessage::Error(e)) | IcedMessage::Chat(ChatMessage::Error(e)) | IcedMessage::WorkingDir(WorkingDirMessage::Error(e))) => {
             *context = LocalContext::Error(ErrorContext::new(e, context.window_size(), context.zoom()));
             Task::none()
         },
@@ -219,6 +245,15 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         (LocalContext::Browser(c), IcedMessage::BackgroundJobResult(r)) => browser::update(c, BrowserMessage::BackgroundJobResult(r)).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::Focus) => browser::update(c, BrowserMessage::Focus).map(|t| IcedMessage::Browser(t)),
         (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
+        (LocalContext::Chat(c), IcedMessage::Tick { frame, force_update }) => chat::update(c, ChatMessage::Tick { frame, force_update }).map(|t| IcedMessage::Chat(t)),
+        (LocalContext::Chat(c), IcedMessage::KeyPressed { key, modifiers }) => chat::update(c, ChatMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Chat(t)),
+        (LocalContext::Chat(c), IcedMessage::WindowResized(s)) => {
+            c.window_size = s;
+            Task::none()
+        },
+        (LocalContext::Chat(c), IcedMessage::BackgroundJobResult(r)) => chat::update(c, ChatMessage::BackgroundJobResult(r)).map(|t| IcedMessage::Chat(t)),
+        (LocalContext::Chat(c), IcedMessage::Focus) => chat::update(c, ChatMessage::Focus).map(|t| IcedMessage::Chat(t)),
+        (LocalContext::Chat(c), IcedMessage::Chat(m)) => chat::update(c, m).map(|t| IcedMessage::Chat(t)),
         (LocalContext::WorkingDir(c), IcedMessage::Tick { frame, force_update }) => working_dir::update(c, WorkingDirMessage::Tick { frame, force_update }).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::WorkingDir(t)),
         (LocalContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
@@ -232,16 +267,18 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         (LocalContext::Error(_), IcedMessage::Tick { .. } | IcedMessage::Focus) => Task::none(),
         (context, IcedMessage::Kill) => match context {
             LocalContext::Browser(c) => browser::update(c, BrowserMessage::Kill).map(|m| IcedMessage::Browser(m)),
+            LocalContext::Chat(c) => chat::update(c, ChatMessage::Kill).map(|m| IcedMessage::Chat(m)),
             LocalContext::WorkingDir(c) => working_dir::update(c, WorkingDirMessage::Kill).map(|m| IcedMessage::WorkingDir(m)),
             LocalContext::Error(c) => error::update(c, ErrorMessage::Kill).map(|m| IcedMessage::Error(m)),
         },
-        _ => unreachable!(),
+        (context, message) => panic!("{context:?}\n{message:?}"),
     }
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     match &context.local {
         LocalContext::Browser(c) => browser::view(c).map(|m| IcedMessage::Browser(m)),
+        LocalContext::Chat(c) => chat::view(c).map(|m| IcedMessage::Chat(m)),
         LocalContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
         LocalContext::Error(e) => error::view(e).map(|m| IcedMessage::Error(m)),
     }

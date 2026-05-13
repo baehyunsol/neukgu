@@ -1,5 +1,10 @@
 use super::{black, circle, count_chars, gray, set_bg, take_chars, white};
 use super::browser::IcedMessage as BrowserMessage;
+use super::chat::{
+    self,
+    IcedContext as ChatContext,
+    IcedMessage as ChatMessage,
+};
 use super::index::{
     self,
     IcedContext as IndexContext,
@@ -14,7 +19,7 @@ use super::tab::{
 };
 use super::worker::{JobResult, Workers, init_workers};
 use super::working_dir::IcedMessage as WorkingDirMessage;
-use crate::get_neukgu_id;
+use crate::{ChatId, get_neukgu_id};
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
@@ -81,7 +86,7 @@ pub enum IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Tab {
     Browser { dir: String, file: Option<String> },
-    Chat,
+    Chat(ChatId),
     WorkingDir(String),
 }
 
@@ -267,7 +272,16 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                             }
                         }
                     },
-                    Tab::Chat => todo!(),
+                    Tab::Chat(id) => {
+                        for (i, tab) in context.tabs.iter().enumerate() {
+                            if let TabContext { local: LocalContext::Chat(c), .. } = tab {
+                                if c.chat.id == *id {
+                                    already_open = Some(i);
+                                    break;
+                                }
+                            }
+                        }
+                    },
                 }
             }
 

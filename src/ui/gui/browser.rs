@@ -128,7 +128,7 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
-    pub fn new(window_size: Size, home_dir: &str, cwd: &str, file: &Option<String>) -> Result<IcedContext, Error> {
+    pub fn new(home_dir: &str, cwd: &str, file: &Option<String>, window_size: Size) -> Result<IcedContext, Error> {
         let file = match file {
             Some(file) => Some(basename(file)?),
             None => None,
@@ -1107,7 +1107,6 @@ fn render_find_result<'f, 'm, 'c>(
                     .into()
             );
             curr_path = m.path.to_string();
-            curr_line_no = 0;
         }
 
         else if m.line_number != curr_line_no + 1 {
@@ -1120,6 +1119,7 @@ fn render_find_result<'f, 'm, 'c>(
         ];
         let mut curr_index = 0;
         let line = m.line.chars().take(256).collect::<String>();
+        let line = line.replace("\r", " ").replace("\n", " ");
         let submatches: Vec<(usize, usize)> = m.submatches.iter().filter_map(
             |(start, end)| {
                 let start = (*start).min(line.len());
@@ -1138,15 +1138,11 @@ fn render_find_result<'f, 'm, 'c>(
                 highlights.push(text!("{}", line.get(curr_index..*start).unwrap()).size(context.zoom * 14.0).into());
             }
 
-            let word = if *end == line.len() {
-                line.get(*start..*end).unwrap().trim_end().to_string()
-            } else {
-                line.get(*start..*end).unwrap().to_string()
-            };
-
             highlights.push(
                 Container::new(
-                    text!("{word}").color(black()).size(context.zoom * 14.0)
+                    text!("{}", line.get(*start..*end).unwrap())
+                        .color(black())
+                        .size(context.zoom * 14.0)
                 ).style(|_| set_bg(white())).into(),
             );
             curr_index = *end;

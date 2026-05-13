@@ -1,4 +1,5 @@
 use super::{
+    ChatMessage,
     FeContext,
     PopupContext,
     PopupMessage,
@@ -7,6 +8,7 @@ use super::{
     black,
     blue,
     button,
+    chat_ui,
     config_ui,
     disabled_button,
     gray,
@@ -57,10 +59,8 @@ use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
-    Binding,
     Content as TextEditorContent,
     Edit as TextEditorEdit,
-    KeyPress,
     TextEditor,
 };
 use ragit_fs::{join, join3};
@@ -161,6 +161,7 @@ It doesn't rollback the configs, though.
 - Space: resume/pause
 "#;
 
+#[derive(Debug)]
 pub struct IcedContext {
     pub be_process: Option<Child>,
     pub fe_context: FeContext,
@@ -491,6 +492,16 @@ impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { IcedMessage::ClosePopup }
     fn back_popup() -> Self { IcedMessage::BackPopup }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
+}
+
+impl ChatMessage for IcedMessage {
+    fn edit(action: TextEditorAction) -> IcedMessage {
+        IcedMessage::EditInterruptText(action)
+    }
+
+    fn enter() -> IcedMessage {
+        IcedMessage::InterruptNeukgu
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -987,7 +998,15 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     let full_view = Column::from_vec(full_view);
     let full_view_with_text_input = Stack::from_vec(vec![
         full_view.into(),
-        render_interrupt_text_editor(context),
+        chat_ui(
+            context.is_interrupt_text_editor_focused,
+            context.curr_popup.is_none() && context.llm_request.is_none(),
+            context.interrupt_text_editor_id.clone(),
+            &context.interrupt_text_editor_content,
+            "Interrupt",
+            context.window_size,
+            context.zoom,
+        ),
     ]);
 
     let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view_with_text_input).into();
@@ -1430,53 +1449,6 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         ]).padding(context.zoom * 20.0).spacing(context.zoom * 20.0).into(),
         context,
     )
-}
-
-fn render_interrupt_text_editor<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let window_width = context.window_size.width;
-    let window_height = context.window_size.height;
-    let is_focused = context.is_interrupt_text_editor_focused;
-    let mut text_editor = TextEditor::new(&context.interrupt_text_editor_content)
-        .id(context.interrupt_text_editor_id.clone())
-        .width(window_width * 0.75)
-        .height(window_height * if is_focused { 0.25 } else { 0.05 });
-
-    if context.curr_popup.is_none() && context.llm_request.is_none() {
-        text_editor = text_editor
-            .on_action(|action| IcedMessage::EditInterruptText(action))
-            .key_binding(|key_press| {
-                let KeyPress { key, modifiers, .. } = &key_press;
-
-                match (key.as_ref(), modifiers.control()) {
-                    (Key::Named(NamedKey::Enter), true) => Some(Binding::Sequence(vec![Binding::Unfocus, Binding::Custom(IcedMessage::InterruptNeukgu)])),
-                    (Key::Named(NamedKey::Tab), true) => Some(Binding::Unfocus),
-                    _ => Binding::from_key_press(key_press),
-                }
-            });
-    }
-
-    let text_editor = Container::new(
-        Row::from_vec(vec![
-            Space::new().width(window_width * 0.05).into(),
-            text_editor.into(),
-            Space::new().width(window_width * 0.05).into(),
-            if context.curr_popup.is_some() || context.llm_request.is_some() {
-                disabled_button("Interrupt", blue(), context.zoom).into()
-            } else {
-                button("Interrupt", IcedMessage::InterruptNeukgu, blue(), context.zoom).into()
-            },
-        ])
-            .height(Length::Fill)
-            .align_y(Vertical::Center)
-    )
-        .width(window_width)
-        .height(window_height * if is_focused { 0.35 } else { 0.15 })
-        .style(|_| set_bg(gray(0.35)));
-
-    Column::from_vec(vec![
-        Space::new().height(window_height * if is_focused { 0.65 } else { 0.85 }).into(),
-        text_editor.into(),
-    ]).into()
 }
 
 fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {
