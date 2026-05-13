@@ -1,6 +1,6 @@
 use super::tab::TabId;
 use base64::Engine;
-use crate::{Error, subprocess, subprocess::Output};
+use crate::{ChatId, Error, subprocess, subprocess::Output};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -27,6 +27,7 @@ pub enum JobKind {
         path: String,
         regex: String,
     },
+    AddChatTurn(ChatId),
 }
 
 #[derive(Clone, Debug)]
@@ -119,6 +120,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
 
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
             },
+            Job { id, kind: JobKind::AddChatTurn(chat_id) } => todo!(),
         }
     }
 

@@ -5,7 +5,12 @@ use super::{
     gray,
     set_bg,
 };
-use super::worker::{Job, JobResult};
+use super::worker::{
+    Job,
+    JobId,
+    JobKind,
+    JobResult,
+};
 use crate::{
     Chat,
     ChatId,
@@ -33,6 +38,11 @@ use std::collections::HashMap;
 pub struct IcedContext {
     pub chat: Chat,
     pub turns: HashMap<ChatTurnId, ChatTurn>,
+
+    // If it's `Some(_)`, that means the LLM is working in background,
+    // so the user cannot send a new message.
+    pub bg_job: Option<JobId>,
+
     pub window_size: Size,
     pub chat_view_id: Id,
     pub chat_input_id: Id,
@@ -56,6 +66,7 @@ impl IcedContext {
         Ok(IcedContext {
             chat,
             turns,
+            bg_job: None,
             window_size,
             chat_view_id: Id::unique(),
             chat_input_id: Id::unique(),
@@ -127,7 +138,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::IsChatInputFocused(f) => {
             context.is_chat_input_focused = f;
         },
-        IcedMessage::Send => todo!(),
+        IcedMessage::Send => {
+            let job_id = JobId::new();
+            context.bg_job = Some(job_id);
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: job_id,
+                kind: JobKind::AddChatTurn(context.chat.id),
+            })));
+        },
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(_) => todo!(),
@@ -150,7 +168,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view.into(),
         chat_ui(
             context.is_chat_input_focused,
-            context.curr_popup.is_none(),
+            context.curr_popup.is_none() && context.bg_job.is_none(),
             context.chat_input_id.clone(),
             &context.chat_input_content,
             "Send",

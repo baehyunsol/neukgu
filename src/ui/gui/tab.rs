@@ -213,10 +213,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             *context = LocalContext::Error(ErrorContext::new(e, context.window_size(), context.zoom()));
             Task::none()
         },
-        (_, IcedMessage::Browser(BrowserMessage::Dead) | IcedMessage::WorkingDir(WorkingDirMessage::Dead) | IcedMessage::Error(ErrorMessage::Dead)) => {
+        (_, IcedMessage::Browser(BrowserMessage::Dead) | IcedMessage::Chat(ChatMessage::Dead) | IcedMessage::WorkingDir(WorkingDirMessage::Dead) | IcedMessage::Error(ErrorMessage::Dead)) => {
             Task::done(IcedMessage::Dead)
         },
-        (_, IcedMessage::Browser(BrowserMessage::BackgroundJob(job)) | IcedMessage::WorkingDir(WorkingDirMessage::BackgroundJob(job))) => {
+        (_, IcedMessage::Browser(BrowserMessage::BackgroundJob(job)) | IcedMessage::Chat(ChatMessage::BackgroundJob(job)) | IcedMessage::WorkingDir(WorkingDirMessage::BackgroundJob(job))) => {
             Task::done(IcedMessage::BackgroundJob(job))
         },
         (context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
