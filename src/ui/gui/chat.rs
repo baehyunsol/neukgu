@@ -17,6 +17,7 @@ use crate::{
     ChatTurn,
     ChatTurnId,
     Error,
+    LLMToken,
     get_global_index_dir,
 };
 use iced::{Element, Length, Size, Task};
@@ -33,6 +34,7 @@ use iced::widget::text_editor::{
     TextEditor,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
@@ -76,6 +78,12 @@ impl IcedContext {
             is_chat_input_focused: false,
             zoom: 1.0,
         })
+    }
+
+    pub fn set_chat_input_content(&mut self, c: String) {
+        self.chat_input_content.perform(TextEditorAction::SelectAll);
+        self.chat_input_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
+        self.chat_input_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
     }
 }
 
@@ -141,9 +149,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Send => {
             let job_id = JobId::new();
             context.bg_job = Some(job_id);
+            let query = context.chat_input_content.text();
+            context.set_chat_input_content(String::new());
             return Ok(Task::done(IcedMessage::BackgroundJob(Job {
                 id: job_id,
-                kind: JobKind::AddChatTurn(context.chat.id),
+                kind: JobKind::AddChatTurn { chat_id: context.chat.id, query: vec![LLMToken::String(query)] },
             })));
         },
         IcedMessage::Error(_) => unreachable!(),

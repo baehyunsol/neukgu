@@ -1,6 +1,6 @@
 use super::tab::TabId;
 use base64::Engine;
-use crate::{ChatId, Error, subprocess, subprocess::Output};
+use crate::{ChatId, Error, LLMToken, subprocess, subprocess::Output};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -27,7 +27,10 @@ pub enum JobKind {
         path: String,
         regex: String,
     },
-    AddChatTurn(ChatId),
+    AddChatTurn {
+        chat_id: ChatId,
+        query: Vec<LLMToken>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -120,7 +123,14 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
 
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
             },
-            Job { id, kind: JobKind::AddChatTurn(chat_id) } => todo!(),
+            Job { id, kind: JobKind::AddChatTurn { chat_id, query } } => {
+                let mut chat = Chat::load(chat_id, _)?;
+                // How can I call an async function..??
+                // do I need a subprocess??
+                // does `block_on` work here?
+                // chat.add_turn(query).await?;
+                todo!()
+            },
         }
     }
 

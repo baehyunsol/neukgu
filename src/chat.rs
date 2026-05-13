@@ -64,6 +64,10 @@ impl Chat {
         )?;
         Ok(())
     }
+
+    pub async fn add_turn(&mut self, query: Vec<LLMToken>) -> Result<(), Error> {
+        todo!()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
