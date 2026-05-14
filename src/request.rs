@@ -39,7 +39,7 @@ pub struct Request {
     pub thinking: Thinking,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Thinking {
     Enabled,
     Disabled,

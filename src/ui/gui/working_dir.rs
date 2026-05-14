@@ -193,6 +193,7 @@ pub struct IcedContext {
     pub long_text_editor_content: TextEditorContent,
     pub interrupt_text_editor_content: TextEditorContent,
     pub is_interrupt_text_editor_focused: bool,
+    pub is_interrupt_button_hovered: bool,
     pub syntax_highlight: Option<String>,
     pub popup_title: Option<String>,
 
@@ -247,6 +248,7 @@ impl IcedContext {
             long_text_editor_content: TextEditorContent::new(),
             interrupt_text_editor_content: TextEditorContent::new(),
             is_interrupt_text_editor_focused: false,
+            is_interrupt_button_hovered: false,
             syntax_highlight: None,
             popup_title: None,
             text_diff: None,
@@ -445,6 +447,17 @@ impl PopupContext for IcedContext {
     fn zoom(&self) -> f32 { self.zoom }
 }
 
+impl ImagePopup for IcedContext {
+    type Message = IcedMessage;
+
+    fn open_image_popup(&self, id: ImageId) -> IcedMessage {
+        IcedMessage::OpenPopup {
+            curr: Popup::Image(id),
+            prev: self.curr_popup.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     Tick { frame: usize, force_update: bool },
@@ -473,6 +486,8 @@ pub enum IcedMessage {
     EditLongText(TextEditorAction),
     EditInterruptText(TextEditorAction),
     IsInterruptTextEditorFocused(bool),
+    HoverInterruptButton,
+    UnhoverInterruptButton,
     OpenBrowser { dir: String, file: Option<String> },
     Error(String),
     BackgroundJob(Job),
@@ -495,6 +510,14 @@ impl PopupMessage for IcedMessage {
 }
 
 impl ChatMessage for IcedMessage {
+    fn hover_button() -> IcedMessage {
+        IcedMessage::HoverInterruptButton
+    }
+
+    fn unhover_button() -> IcedMessage {
+        IcedMessage::UnhoverInterruptButton
+    }
+
     fn edit(action: TextEditorAction) -> IcedMessage {
         IcedMessage::EditInterruptText(action)
     }
@@ -836,6 +859,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::InterruptNeukgu => {
             let question = context.interrupt_text_editor_content.text();
+            context.is_interrupt_button_hovered = false;
 
             if !question.is_empty() {
                 context.question_from_user = Some((rand::random::<u64>(), question));
@@ -930,6 +954,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::IsInterruptTextEditorFocused(f) => {
             context.is_interrupt_text_editor_focused = f;
         },
+        IcedMessage::HoverInterruptButton => {
+            context.is_interrupt_button_hovered = true;
+
+            // unfocus the text editor
+            return Ok(focus(context.turn_view_id.clone()));
+        },
+        IcedMessage::UnhoverInterruptButton => {
+            context.is_interrupt_button_hovered = false;
+        },
         IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
@@ -1001,9 +1034,12 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         chat_ui(
             context.is_interrupt_text_editor_focused,
             context.curr_popup.is_none() && context.llm_request.is_none(),
+            context.is_interrupt_button_hovered,
             context.interrupt_text_editor_id.clone(),
             &context.interrupt_text_editor_content,
             "Interrupt",
+            Space::new().into(),
+            0.0,
             context.window_size,
             context.zoom,
         ),
@@ -1331,16 +1367,16 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         .into()
 }
 
-fn render_turn<'a, 'b, 'c>(index: usize, turn: &'a Turn, context: &'b IcedContext) -> Element<'c, IcedMessage> {
+fn render_turn<'t, 'c>(index: usize, turn: &'t Turn, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut turn_content = vec![
         text!("# {index}. {}", turn.preview().preview_title).size(context.zoom * 14.0).into(),
         text!("<|LLM|>").size(context.zoom * 14.0).into(),
         Container::new(
-            render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], context)
+            render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], &context.fe_context.working_dir, context.zoom, context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
         text!("<|result|>").size(context.zoom * 14.0).into(),
         Container::new(
-            render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), context)
+            render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), &context.fe_context.working_dir, context.zoom, context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
     ];
     turn_content.push(text!("{}", turn.introduce_agents()).size(context.zoom * 14.0).into());
@@ -1410,23 +1446,28 @@ fn render_logs<'a, 'b, 'c>(logs: &'a [String], context: &'b IcedContext) -> Elem
     into_popup(logs.into(), context)
 }
 
-fn render_llm_tokens(llm_tokens: Vec<LLMToken>, context: &IcedContext) -> Element<'static, IcedMessage> {
+pub trait ImagePopup {
+    type Message;
+    fn open_image_popup(&self, id: ImageId) -> Self::Message;
+}
+
+pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clone + 'c>(
+    llm_tokens: Vec<LLMToken>,
+    working_dir: &str,
+    zoom: f32,
+    context: &'c Context,
+) -> Column<'c, Message> {
     Column::from_vec(llm_tokens.iter().map(
         |token| match token {
-            LLMToken::String(s) => text!("{s}").size(context.zoom * 14.0).width(Length::Fill).into(),
+            LLMToken::String(s) => text!("{s}").size(zoom * 14.0).width(Length::Fill).into(),
             LLMToken::Image(id) => MouseArea::new(
-                Image::new(ImageHandle::from_path(id.path(&context.fe_context.working_dir).unwrap()))
-                    .width(Length::Fixed(300.0))
-                    .height(Length::Fixed(300.0))
+                Image::new(ImageHandle::from_path(id.path(working_dir).unwrap()))
+                    .width(Length::Fixed(zoom * 300.0))
+                    .height(Length::Fixed(zoom * 300.0))
                     .content_fit(ContentFit::Contain),
-            ).on_press(
-                IcedMessage::OpenPopup {
-                    curr: Popup::Image(*id),
-                    prev: context.curr_popup.clone(),
-                },
-            ).into(),
+            ).on_press(context.open_image_popup(*id)).into(),
         }
-    ).collect()).width(Length::Fill).into()
+    ).collect()).width(Length::Fill)
 }
 
 fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {

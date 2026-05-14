@@ -62,7 +62,7 @@ impl Request {
         };
 
         let reasoning_effort = match self.thinking {
-            Thinking::Enabled => "medium",
+            Thinking::Enabled => "high",
             Thinking::Disabled => "none",
             // It seems like gpt doesn't support adaptive thinking
             Thinking::Adaptive => "medium",

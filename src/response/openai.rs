@@ -47,17 +47,23 @@ impl Response {
                         }
                     },
                     "web_search_call" => {},  // TODO
-                    "reasoning" => {  // ["summary"]["text"] or ["content"]["text"]
-                        let message = match (output.get("summary"), output.get("content")) {
-                            (_, Some(obj)) | (Some(obj), _) => obj,
+                    "reasoning" => {  // ["summary"][i]["text"] or ["content"][i]["text"]
+                        let reasonings = match (output.get("summary"), output.get("content")) {
+                            (_, Some(Value::Array(reasonings))) | (Some(Value::Array(reasonings)), _) => reasonings,
                             _ => {
                                 return Err(Error::FailedToParseAPIResponse(s.to_string()));
                             },
                         };
-                        let Some(Value::String(s)) = message.get("text") else {
-                            return Err(Error::FailedToParseAPIResponse(s.to_string()));
-                        };
-                        thinking = Some(s.to_string());
+
+                        if let Some(reasoning) = reasonings.get(0) {
+                            if let Some(Value::String(s)) = reasoning.get("text") {
+                                thinking = Some(s.to_string());
+                            }
+
+                            else {
+                                return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                            }
+                        }
                     },
                     // We'll just ignore the rest
                     _ => {},

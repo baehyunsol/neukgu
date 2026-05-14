@@ -41,6 +41,8 @@ pub use chat::{
     ChatId,
     ChatTurn,
     ChatTurnId,
+    add_chat_turn,
+    delete_chat,
     init_chat,
     load_all_chats,
 };

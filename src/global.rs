@@ -1,5 +1,5 @@
 use chrono::Local;
-use crate::{Context, ContextJson, Error, NeukguId, load_json};
+use crate::{Context, ContextJson, Error, NeukguId, init_log_dir, load_json};
 use ragit_fs::{
     WriteMode,
     basename,
@@ -57,7 +57,15 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
     }
 
     if !exists(&join(global_index_dir, "chats")?) {
-        create_dir(&join(global_index_dir, "chats")?)?;
+        let chats = join(global_index_dir, "chats")?;
+        create_dir(&chats)?;
+
+        // We need these directories to store images and logs.
+        create_dir(&join(&chats, ".neukgu")?)?;
+        create_dir(&join3(&chats, ".neukgu", "logs")?)?;
+        create_dir(&join3(&chats, ".neukgu", "images")?)?;
+        create_dir(&join3(&chats, ".neukgu", "interruptions")?)?;
+        init_log_dir(&join3(&chats, ".neukgu", "logs")?)?;
     }
 
     if !exists(&join(global_index_dir, "chat-turns")?) {

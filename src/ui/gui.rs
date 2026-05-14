@@ -74,7 +74,7 @@ fn disabled_button<'s, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Bu
                 ..ButtonStyle::default()
             }
         })
-        .padding(8)
+        .padding(zoom * 8.0)
 }
 
 fn circle<'m, Message: 'm>(radius: f32, color: Color) -> Element<'m, Message> {

@@ -1,30 +1,47 @@
 use super::{
+    black,
     blue,
     button,
-    disabled_button,
     gray,
+    pink,
+    red,
     set_bg,
+    white,
+    yellow,
 };
 use super::worker::{
     Job,
     JobId,
     JobKind,
     JobResult,
+    JobResultKind,
 };
+use super::working_dir::{
+    ImagePopup,
+    render_llm_tokens,
+};
+use chrono::Local;
 use crate::{
     Chat,
     ChatId,
     ChatTurn,
     ChatTurnId,
     Error,
+    ImageId,
     LLMToken,
+    Model,
+    Thinking,
     get_global_index_dir,
+    prettify_timestamp,
+    stringify_llm_tokens,
 };
-use iced::{Element, Length, Size, Task};
-use iced::alignment::Vertical;
+use iced::{Background, Color, Element, Length, Padding, Size, Task};
+use iced::alignment::{Horizontal, Vertical};
+use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Container, Id, Row, Space, Stack};
-use iced::widget::operation::{AbsoluteOffset, is_focused, scroll_to};
+use iced::widget::{Column, Checkbox, Id, MouseArea, PickList, Row, Scrollable, Space, Stack, text};
+use iced::widget::container::{Container, Style};
+use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Binding,
@@ -33,7 +50,8 @@ use iced::widget::text_editor::{
     KeyPress,
     TextEditor,
 };
-use std::collections::HashMap;
+use regex::Regex;
+use std::collections::hash_map::{Entry, HashMap};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -41,17 +59,29 @@ pub struct IcedContext {
     pub chat: Chat,
     pub turns: HashMap<ChatTurnId, ChatTurn>,
 
+    // Whenever `bg_job` is set, this timestamp_millis is also set.
+    pub bg_at: Option<i64>,
+
     // If it's `Some(_)`, that means the LLM is working in background,
     // so the user cannot send a new message.
     pub bg_job: Option<JobId>,
 
+    // An error from the last bg_job.
+    pub bg_error: Option<String>,
+
+    pub curr_processing_tokens: Option<Vec<LLMToken>>,
     pub window_size: Size,
+    pub global_index_dir: String,
     pub chat_view_id: Id,
     pub chat_input_id: Id,
     pub chat_view_scrolled: AbsoluteOffset,
+    pub find_pattern: Option<(String, Regex)>,
+    pub find_result: HashMap<ChatTurnId, usize>,
     pub curr_popup: Option<Popup>,
+    pub prev_popup: Option<Popup>,
     pub chat_input_content: TextEditorContent,
     pub is_chat_input_focused: bool,
+    pub is_chat_button_hovered: bool,
     pub zoom: f32,
 }
 
@@ -66,24 +96,60 @@ impl IcedContext {
         }
 
         Ok(IcedContext {
-            chat,
+            chat: chat.clone(),
             turns,
+            bg_at: None,
             bg_job: None,
+            bg_error: None,
+            curr_processing_tokens: None,
             window_size,
+            global_index_dir: global_index_dir.to_string(),
             chat_view_id: Id::unique(),
             chat_input_id: Id::unique(),
             chat_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
+            find_pattern: None,
+            find_result: HashMap::new(),
             curr_popup: None,
+            prev_popup: None,
             chat_input_content: TextEditorContent::new(),
             is_chat_input_focused: false,
+            is_chat_button_hovered: false,
             zoom: 1.0,
         })
+    }
+
+    pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
+        self.close_popup();
+        self.curr_popup = Some(popup.clone());
+
+        match popup {
+            _ => todo!(),
+        }
+    }
+
+    pub fn close_popup(&mut self) {
+        self.curr_popup = None;
     }
 
     pub fn set_chat_input_content(&mut self, c: String) {
         self.chat_input_content.perform(TextEditorAction::SelectAll);
         self.chat_input_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
         self.chat_input_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
+    }
+
+    pub fn update_find_result(&mut self) {
+        // TODO
+    }
+}
+
+impl ImagePopup for IcedContext {
+    type Message = IcedMessage;
+
+    fn open_image_popup(&self, id: ImageId) -> IcedMessage {
+        IcedMessage::OpenPopup {
+            curr: Popup::Image(id),
+            prev: self.curr_popup.clone(),
+        }
     }
 }
 
@@ -92,8 +158,17 @@ pub enum IcedMessage {
     Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
     ChatViewScrolled(AbsoluteOffset),
+    OpenPopup { curr: Popup, prev: Option<Popup> },
+    BackPopup,
+    ClosePopup,
+    CopyString(String),
+    SelectModel(Model),
+    ToggleThinking(bool),
+    ToggleWebSearch(bool),
     EditChatInput(TextEditorAction),
     IsChatInputFocused(bool),
+    HoverChatButton,
+    UnhoverChatButton,
     Send,
     Error(String),
     BackgroundJob(Job),
@@ -107,6 +182,14 @@ pub enum IcedMessage {
 }
 
 impl ChatMessage for IcedMessage {
+    fn hover_button() -> IcedMessage {
+        IcedMessage::HoverChatButton
+    }
+
+    fn unhover_button() -> IcedMessage {
+        IcedMessage::UnhoverChatButton
+    }
+
     fn edit(action: TextEditorAction) -> IcedMessage {
         IcedMessage::EditChatInput(action)
     }
@@ -117,7 +200,13 @@ impl ChatMessage for IcedMessage {
 }
 
 #[derive(Clone, Debug)]
-pub enum Popup {}
+pub enum Popup {
+    TokenUsage,
+    Help,
+    Thinking(String),
+    Image(ImageId),
+    Find { re: Option<String>, error: Option<String> },
+}
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match try_update(context, message) {
@@ -126,19 +215,109 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
     }
 }
 
-
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick { frame, force_update } => {
             if frame % 4 == 0 || force_update {
-                // TODO
+                context.chat = Chat::load(context.chat.id, &context.global_index_dir)?;
+
+                for turn in context.chat.turns.clone().iter() {
+                    if let Entry::Vacant(e) = context.turns.entry(*turn) {
+                        e.insert(ChatTurn::load(*turn, &context.global_index_dir)?);
+                    }
+                }
             }
 
             return Ok(is_focused(context.chat_input_id.clone()).map(|is_focused| IcedMessage::IsChatInputFocused(is_focused)));
         },
-        IcedMessage::KeyPressed { key, modifiers } => todo!(),
+        IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
+            (Key::Named(NamedKey::Escape), false, false, false) => {
+                if context.curr_popup.is_some() {
+                    return Ok(Task::done(IcedMessage::ClosePopup));
+                }
+            },
+            (Key::Named(NamedKey::ArrowUp), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(snap_to(context.chat_view_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }));
+                }
+            },
+            (Key::Named(NamedKey::ArrowDown), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(snap_to(context.chat_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }));
+                }
+            },
+            (Key::Named(NamedKey::Tab), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    context.is_chat_input_focused = true;
+                    return Ok(focus(context.chat_input_id.clone()));
+                }
+            },
+            (Key::Character("f"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }));
+                }
+            },
+            (Key::Character("h"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Help, prev: None }));
+                }
+            },
+            (Key::Character("u"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
+                }
+            },
+            (Key::Character("-"), true, false, false) => {
+                context.zoom = context.zoom.max(0.2) - 0.1;
+            },
+            (Key::Character("="), true, false, false) => {
+                context.zoom = context.zoom.min(2.4) + 0.1;
+            },
+            _ => {},
+        },
         IcedMessage::ChatViewScrolled(o) => {
             context.chat_view_scrolled = o;
+        },
+        IcedMessage::OpenPopup { curr, prev } => {
+            context.open_popup(curr)?;
+            context.prev_popup = prev;
+            return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
+        },
+        IcedMessage::BackPopup => {
+            if let Some(prev_popup) = &context.prev_popup {
+                let prev_popup = prev_popup.clone();
+                context.open_popup(prev_popup)?;
+                context.prev_popup = None;
+            }
+        },
+        IcedMessage::ClosePopup => {
+            if let Some(Popup::Find { .. }) = &context.curr_popup {
+                context.find_pattern = None;
+                context.update_find_result();
+            }
+
+            context.close_popup();
+            return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
+        },
+        IcedMessage::CopyString(s) => {
+            return Ok(iced::clipboard::write(s));
+        },
+        IcedMessage::SelectModel(model) => {
+            context.chat.config.model = model;
+            context.chat.store(&context.global_index_dir)?;
+        },
+        IcedMessage::ToggleThinking(t) => {
+            if t {
+                context.chat.config.thinking = Thinking::Enabled;
+            } else {
+                context.chat.config.thinking = Thinking::Disabled;
+            }
+
+            context.chat.store(&context.global_index_dir)?;
+        },
+        IcedMessage::ToggleWebSearch(s) => {
+            context.chat.config.enable_web_search = s;
+            context.chat.store(&context.global_index_dir)?;
         },
         IcedMessage::EditChatInput(a) => {
             context.chat_input_content.perform(a);
@@ -146,19 +325,56 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::IsChatInputFocused(f) => {
             context.is_chat_input_focused = f;
         },
+        IcedMessage::HoverChatButton => {
+            context.is_chat_button_hovered = true;
+
+            // unfocus the text editor
+            return Ok(focus(context.chat_view_id.clone()));
+        },
+        IcedMessage::UnhoverChatButton => {
+            context.is_chat_button_hovered = false;
+        },
         IcedMessage::Send => {
-            let job_id = JobId::new();
-            context.bg_job = Some(job_id);
             let query = context.chat_input_content.text();
+
+            if query.is_empty() {
+                return Ok(Task::none());
+            }
+
+            let query = vec![LLMToken::String(query)];
+            let job_id = JobId::new();
+            context.bg_at = Some(Local::now().timestamp_millis());
+            context.bg_job = Some(job_id);
+            context.bg_error = None;
+            context.curr_processing_tokens = Some(query.clone());
+            context.is_chat_button_hovered = false;
             context.set_chat_input_content(String::new());
-            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
-                id: job_id,
-                kind: JobKind::AddChatTurn { chat_id: context.chat.id, query: vec![LLMToken::String(query)] },
-            })));
+
+            return Ok(Task::batch(vec![
+                Task::done(IcedMessage::BackgroundJob(Job {
+                    id: job_id,
+                    kind: JobKind::AddChatTurn { chat_id: context.chat.id, query },
+                })),
+                snap_to(context.chat_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
+            ]));
         },
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
-        IcedMessage::BackgroundJobResult(_) => todo!(),
+        IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
+            JobResultKind::AddChatTurnSuccess if context.bg_job.is_some() && context.bg_job == job_result.id => {
+                context.bg_at = None;
+                context.bg_job = None;
+                context.bg_error = None;
+                context.curr_processing_tokens = None;
+            },
+            JobResultKind::AddChatTurnError(e) if context.bg_job.is_some() && context.bg_job == job_result.id => {
+                context.bg_at = None;
+                context.bg_job = None;
+                context.bg_error = Some(e.to_string());
+                context.curr_processing_tokens = None;
+            },
+            _ => {},
+        },
         IcedMessage::Focus => {
             return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
         },
@@ -172,16 +388,93 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let full_view = vec![];
-    let full_view = Column::from_vec(full_view).width(context.window_size.width).height(context.window_size.height);
+    let mut turns: Vec<Element<IcedMessage>> = Vec::with_capacity(context.chat.turns.len());
+
+    for turn_id in context.chat.turns.iter() {
+        let turn = context.turns.get(turn_id).unwrap();
+        turns.push(render_turn(
+            "User",
+            turn.user_at,
+            &turn.user,
+            &None,
+            Horizontal::Right,
+            context,
+        ));
+        turns.push(render_turn(
+            turn.model.short_name(),
+            turn.assistant_at,
+            &[LLMToken::String(turn.assistant.to_string())],
+            &turn.thinking,
+            Horizontal::Left,
+            context,
+        ));
+    }
+
+    if let Some(tokens) = &context.curr_processing_tokens {
+        turns.push(render_turn(
+            "User",
+            context.bg_at.unwrap(),
+            tokens,
+            &None,
+            Horizontal::Right,
+            context,
+        ));
+    }
+
+    if let Some(bg_at) = context.bg_at {
+        turns.push(text!("Processing...").size(context.zoom * 14.0).into());
+    }
+
+    if let Some(error) = &context.bg_error {
+        turns.push(text!("{error}").size(context.zoom * 14.0).color(red()).into());
+    }
+
+    // Without this, chat_input will hide the error message
+    turns.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.3).into());
+
+    let turns_stretched = Column::from_vec(turns)
+        .padding(context.zoom * 20.0)
+        .spacing(context.zoom * 20.0);
+
+    let mut turns_scrollable = Scrollable::new(turns_stretched).id(context.chat_view_id.clone());
+
+    if context.curr_popup.is_none() {
+        turns_scrollable = turns_scrollable.on_scroll(|v| IcedMessage::ChatViewScrolled(v.absolute_offset()));
+    }
+
+    let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
+    let mut full_view = vec![
+        Container::new(text!("{}", context.chat.title.as_ref().unwrap_or(&String::new())).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
+        render_buttons(context),
+    ];
+
+    if let Some((pattern, _)) = &context.find_pattern {
+        let matches = context.chat.turns.iter().map(
+            |turn_id| *context.find_result.get(turn_id).unwrap_or(&0)
+        ).sum::<usize>();
+        full_view.push(text!(
+            "find: {pattern:?}, found {matches} result{}",
+            if matches == 1 { "" } else { "s" },
+        ).size(context.zoom * 14.0).into());
+    }
+
+    full_view.push(turns_colored.into());
+
+    // Without this, interrupt_text_editor won't be seen if there are too small turns
+    full_view.push(Space::new().width(context.window_size.width).height(context.window_size.height).into());
+
+    let full_view = Column::from_vec(full_view);
     let full_view_with_text_input = Stack::from_vec(vec![
         full_view.into(),
         chat_ui(
             context.is_chat_input_focused,
             context.curr_popup.is_none() && context.bg_job.is_none(),
+            context.is_chat_button_hovered,
             context.chat_input_id.clone(),
             &context.chat_input_content,
             "Send",
+            chat_config_ui(context),
+            context.window_size.height * 0.08,
             context.window_size,
             context.zoom,
         ),
@@ -190,7 +483,126 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     full_view_with_text_input.into()
 }
 
+fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
+    let buttons = vec![
+        button("Token (u)sage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, yellow(), context.zoom),
+        button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom),
+        button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom),
+    ];
+
+    let buttons = if context.curr_popup.is_some() {
+        buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+    } else {
+        buttons.into_iter().map(|button| button.into()).collect()
+    };
+
+    Row::from_vec(buttons).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into()
+}
+
+pub fn render_turn<'n, 'cn, 'cx>(
+    name: &'n str,
+    timestamp: i64,
+    content: &'cn [LLMToken],
+    thinking: &Option<String>,
+    align_name: Horizontal,
+    context: &'cx IcedContext,
+) -> Element<'cx, IcedMessage> {
+    let mut buttons = vec![
+        button("Copy", IcedMessage::CopyString(stringify_llm_tokens(content)), blue(), context.zoom),
+    ];
+
+    if let Some(thinking) = thinking {
+        buttons.push(button("Think", IcedMessage::OpenPopup { curr: Popup::Thinking(thinking.to_string()), prev: None }, black(), context.zoom));
+    }
+
+    let buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
+        buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+    } else {
+        buttons.into_iter().map(|button| button.into()).collect()
+    };
+
+    Container::new(Column::from_vec(vec![
+        Column::from_vec(vec![
+            text!("{name}").size(context.zoom * 18.0).into(),
+            text!("({})", prettify_timestamp(timestamp)).size(context.zoom * 14.0).into(),
+        ])
+            .width(context.window_size.width)
+            .align_x(align_name)
+            .into(),
+        Column::from_vec(vec![
+            Container::new(
+                Space::new()
+                    .width(context.window_size.width * 0.4)
+                    .height(context.zoom * 4.0),
+            )
+                .style(|_| set_bg(white()))
+                .into(),
+        ])
+            .width(context.window_size.width)
+            .align_x(align_name)
+            .into(),
+        Space::new().height(context.zoom * 12.0).into(),
+        render_llm_tokens(
+            content.to_vec(),
+            "",  // TODO: working dir
+            context.zoom,
+            context,
+        )
+            .width(context.window_size.width)
+            .align_x(Horizontal::Left)
+            .into(),
+        Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
+    ]).spacing(context.zoom * 8.0))
+        .padding(context.zoom * 8.0)
+        .style(|_| Style {
+            background: Some(Background::Color(gray(0.25))),
+            border: Border {
+                color: white(),
+                width: 0.0,
+                radius: Radius::new(context.zoom * 8.0),
+            },
+            ..Style::default()
+        })
+        .into()
+}
+
+fn chat_config_ui<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    Container::new(
+        Column::from_vec(vec![
+            Row::from_vec(vec![
+                text!("Model:").into(),
+                PickList::new(
+                    Model::all().into_iter().filter(
+                        |model| *model != Model::Mock && *model != Model::Disabled
+                    ).collect::<Vec<_>>(),
+                    Some(context.chat.config.model),
+                    |model| IcedMessage::SelectModel(model),
+                ).width(context.zoom * 160.0).into(),
+                Checkbox::new(context.chat.config.thinking != Thinking::Disabled)
+                    .label("Thinking")
+                    .on_toggle(|t| IcedMessage::ToggleThinking(t))
+                    .into(),
+                Checkbox::new(context.chat.config.enable_web_search)
+                    .label("Web Search")
+                    .on_toggle(|s| IcedMessage::ToggleWebSearch(s))
+                    .into(),
+            ])
+                .spacing(context.zoom * 8.0)
+                .height(context.window_size.height * 0.1)
+                .align_y(Vertical::Center)
+                .into()
+        ])
+            .padding(Padding { right: context.zoom * 8.0, ..Padding::ZERO })
+            .width(context.window_size.width)
+            .align_x(Horizontal::Right),
+    )
+        .style(|_| set_bg(gray(0.35)))
+        .into()
+}
+
 pub trait ChatMessage {
+    fn hover_button() -> Self;
+    fn unhover_button() -> Self;
     fn edit(action: TextEditorAction) -> Self;
     fn enter() -> Self;
 }
@@ -198,16 +610,21 @@ pub trait ChatMessage {
 pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
     is_focused: bool,
     can_be_focused: bool,
+    is_button_hovered: bool,
     editor_id: Id,
     editor_content: &'c TextEditorContent,
     enter_button: &'static str,
-    window_size: Size,
+    chat_config_ui: Element<'c, Message>,
+    chat_config_ui_height: f32,
+    mut window_size: Size,
     zoom: f32,
 ) -> Element<'c, Message> {
+    window_size.height -= 52.0;  // size of the tabs
     let mut text_editor = TextEditor::new(editor_content)
+        .size(zoom * 14.0)
         .id(editor_id)
         .width(window_size.width * 0.75)
-        .height(window_size.height * if is_focused { 0.25 } else { 0.05 });
+        .height(window_size.height * if is_focused { 0.27 } else { 0.07 });
 
     if can_be_focused {
         text_editor = text_editor
@@ -223,26 +640,73 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
             });
     }
 
+    // If it uses iced::widget::Button, the user has to click the button twice:
+    // once for unfocusing the text_editor and again for the button.
+    // -> This is extremely bothering, so I came up with this work-around.
+    let button_width = zoom * enter_button.len() as f32 * 10.0 + 25.0;
+    let button_height = window_size.height * 0.07;
+    let mut button: Element<Message> = Container::new(
+        Row::from_vec(vec![
+            Column::from_vec(vec![
+                text!("{enter_button}").size(zoom * 14.0).into()
+            ])
+                .width(Length::Fill)
+                .align_x(Horizontal::Center)
+                .into()
+        ])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(Vertical::Center)
+    ).style(move |_| {
+        let bg_color = if !can_be_focused {
+            gray(0.6)
+        } else if is_button_hovered {
+            let (r, g, b) = (blue().r, blue().g, blue().b);
+            Color::from_rgba(r, g, b, 0.5)
+        } else {
+            blue()
+        };
+
+        Style {
+            background: Some(Background::Color(bg_color)),
+            border: Border {
+                color: black(),
+                width: 0.0,
+                radius: Radius::new(zoom * 6.0),
+            },
+            ..Style::default()
+        }
+    })
+        .width(button_width)
+        .height(button_height)
+        .into();
+
+    if can_be_focused {
+        button = MouseArea::new(button)
+            .on_enter(Message::hover_button())
+            .on_exit(Message::unhover_button())
+            .on_press(Message::enter())
+            .into();
+    }
+
     let text_editor = Container::new(
         Row::from_vec(vec![
             Space::new().width(window_size.width * 0.05).into(),
             text_editor.into(),
-            Space::new().width((window_size.width * 0.2 - zoom * 80.0) / 2.0).into(),
-            if !can_be_focused {
-                disabled_button(enter_button, blue(), zoom).into()
-            } else {
-                button(enter_button, Message::enter(), blue(), zoom).into()
-            },
+            Space::new().width((window_size.width * 0.2 - button_width) / 2.0).into(),
+            button,
         ])
+            .padding(Padding { bottom: window_size.height * 0.04, ..Padding::ZERO })
             .height(Length::Fill)
-            .align_y(Vertical::Center)
+            .align_y(Vertical::Bottom)
     )
         .width(window_size.width)
         .height(window_size.height * if is_focused { 0.35 } else { 0.15 })
         .style(|_| set_bg(gray(0.35)));
 
     Column::from_vec(vec![
-        Space::new().height(window_size.height * if is_focused { 0.65 } else { 0.85 }).into(),
+        Space::new().height(window_size.height * if is_focused { 0.65 } else { 0.85 } - chat_config_ui_height).into(),
+        chat_config_ui,
         text_editor.into(),
     ]).into()
 }

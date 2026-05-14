@@ -30,6 +30,7 @@ use crate::{
     NeukguId,
     Project,
     clean_global_index_dir,
+    delete_chat,
     get_global_index_dir,
     get_neukgu_id,
     init_chat,
@@ -163,7 +164,8 @@ impl IcedContext {
                 self.set_long_text_editor_content(instruction);
                 self.syntax_highlight = Some(String::from("md"));
             },
-            Popup::AskDelete { .. } => {},
+            Popup::AskDeleteProject { .. } => {},
+            Popup::AskDeleteChat { .. } => {},
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
@@ -238,9 +240,13 @@ pub enum Popup {
     Instruction {
         working_dir: String,
     },
-    AskDelete {
+    AskDeleteProject {
         project_name: String,
         working_dir: String,
+    },
+    AskDeleteChat {
+        id: ChatId,
+        title: Option<String>,
     },
     Help,
     Error(String),
@@ -310,8 +316,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             //     }
             // },
             (Key::Character("y"), true, false, false) => {
-                if let Some(Popup::AskDelete { project_name, working_dir }) = &context.curr_popup {
+                if let Some(Popup::AskDeleteProject { project_name, working_dir }) = &context.curr_popup {
                     return Ok(Task::done(IcedMessage::DeleteProject { project_name: project_name.to_string(), working_dir: working_dir.to_string() }));
+                }
+
+                else if let Some(Popup::AskDeleteChat { id, .. }) = &context.curr_popup {
+                    return Ok(Task::done(IcedMessage::DeleteChat(*id)));
                 }
             },
             (Key::Character("-"), true, false, false) => {
@@ -342,6 +352,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::NewChat => {
             let chat_id = init_chat(&context.global_index_dir, None)?;
+            context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }));
         },
         IcedMessage::DeleteProject { project_name, working_dir } => {
@@ -352,7 +363,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
-        IcedMessage::DeleteChat(chat_id) => todo!(),
+        IcedMessage::DeleteChat(chat_id) => {
+            delete_chat(chat_id, &context.global_index_dir)?;
+            context.close_popup();
+            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
+        },
         IcedMessage::OpenPopup(popup) => {
             context.open_popup(popup)?;
         },
@@ -513,10 +528,29 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::AskDelete { project_name, working_dir }) = &context.curr_popup {
+    else if let Some(Popup::AskDeleteProject { project_name, working_dir }) = &context.curr_popup {
         let ask = Column::from_vec(vec![
             text!("Delete project `{project_name}`?").size(context.zoom * 14.0).into(),
             button("(Y)es", IcedMessage::DeleteProject { project_name: project_name.to_string(), working_dir: working_dir.to_string() }, green(), context.zoom).into(),
+        ])
+            .spacing(context.zoom * 20.0)
+            .align_x(Horizontal::Center)
+            .width(Length::Fill);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(ask.into(), context).into(),
+        ]).into();
+    }
+
+    else if let Some(Popup::AskDeleteChat { id, title }) = &context.curr_popup {
+        let ask = Column::from_vec(vec![
+            if let Some(title) = title {
+                text!("Delete chat `{title}`?").size(context.zoom * 14.0).into()
+            } else {
+                text!("Delete untitled chat?").size(context.zoom * 14.0).into()
+            },
+            button("(Y)es", IcedMessage::DeleteChat(*id), green(), context.zoom).into(),
         ])
             .spacing(context.zoom * 20.0)
             .align_x(Horizontal::Center)
@@ -600,7 +634,7 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                             button("Browse", IcedMessage::NewTab { tab: Tab::Browser { dir: project.working_dir.to_string(), file: None }, force_new_tab: false }, skyblue(), context.zoom).into(),
                             button("Instruction", IcedMessage::OpenPopup(Popup::Instruction { working_dir: project.working_dir.to_string() }), yellow(), context.zoom).into(),
                             if project.is_in_global_index_dir {
-                                button("Delete", IcedMessage::OpenPopup(Popup::AskDelete {
+                                button("Delete", IcedMessage::OpenPopup(Popup::AskDeleteProject {
                                     project_name: path.to_string(),
                                     working_dir: project.working_dir.to_string(),
                                 }), red(), context.zoom).into()
@@ -635,10 +669,19 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     chat.title.as_ref().unwrap_or(&String::from("untitled")),
                     prettify_timestamp(chat.updated_at),
                 ).size(context.zoom * 14.0).width(context.window_size.width).into(),
-                Row::from_vec(vec![
-                    button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom).into(),
-                    button("Delete", IcedMessage::DeleteChat(chat.id), red(), context.zoom).into(),
-                ]).spacing(context.zoom * 8.0).into(),
+                Row::from_vec(
+                    if context.curr_popup.is_some() {
+                        vec![
+                            disabled_button("Open", green(), context.zoom).into(),
+                            disabled_button("Delete", red(), context.zoom).into(),
+                        ]
+                    } else {
+                        vec![
+                            button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom).into(),
+                            button("Delete", IcedMessage::OpenPopup(Popup::AskDeleteChat { id: chat.id, title: chat.title.clone() }), red(), context.zoom).into(),
+                        ]
+                    }
+                ).spacing(context.zoom * 8.0).into(),
             ]).spacing(context.zoom * 8.0)
         )
             .style(|_| Style {

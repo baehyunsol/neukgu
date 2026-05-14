@@ -1,6 +1,6 @@
 use super::tab::TabId;
 use base64::Engine;
-use crate::{ChatId, Error, LLMToken, subprocess, subprocess::Output};
+use crate::{ChatId, Error, LLMToken, add_chat_turn, get_global_index_dir, subprocess, subprocess::Output};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -43,11 +43,12 @@ pub struct JobResult {
 pub enum JobResultKind {
     Rg { regex: String, matches: Vec<RgMatch>, count: usize },
     RgTimeout,
+    AddChatTurnSuccess,
+    AddChatTurnError(String),
     WorkerError(String),
 }
 
 pub struct Worker {
-    pub id: usize,
     pub tx_from_main: mpsc::Sender<Job>,
     pub rx_to_main: mpsc::Receiver<JobResult>,
 }
@@ -91,7 +92,7 @@ impl Workers {
         }
 
         for index in disconnected_workers.into_iter() {
-            self.workers[index] = init_worker(index);
+            self.workers[index] = init_worker();
         }
 
         let result = result.into_iter().map(
@@ -123,13 +124,13 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
 
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
             },
-            Job { id, kind: JobKind::AddChatTurn { chat_id, query } } => {
-                let mut chat = Chat::load(chat_id, _)?;
-                // How can I call an async function..??
-                // do I need a subprocess??
-                // does `block_on` work here?
-                // chat.add_turn(query).await?;
-                todo!()
+            Job { id, kind: JobKind::AddChatTurn { chat_id, query } } => match add_chat_turn_blocked(chat_id, query) {
+                Ok(()) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnSuccess }).unwrap();
+                },
+                Err(e) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnError(format!("{e:?}")) }).unwrap();
+                },
             },
         }
     }
@@ -137,7 +138,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
     Ok(())
 }
 
-fn init_worker(id: usize) -> Worker {
+fn init_worker() -> Worker {
     let (tx_to_main, rx_to_main) = mpsc::channel();
     let (tx_from_main, rx_from_main) = mpsc::channel();
 
@@ -148,14 +149,14 @@ fn init_worker(id: usize) -> Worker {
         },
     });
 
-    Worker { id, rx_to_main, tx_from_main }
+    Worker { rx_to_main, tx_from_main }
 }
 
 pub fn init_workers(count: usize) -> Workers {
     Workers {
         round_robin: 0,
         tab_id_by_job_id: HashMap::new(),
-        workers: (0..count).map(|id| init_worker(id)).collect(),
+        workers: (0..count).map(|_| init_worker()).collect(),
     }
 }
 
@@ -170,7 +171,7 @@ pub struct RgMatch {
 fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
     #[derive(Debug, Deserialize)]
     struct RgMatchLine {
-        r#type: String,
+        // r#type: String,
         data: RgMatchData,
     }
 
@@ -179,13 +180,13 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
         path: TextOrBytes,
         lines: TextOrBytes,
         line_number: usize,
-        absolute_offset: usize,
+        // absolute_offset: usize,
         submatches: Vec<Submatch>,
     }
 
     #[derive(Debug, Deserialize)]
     struct Submatch {
-        r#match: TextOrBytes,
+        // r#match: TextOrBytes,
         start: usize,
         end: usize,
     }
@@ -237,4 +238,10 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
     }
 
     JobResultKind::Rg { regex, matches, count }
+}
+
+fn add_chat_turn_blocked(chat_id: ChatId, query: Vec<LLMToken>) -> Result<(), Error> {
+    let global_index_dir = get_global_index_dir()?;
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(add_chat_turn(chat_id, query, &global_index_dir))
 }

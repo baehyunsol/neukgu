@@ -1,10 +1,5 @@
 use super::{black, circle, count_chars, gray, set_bg, take_chars, white};
 use super::browser::IcedMessage as BrowserMessage;
-use super::chat::{
-    self,
-    IcedContext as ChatContext,
-    IcedMessage as ChatMessage,
-};
 use super::index::{
     self,
     IcedContext as IndexContext,
@@ -451,7 +446,9 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     row.push(Space::new().width(8.0).into());
     row.push(new_tab.into());
-    Row::from_vec(row).align_y(Vertical::Center).padding(4.0).into()
+    Container::new(
+        Row::from_vec(row).align_y(Vertical::Center)
+    ).width(context.window_size.width).padding(4.0).style(|_| set_bg(gray(0.1))).into()
 }
 
 fn render_tab_title<'t, 'm>(
@@ -492,7 +489,7 @@ fn render_tab_title<'t, 'm>(
 
     let close: Element<IcedMessage> = if let Some(action) = close_action {
         Button::new(text!("X").size(11.0))
-            .style(|_, status| match status {
+            .style(move |_, status| match status {
                 ButtonStatus::Hovered => ButtonStyle {
                     background: Some(Background::Color(white())),
                     text_color: black(),
@@ -504,7 +501,7 @@ fn render_tab_title<'t, 'm>(
                     ..ButtonStyle::default()
                 },
                 _ => ButtonStyle {
-                    background: Some(Background::Color(gray(0.3))),
+                    background: Some(Background::Color(if curr_selected { gray(0.3) } else { gray(0.1) })),
                     text_color: white(),
                     border: Border {
                         color: black(),
@@ -532,7 +529,11 @@ fn render_tab_title<'t, 'm>(
             .spacing(8.0)
     )
     .style(move |_| ContainerStyle {
-        background: if curr_selected { Some(Background::Color(gray(0.3))) } else { None },
+        background: if curr_selected {
+            Some(Background::Color(gray(0.3)))
+        } else {
+            Some(Background::Color(gray(0.1)))
+        },
         border: Border {
             color: black(),
             width: 0.0,

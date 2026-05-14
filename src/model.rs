@@ -1,5 +1,6 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Model {
@@ -99,6 +100,12 @@ impl Model {
 
     pub fn short_names() -> Vec<&'static str> {
         Model::all().iter().map(|m| m.short_name()).collect()
+    }
+}
+
+impl fmt::Display for Model {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", self.short_name())
     }
 }
 
