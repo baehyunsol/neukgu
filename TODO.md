@@ -62,22 +62,17 @@
   - 추가
     - 한 세션에서 브라우저 여러번 띄우면 문제 생기는 거같은데?? -> 이거는 테스트하기 쉬움!!
       - 근데 mac이랑 linux에서 지금은 잘 돎... 브라우저를 더 많이 띄워봐야하나? 아니면 시간 간격을 좀 두고 띄워볼까?
-49. init 할 때 `neukgu-instruction.md`가 이미 있는 경우
-  - 쓰다보니까 모종의 이유로 저게 이미 있는 경우가 많더라
-  - 늑구와 관계없는 프로그램이 저 파일을 만드는 경우는... 없다고 하자!
-  - 제일 직관적인 거는, TextEditor를 띄울 때 기존의 `neukgu-instruction.md`의 내용을 채워놓고 띄우는 거임
-  - 만약에 `.neukgu/`가 이미 존재하지만 과거의 버전이어서 호환이 안되면?
-    - 사용자한테 물어봐야지... "버전이 안 맞아서 호환이 안되는데 걍 초기화하실?"
 56. search
   - working dir (turns)
     - complete!
     - 지금은 turn의 title에서만 검색을 하는데 turn의 내용에서 검색하는 것도 필요함...
   - browser에서도 검색 기능이 있으면 좋을 듯?
-    - 이거는 rg를 활용할 수도 있음 (어차피 깔려있을테니!). `rg <pattern> --json` 한다음에 결과물을 뜯어서 rendering해도 됨!
-    - 근데 rg를 fe에서 돌리면 랙이 엄청 걸릴텐데?? 별도의 process에서 async하게 돌려야함...
+    - complete!
   - 온갖 popup에서도 검색이 되면 좋을 듯? 파일 내용을 보다가 그 안에서 검색하기!!
     - 파일 내용 안에서 검색하는 거는 현재 UI에서는 한계가 있음... 파일 내용 popup -> 검색 내용 popup -> 검색 결과 popup 이렇게 3중으로 가야하는데 지금 구현으로는 2중이 최대임...
     - 파일 내용 안에서 검색하는 거 점점 절실히 필요해짐... 아니면 이런 거 ㅇㄸ: popup 아래에 text_input을 박아두는 거임. 거기서 검색 버튼 누르면 검색 결과 popup이 뜸
+  - chat 안에서 검색하기
+    - 생각해보니까 이거 결과를 highlight하는게 무지 빡셀 듯...
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - config ui
@@ -150,6 +145,7 @@
 88. text edit
   - https://github.com/shareAI-lab/learn-claude-code/blob/main/agents/s02_tool_use.py 보니까 edit를 엄청 무식하게 구현해놨음. old_text랑 new_text 준 다음에 `.replace()` 해버림... 근데 또 생각해보면, 대부분의 경우에서는 잘 동작할 거 같기도?
   - 늑구를 쓰다보니 이미 AI가 이런 식으로 시도를 함. 내가 `<edit>`을 안 주니까 본인들이 알아서 Python script를 짠 다음에 그 안에서 `.replace()`를 호출해버림! 일단 AI가 이런 작업을 할 역량이 있는 건 확인했으니 툴을 어떻게 예쁘게 만들지만 고민하면 됨!
+  - existing codebase에서 작업하려면 이게 필수인 듯! 일단 `sample_instructions/harness-1.md`를 돌려보자!!
 90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!! (yellow??!!)
   - 파일 수정 시각
   - dir일 경우, recursive하게 크기 측정
@@ -231,14 +227,19 @@
 121. 파일을 보다가 (혹은 뭐가 됐든 긴 글을 보다가), 그 글을 주고 질문을 할 수 있게 하고 싶음!
   - 아주 가벼운 ragit을 만드는 거지
   - 파일 길이가 웬만큼 짧으면, 파일 내용과 질문을 통으로 다 주고 응답을 받으면 됨
-122. chat mode
-  - 일단 `chat.rs`는 있음. 이거 때매 자꾸 warning 뜨는데 빨랑 구현해야함 ㅋㅋㅋ
-  - 이거는 backend를 어떻게 만들지? 아예 새로 만들어야하나??
-    - 아니면 이건 ㅇㄸ? 56번 이슈 해결할 겸 겸사겸사 fe-background-worker를 만들고, 그걸로 실행시켜버리는 거임 ㅋㅋㅋ
-123. background worker (for fe)
-  - 56번 이슈의 rg도 해결하고 122번 이슈의 백엔드도 해결!!
-  - `tabs::Context`에다가 `workers: Vec<Worker>`를 추가하자!
-  - 통신은 어떻게 함?? tab에서 요청을 보내면 tab_id와 req_id를 기억하고 있다가 다시 돌려주면 됨
+124. attach image files in chat
+  - 그러려면 파일 브라우저를 popup으로 띄워야하는데...
+125. 다른 세션을 볼 수 있는 ui를 만들자
+  - 세션이 통째로 한 파일 (혹은 dir)로 돼 있고, ui에서 그 파일을 읽어서 보여주는 거임
+  - 19, 94, 105번 이슈에 다 영향을 줄 수 있음.
+    - subagent가 돌면, subagent의 상태를 볼 수 있는 ui도 필요하고 main agent의 상태를 볼 수 있는 ui도 필요하거든
+    - 과거의 session을 파일로 저장했으면, 그 파일을 읽을 수 있는 ui도 필요하거든
+126. 오랜만에 늑구 (with gpt-5.5)로 psd-rs를 짜보려고 했는데...
+  - 일단, 기존의 코드가 존재하니까 코드를 일부만 수정하려고 계속 시도함. 얘는 Python을 이용해서 edit을 하려고 하는데 이럴 바에는 그냥 `<edit>` tool을 만들어주는게 나을 듯!
+  - 수정된 파일의 목록을 한번에 보는 view가 필요함
+    - `<run>`으로 수정된 파일도 보여줘야하나... 이거 추적하는게 무지하게 빡셈 ㅠㅠ
+    - `<write>`랑 `<edit>`으로 수정된 파일은 당연히 보여줘야함!! 이러면 `<edit>`이 더더욱 중요해지네...
+127. pragmatic instruction: tera template 적용시키면 괜찮을 수도?? 특히 cron일 때!
 
 ## mock API
 
