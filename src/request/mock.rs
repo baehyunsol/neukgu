@@ -188,6 +188,38 @@ fn mock_requests() -> Vec<MockRequest> {
         ),
         // parse test end
 
+        // patch test
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>whatever.md</path>\n<content>
+This is line 1.
+This is line 2.
+This is line 3.
+This is line 4.
+</content>\n</write>",
+            None,
+        ),
+        MockRequest::new(
+            "<patch>\n<path>whatever.md</path>\n<diff>
+ This is line 1.
+-This is line 2.
++This is not line 2.
+-This is line 3.
++This is not line 3.
+ This is line 4.
+</diff>\n</patch>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>whatever.md</path></read>",
+            Some(
+"This is line 1.
+This is not line 2.
+This is not line 3.
+This is line 4.",
+            ),
+        ),
+        // patch test end
+
         // cargo test
         MockRequest::new(
             "<run>\n<command>cargo new new_crate</command>\n</run>",

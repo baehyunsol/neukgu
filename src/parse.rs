@@ -1,5 +1,5 @@
 use crate::{AskTo, LLMToken, ToolCall, ToolKind};
-use crate::tool::WriteMode;
+use crate::tool::{LineDiff, WriteMode, parse_line_diff};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -54,6 +54,10 @@ pub enum ParseError {
         n: i64,
     },
     InvalidWriteMode(String),
+    InvalidPatchPrefix {
+        line: String,
+        prefix: char,
+    },
     NotBash,
     InvalidAskTo(String),
 }
@@ -100,6 +104,9 @@ Please call a tool.
             ),
             ParseError::InvalidWriteMode(mode) => format!(
                 "`{mode}` is not a valid <mode>. Available modes are create, truncate and append.",
+            ),
+            ParseError::InvalidPatchPrefix { line, prefix } => format!(
+                "There's a syntax error in line {line:?}. A line must start with either ' ', '+' or '-', but it starts with {prefix:?}.",
             ),
             ParseError::NotBash => String::from("
 Failed to run the command.
@@ -363,6 +370,28 @@ impl ToolCall {
 
                 Ok(ToolCall::Write { path, mode, content })
             },
+            ToolKind::Patch => {
+                let path = match parse_path_arg(args, "path") {
+                    Some(path) => path,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("patch"),
+                            arg: String::from("path"),
+                        });
+                    },
+                };
+                let diff = match parse_diff_arg(args, "diff") {
+                    Some(diff) => diff?,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("patch"),
+                            arg: String::from("diff"),
+                        });
+                    },
+                };
+
+                Ok(ToolCall::Patch { path, diff })
+            },
             ToolKind::Run => {
                 let command = match parse_command_arg(args, "command") {
                     Some(command) => {
@@ -519,6 +548,12 @@ fn parse_command_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Vec<
     }
 
     Some(cli.into_iter().map(|chs| chs.into_iter().collect()).collect())
+}
+
+fn parse_diff_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<Vec<LineDiff>, ParseError>> {
+    let lines = args.get(arg.as_bytes())?;
+    let lines = String::from_utf8_lossy(lines);
+    Some(parse_line_diff(&lines))
 }
 
 fn check_tag_name(input: &[u8]) -> Option<&[u8]> {

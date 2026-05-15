@@ -47,12 +47,14 @@ use std::time::{Duration, Instant};
 
 mod ask;
 mod chrome;
+mod patch;
 mod read;
 mod run;
 mod write;
 
 pub use ask::{AskTo, ask_question_to_web};
 pub use chrome::WebOrFile;
+pub use patch::{DiffKind, LineDiff, PatchError, parse_line_diff, patch_file};
 pub use read::{
     FileEntry,
     RangeType,
@@ -78,6 +80,11 @@ pub enum ToolCall {
         path: Path,
         mode: WriteMode,
         content: String,
+    },
+    // TODO: It's not in the system prompt yet.
+    Patch {
+        path: Path,
+        diff: Vec<LineDiff>,
     },
     Run {
         timeout: Option<u64>,
@@ -351,6 +358,44 @@ impl ToolCall {
                     chars: char_count,
                     lines: line_count,
                 }))
+            },
+            ToolCall::Patch { path, diff } => {
+                let joined_path = match normalize_path(path) {
+                    Some(path) if path.is_empty() => String::from("."),
+                    Some(path) => path.join("/"),
+                    None => path.join("/"),
+                };
+
+                // If `join` fails, `check_write_permission` will catch this!
+                let real_path = join(&context.working_dir, &joined_path).unwrap_or(joined_path.clone());
+
+                match (exists(&real_path), is_symlink(&real_path), is_dir(&real_path), read_string(&real_path)) {
+                    (_, true, _, _) => {
+                        return Ok(Err(ToolCallError::CannotPatchSymlink { path: joined_path }));
+                    },
+                    (false, _, _, _) => {
+                        return Ok(Err(ToolCallError::CannotPatchNonExistFile { path: joined_path }));
+                    },
+                    (_, _, true, _) => {
+                        return Ok(Err(ToolCallError::CannotPatchDir { path: joined_path }));
+                    },
+                    (_, _, _, Err(e)) => {
+                        return Ok(Err(ToolCallError::CanOnlyPatchText { path: joined_path, error: format!("{e:?}") }));
+                    },
+                    _ => {},
+                }
+
+                if !check_write_permission(path) {
+                    return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
+                }
+
+                let result = patch_file(&real_path, diff);
+
+                if let Ok(ToolCallSuccess::Patch { new_content, .. }) = &result {
+                    write_string(&real_path, new_content, WriteMode::Truncate.into())?;
+                }
+
+                Ok(result)
             },
             ToolCall::Run { timeout, command, stdout, stderr } => {
                 if let Some(stdout) = stdout && !check_write_permission(stdout) {
@@ -627,6 +672,20 @@ impl ToolCall {
                 content.len(),
                 path.join("/"),
             ),
+            ToolCall::Patch { path, diff, .. } => {
+                let add = diff.iter().filter(
+                    |LineDiff { kind, .. }| *kind == DiffKind::Add
+                ).count();
+                let remove = diff.iter().filter(
+                    |LineDiff { kind, .. }| *kind == DiffKind::Remove
+                ).count();
+                format!(
+                    "Patch `{}` (add {add} line{}, remove {remove} line{})",
+                    path.join("/"),
+                    if add == 1 { "" } else { "s" },
+                    if remove == 1 { "" } else { "s" },
+                )
+            },
             ToolCall::Run { command, .. } => format!(
                 "Run `{}`",
                 join_command_args(command),
@@ -644,7 +703,17 @@ impl ToolCall {
                 "Open chrome and render `{}` to `{}`{}",
                 input.join("/"),
                 output.join("/"),
-                if let Some(script) = script { format!(" (script: {script})") } else { String::new() },
+                if let Some(script) = script {
+                    let script = if script.chars().count() < 42 {
+                        script.to_string()
+                    } else {
+                        format!("{}...", script.chars().take(39).collect::<String>())
+                    };
+
+                    format!(" (script: {script})")
+                } else {
+                    String::new()
+                },
             ),
         }
     }
@@ -692,6 +761,11 @@ pub enum ToolCallSuccess {
         bytes: u64,
         chars: u64,
         lines: u64,
+    },
+    Patch {
+        path: String,
+        diff: Vec<LineDiff>,
+        new_content: String,
     },
     Run {
         command: Vec<String>,
@@ -760,6 +834,11 @@ impl ToolCallSuccess {
             },
             ToolCallSuccess::Write { path, bytes, lines, .. } => {
                 let s = format!("{} ({lines} lines) of text was successfully written to `{path}`.", prettify_bytes(*bytes));
+                vec![LLMToken::String(s)]
+            },
+            // The diffs are already in the context, so it doesn't have to show the diffs again.
+            ToolCallSuccess::Patch { path, .. } => {
+                let s = format!("Successfully updated `{path}`.");
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Run { command, elapsed_ms, exit_code, stdout, stderr } => {
@@ -898,6 +977,18 @@ pub enum ToolCallError {
         limit: u64,
     },
     NoSummaryInDoneFile,
+
+    // patch errors
+    CannotPatchSymlink { path: String },
+    CannotPatchNonExistFile { path: String },
+    CannotPatchDir { path: String },
+    CanOnlyPatchText {
+        path: String,
+
+        // This is `format!("{:?}", read_string(path).unwrap_err)`
+        error: String,
+    },
+    CannotApplyPatch(PatchError),
 
     // run errors
     CommandTimeoutTooLong {
@@ -1040,6 +1131,7 @@ Command timeout! The process didn't terminate for {timeout} seconds.
 pub enum ToolKind {
     Read,
     Write,
+    Patch,
     Run,
     Ask,
     Chrome,
@@ -1050,6 +1142,7 @@ impl ToolKind {
         vec![
             ToolKind::Read,
             ToolKind::Write,
+            ToolKind::Patch,
             ToolKind::Run,
             ToolKind::Ask,
             ToolKind::Chrome,
@@ -1060,6 +1153,7 @@ impl ToolKind {
         match name {
             b"read" => Some(ToolKind::Read),
             b"write" => Some(ToolKind::Write),
+            b"patch" => Some(ToolKind::Patch),
             b"run" => Some(ToolKind::Run),
             b"ask" => Some(ToolKind::Ask),
             b"chrome" => Some(ToolKind::Chrome),
@@ -1073,6 +1167,8 @@ impl ToolKind {
             (ToolKind::Read, _) => false,
             (ToolKind::Write, b"path" | b"mode" | b"content") => true,
             (ToolKind::Write, _) => false,
+            (ToolKind::Patch, b"path" | b"diff") => true,
+            (ToolKind::Patch, _) => false,
             (ToolKind::Run, b"timeout" | b"command" | b"stdout" | b"stderr") => true,
             (ToolKind::Run, _) => false,
             (ToolKind::Ask, b"to" | b"question") => true,
@@ -1086,6 +1182,7 @@ impl ToolKind {
         match self {
             ToolKind::Read => vec!["path", "start", "end"],
             ToolKind::Write => vec!["path", "mode", "content"],
+            ToolKind::Patch => vec!["path", "diff"],
             ToolKind::Run => vec!["timeout", "command", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
