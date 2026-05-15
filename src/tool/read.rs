@@ -11,7 +11,16 @@ use crate::{
     render_and_get_id,
 };
 use hayro::hayro_syntax::Pdf;
-use ragit_fs::{basename, extension, is_dir, join, read_bytes, read_dir};
+use ragit_fs::{
+    FileError,
+    basename,
+    extension,
+    is_dir,
+    is_symlink,
+    join,
+    read_bytes,
+    read_dir,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -27,6 +36,7 @@ pub enum TypedFile {
     Image(ImageId),
     BrokenImage { error: String },
     Dir(Vec<FileEntry>),
+    Symlink { pointee: String },
     Pdf(PdfId),
     BrokenPdf { error: String },
     Etc,
@@ -63,6 +73,9 @@ pub enum FileEntry {
     Dir {
         name: String,
     },
+    Symlink {
+        name: String,
+    },
 }
 
 // NOTE: The pdf crate can parse non-pdf files. For example, it parses
@@ -89,6 +102,10 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
 
             if is_dir(&e) {
                 entries.push(FileEntry::Dir { name });
+            }
+
+            else if is_symlink(&e) {
+                entries.push(FileEntry::Symlink { name });
             }
 
             else {
@@ -128,6 +145,12 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
         }
 
         Ok(TypedFile::Dir(entries))
+    }
+
+    else if is_symlink(&real_path) {
+        let pointee = std::fs::read_link(&real_path).map_err(|err| FileError::from_std(err, &real_path))?;
+        let pointee = pointee.into_os_string().into_string().unwrap();
+        Ok(TypedFile::Symlink { pointee })
     }
 
     else {

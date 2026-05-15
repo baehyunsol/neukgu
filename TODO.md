@@ -36,6 +36,8 @@
 26. symlink가 있을 경우, import/export sandbox가 먹통이 됨 ㅠㅠ
   - dst를 그대로 살릴 수도 있고, dst에 적당한 보정을 할 수도 있음
   - dst가 working-dir의 내부일 수도 있고, 외부일 수도 있음
+  - 조금 더 읽어보니, `copy_file`에다가 symlink 집어넣어도 잘 작동해야함!
+    - 내 추측에는, sandbox를 만들고 삭제하는 과정에서 symlink의 pointee가 사라질텐데, 그래서 파일이 없다고 오류가 나는 듯?
 34. reset session
   - reset session은 구현했고, 과거의 session을 어딘가에 기록해두고 싶음 (`neukgu-instruction.md` + `context.json`). -> 제목을 지을 수 있으면 더 좋은데... 늑구한테 제목 지으라고 할까? ㅋㅋㅋ
     - 과거의 session을 보는 view도 만들어야하긴 한데, working-dir-view를 재활용하기에는 다른게 너무 많고 from-scratch로 만들기에는 working-dir-view을 재활용하고 싶고...
@@ -135,8 +137,6 @@
   -  `neukgu gui <path> --launch`
     - dir이어야하고, index가 존재해야함.
     - `--paused`도 추가할까... -> 이 옵션을 gui에도 넣고 싶은데?
-80. symlink 테스트 케이스 추가
-  - python으로 symlink 만들고 git에 추가하고 다시 확인 했을 때
 83. launch라는 용어가 마음에 안 듦. "go hunt" ㅇㄸ?
 87. `context.json`이 동일하면 LLM한테 완전 동일한 context를 줄 수 있잖아? 서로 다른 LLM한테 완전 동일한 context를 주고 어떻게 다르게 행동하는지 실험해보자
   - 만약 동일한 상황에서 haiku도 `<write>`를 하고 opus도 `<write>`를 한다? 그럼 평상시에는 haiku를 쓰다가 write할 때만 opus로 갈아끼우면 됨!
@@ -240,6 +240,10 @@
     - `<run>`으로 수정된 파일도 보여줘야하나... 이거 추적하는게 무지하게 빡셈 ㅠㅠ
     - `<write>`랑 `<edit>`으로 수정된 파일은 당연히 보여줘야함!! 이러면 `<edit>`이 더더욱 중요해지네...
 127. pragmatic instruction: tera template 적용시키면 괜찮을 수도?? 특히 cron일 때!
+128. 돌리다가 또 문제
+  - ripgrep의 stdout을 redirect한 다음에, 결과물의 첫번째 200줄만 확인했음
+  - 근데 이게 무지무지하게 길어서 이거 혼자서 200KiB를 넘겨버렸음...
+  - 그렇게되니까 아직 10턴도 안됐는데 중간 턴들이 생략되기 시작하면서 context가 개판이 됐음...
 
 ## mock API
 

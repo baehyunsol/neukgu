@@ -30,6 +30,7 @@ use ragit_fs::{
     exists,
     into_abs_path,
     is_dir,
+    is_symlink,
     join,
     join3,
     parent,
@@ -123,7 +124,8 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_path }));
                 }
 
-                if !exists(&real_path) {
+                // If the file is a symlink, `exists` checks the existence of the pointee, not the pointer
+                if !exists(&real_path) && !is_symlink(&real_path) {
                     return Ok(Err(ToolCallError::NoSuchFile { path: joined_path }));
                 }
 
@@ -252,6 +254,22 @@ impl ToolCall {
                                     given: (*start, *end),
                                 })),
                             }
+                        }
+                    },
+                    TypedFile::Symlink { pointee } => {
+                        if end.is_none() && start.is_none() {
+                            Ok(Ok(ToolCallSuccess::ReadSymlink {
+                                path: joined_path,
+                                pointee,
+                            }))
+                        }
+
+                        else {
+                            Ok(Err(ToolCallError::SymlinkWithRange {
+                                path: joined_path,
+                                pointee,
+                                range: (*start, *end),
+                            }))
                         }
                     },
                     TypedFile::Etc => Ok(Err(ToolCallError::InvalidFileType { path: joined_path })),
@@ -656,6 +674,10 @@ pub enum ToolCallSuccess {
         total_entries: u64,
         range: (Option<u64>, Option<u64>),
     },
+    ReadSymlink {
+        path: String,
+        pointee: String,
+    },
     Write {
         path: String,
         content: String,
@@ -723,12 +745,17 @@ impl ToolCallSuccess {
                         FileEntry::BrokenImage { name, bytes } => format!("{name}\t{}\t(Failed to parse image file)", prettify_bytes(*bytes)),
                         FileEntry::EtcFile { name, bytes } => format!("{name}\t{}", prettify_bytes(*bytes)),
                         FileEntry::Dir { name } => format!("{name}/\tdirectory"),
+                        FileEntry::Symlink { name } => format!("{name}\tsymlink"),
                     }
                 ).collect::<Vec<_>>().join("\n");
                 let s = format!(
                     "{path}{}\n{entries_count}\n\n{entries}",
                     if path.ends_with("/") { "" } else { "/" },
                 );
+                vec![LLMToken::String(s)]
+            },
+            ToolCallSuccess::ReadSymlink { path, pointee } => {
+                let s = format!("`{path}` is a symlink that points to `{pointee}`.");
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Write { path, bytes, lines, .. } => {
@@ -846,6 +873,11 @@ pub enum ToolCallError {
         error: String,
     },
     ReadingExactSameFile { path: String },
+    SymlinkWithRange {
+        path: String,
+        pointee: String,
+        range: (Option<u64>, Option<u64>),
+    },
 
     // write errors
     NoPermissionToWrite {

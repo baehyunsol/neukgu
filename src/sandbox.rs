@@ -15,6 +15,7 @@ use ragit_fs::{
     exists,
     into_abs_path,
     is_dir,
+    is_symlink,
     join,
     join3,
     normalize,
@@ -25,6 +26,7 @@ use ragit_fs::{
     write_string,
 };
 use std::collections::HashSet;
+use std::io::ErrorKind;
 
 pub fn export_to_sandbox(sandbox_root: &str, working_dir: &str, copy_index_dir: bool) -> Result<String, Error> {
     let sandbox_at = create_sandbox(sandbox_root, working_dir)?;
@@ -123,6 +125,20 @@ pub(crate) fn copy_recursive(
 
             create_dir(&dst_e)?;
             copy_recursive(&e, &dst_e, false, copy_index_dir)?;
+        }
+
+        else if is_symlink(&e) {
+            let pointee = std::fs::read_link(&e).map_err(|err| FileError::from_std(err, &e))?;
+
+            // I can't use the `exists` function because the function checks the existence
+            // of the pointee, not the pointer.
+            match std::os::unix::fs::symlink(&pointee, &dst_e) {
+                Ok(()) => {},
+                Err(err) if err.kind() == ErrorKind::AlreadyExists => {},
+                Err(err) => {
+                    Err(FileError::from_std(err, &dst_e))?;
+                },
+            }
         }
 
         else {

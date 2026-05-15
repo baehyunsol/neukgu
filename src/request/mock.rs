@@ -258,6 +258,41 @@ edition = "2024"
         ),
         // git test end
 
+        // symlink test
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>link.py</path>\n<content>
+import os
+os.symlink(\"Cargo.toml\", \"symlink-wrong\")
+os.symlink(\"new_crate/Cargo.toml\", \"symlink-correct\")
+            </content>\n</write>",
+            None,
+        ),
+        MockRequest::new(
+            "<run>\n<command>python3 link.py</command>\n</run>",
+            None,
+        ),
+        MockRequest::new(
+            "<read>\n<path>symlink-wrong</path>\n</read>",
+            Some("Cargo.toml"),
+        ),
+        MockRequest::new(
+            "<read>\n<path>symlink-correct</path>\n</read>",
+            Some("new_crate/Cargo.toml"),
+        ),
+        MockRequest::new(
+            "<run>\n<command>git add symlink-correct</command>\n</run>",
+            None,
+        ),
+        MockRequest::new(
+            "<run>\n<command>git commit -m _</command>\n</run>",
+            None,
+        ),
+        MockRequest::new(
+            "<run>\n<command>git ls-tree HEAD</command>\n</run>",
+            Some("120000"),  // a symlink's permission
+        ),
+        // symlink test end
+
         // browser test
         MockRequest::new(
             "<write>\n<mode>create</mode>\n<path>hello.html</path>\n<content>\n<h1>Hello, World!</h1><ul><li>Hello</li><li>World</li></ul>\n</content>\n</write>",
