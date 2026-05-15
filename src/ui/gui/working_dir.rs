@@ -1,28 +1,23 @@
 use super::{
-    ChatMessage,
     FeContext,
-    PopupContext,
-    PopupMessage,
-    SetProjectConfig,
     Truncation,
     black,
     blue,
     button,
-    chat_ui,
-    config_ui,
     disabled_button,
     gray,
     green,
     pink,
-    into_popup,
     red,
     set_bg,
-    set_project_config,
     skyblue,
     spawn_be_process,
     white,
     yellow,
 };
+use super::chat::{ChatMessage, chat_ui};
+use super::config::{SetProjectConfig, config_ui, set_project_config};
+use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::worker::{Job, JobResult};
 use crate::{
     Config,
@@ -1045,7 +1040,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ),
     ]);
 
-    let mut full_view_stacked: Element<IcedMessage> = Container::new(full_view_with_text_input).into();
+    let mut full_view_stacked: Element<IcedMessage> = full_view_with_text_input.into();
 
     if context.llm_request.is_some() {
         full_view_stacked = Stack::from_vec(vec![

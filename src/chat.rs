@@ -1,5 +1,5 @@
 use chrono::Local;
-use crate::{Error, Logger, LLMToken, Model};
+use crate::{ApiLog, Error, Logger, LLMToken, Model};
 use crate::request::{self, Request, Thinking};
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -111,6 +111,7 @@ impl Chat {
             thinking: response.thinking.clone(),
             assistant: response.response,
             assistant_at: Local::now().timestamp_millis(),
+            api: response.log,
         };
         new_turn.store(global_index_dir)?;
 
@@ -130,6 +131,7 @@ pub struct ChatTurn {
     pub thinking: Option<String>,
     pub assistant: String,
     pub assistant_at: i64,
+    pub api: ApiLog,
 }
 
 impl ChatTurn {

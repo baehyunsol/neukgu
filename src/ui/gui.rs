@@ -20,9 +20,6 @@ mod tabs;
 mod worker;
 mod working_dir;
 
-use chat::{ChatMessage, chat_ui};
-use config::{SetProjectConfig, config_ui, set_project_config};
-use popup::{PopupContext, PopupMessage, into_popup};
 use tabs::{IcedContext as TabsContext, IcedMessage as TabsMessage};
 
 const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");

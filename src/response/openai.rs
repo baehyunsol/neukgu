@@ -1,4 +1,4 @@
-use super::Response;
+use super::{Response, WebSearchResult};
 use crate::{Error, ApiLog};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -26,6 +26,7 @@ impl Response {
         let raw_response: OpenAiResponse = serde_json::from_str(s)?;
         let mut response = String::new();
         let mut thinking = None;
+        let mut web_search_results = vec![];
 
         for output in raw_response.output.iter() {
             match output.get("type") {
@@ -43,10 +44,28 @@ impl Response {
                                 },
                             };
 
+                            if let Some(Value::Array(annotations)) = message.get("annotations") {
+                                for annotation in annotations.iter() {
+                                    if let Some(Value::String(r#type)) = annotation.get("type") && r#type == "url_citation" {
+                                        let Some(Value::String(title)) = annotation.get("title") else {
+                                            return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                                        };
+                                        let Some(Value::String(url)) = annotation.get("url") else {
+                                            return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                                        };
+                                        web_search_results.push(WebSearchResult {
+                                            title: Some(title.to_string()),
+                                            summary: None,
+                                            content: None,
+                                            url: Some(url.to_string()),
+                                        });
+                                    }
+                                }
+                            }
+
                             response = format!("{response}{s}");
                         }
                     },
-                    "web_search_call" => {},  // TODO
                     "reasoning" => {  // ["summary"][i]["text"] or ["content"][i]["text"]
                         let reasonings = match (output.get("summary"), output.get("content")) {
                             (_, Some(Value::Array(reasonings))) | (Some(Value::Array(reasonings)), _) => reasonings,
@@ -77,7 +96,7 @@ impl Response {
         Ok(Response {
             response,
             thinking,
-            web_search_results: vec![],
+            web_search_results,
             cached_input_tokens: raw_response.usage.input_tokens_details.cached_tokens,
             input_tokens: raw_response.usage.input_tokens,
             output_tokens: raw_response.usage.output_tokens,

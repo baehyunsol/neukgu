@@ -1,4 +1,4 @@
-use super::Response;
+use super::{Response, WebSearchResult};
 use crate::{ApiLog, Error};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -25,6 +25,7 @@ impl Response {
         let raw_response: AnthropicResponse = serde_json::from_str(s)?;
         let mut response = String::new();
         let mut thinking = None;
+        let mut web_search_results = vec![];
 
         for content in raw_response.content.iter() {
             match content.get("type") {
@@ -46,6 +47,27 @@ impl Response {
                             return Err(Error::FailedToParseAPIResponse(s.to_string()));
                         },
                     },
+                    "web_search_tool_result" => match content.get("content") {
+                        Some(Value::Array(contents)) => {
+                            for content in contents.iter() {
+                                let Some(Value::String(title)) = content.get("title") else {
+                                    return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                                };
+                                let Some(Value::String(url)) = content.get("url") else {
+                                    return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                                };
+                                web_search_results.push(WebSearchResult {
+                                    title: Some(title.to_string()),
+                                    summary: None,
+                                    content: None,
+                                    url: Some(url.to_string()),
+                                });
+                            }
+                        },
+                        _ => {
+                            return Err(Error::FailedToParseAPIResponse(s.to_string()));
+                        },
+                    },
                     // We'll just ignore the rest (likely be intermediate results of web_search tool)
                     _ => {},
                 },
@@ -58,7 +80,7 @@ impl Response {
         Ok(Response {
             response,
             thinking,
-            web_search_results: vec![],  // TODO: collect these
+            web_search_results,
             cached_input_tokens: raw_response.usage.cache_read_input_tokens,
             input_tokens: raw_response.usage.input_tokens,
             output_tokens: raw_response.usage.output_tokens,

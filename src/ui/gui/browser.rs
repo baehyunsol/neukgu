@@ -1,24 +1,20 @@
 use super::{
-    PopupContext,
-    PopupMessage,
-    SetProjectConfig,
     black,
     blue,
     button,
-    config_ui,
     count_chars,
     disabled_button,
     gray,
     green,
     pink,
-    into_popup,
     red,
     set_bg,
-    set_project_config,
     skyblue,
     take_chars,
     white,
 };
+use super::config::{SetProjectConfig, config_ui, set_project_config};
+use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::worker::{
     Job,
     JobId,

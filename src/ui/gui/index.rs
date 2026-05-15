@@ -1,23 +1,19 @@
 use super::{
-    PopupContext,
-    PopupMessage,
-    SetProjectConfig,
     black,
     brown,
     button,
     circle,
-    config_ui,
     disabled_button,
     gray,
     green,
-    into_popup,
     pink,
     red,
-    set_project_config,
     skyblue,
     white,
     yellow,
 };
+use super::config::{SetProjectConfig, config_ui, set_project_config};
+use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
 use super::worker::JobResult;
