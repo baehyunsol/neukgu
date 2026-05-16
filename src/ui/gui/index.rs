@@ -457,14 +457,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     }
                 )
                     .padding(context.zoom * 8.0)
-                    .width(Length::Fill)
+                    .width(context.window_size.width)
                     .height(if is_expanded { context.window_size.height * 0.6 } else { context.window_size.height * 0.2 })
                     .into(),
             ]).spacing(context.zoom * 8.0).into(),
         ])
             .padding(context.zoom * 8.0)
             .spacing(context.zoom * 8.0)
-            .width(context.window_size.width)
     }
 
     let c = Column::from_vec(vec![
