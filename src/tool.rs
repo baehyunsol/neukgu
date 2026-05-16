@@ -81,7 +81,6 @@ pub enum ToolCall {
         mode: WriteMode,
         content: String,
     },
-    // TODO: It's not in the system prompt yet.
     Patch {
         path: Path,
         diff: Vec<LineDiff>,
@@ -89,6 +88,7 @@ pub enum ToolCall {
     Run {
         timeout: Option<u64>,
         command: Vec<String>,
+        env: Vec<(String, String)>,
         stdout: Option<Path>,
         stderr: Option<Path>,
     },
@@ -398,7 +398,9 @@ impl ToolCall {
 
                 Ok(result)
             },
-            ToolCall::Run { timeout, command, stdout, stderr } => {
+            ToolCall::Run { timeout, command, env, stdout, stderr } => {
+                let mut env = env.to_vec();
+
                 if let Some(stdout) = stdout && !check_write_permission(stdout) {
                     return Ok(Err(ToolCallError::NoPermissionToWrite {
                         path: stdout.join("/"),
@@ -445,13 +447,12 @@ impl ToolCall {
 
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir, false /* copy index dir */)?;
                 let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
-                let mut env: Vec<(&str, String)> = vec![];
 
                 if bin_path == "python3" || bin_path == "pip" {
                     let venv_dir = join3(&context.working_dir, ".neukgu", "py-venv")?;
                     let venv_bin = join(&venv_dir, "bin")?;
-                    env.push(("PATH", into_abs_path(&venv_bin)?));
-                    env.push(("VIRTUAL_ENV", venv_dir));
+                    env.push((String::from("PATH"), into_abs_path(&venv_bin)?));
+                    env.push((String::from("VIRTUAL_ENV"), venv_dir));
 
                     check_python_venv(&env, &sandbox_at, &context.working_dir)?;
                 }
@@ -1170,7 +1171,7 @@ impl ToolKind {
             (ToolKind::Write, _) => false,
             (ToolKind::Patch, b"path" | b"diff") => true,
             (ToolKind::Patch, _) => false,
-            (ToolKind::Run, b"timeout" | b"command" | b"stdout" | b"stderr") => true,
+            (ToolKind::Run, b"timeout" | b"command" | b"env" | b"stdout" | b"stderr") => true,
             (ToolKind::Run, _) => false,
             (ToolKind::Ask, b"to" | b"question") => true,
             (ToolKind::Ask, _) => false,
@@ -1184,7 +1185,7 @@ impl ToolKind {
             ToolKind::Read => vec!["path", "start", "end"],
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Patch => vec!["path", "diff"],
-            ToolKind::Run => vec!["timeout", "command", "stdout", "stderr"],
+            ToolKind::Run => vec!["timeout", "command", "env", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
         }.iter().map(|arg| arg.to_string()).collect()

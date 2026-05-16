@@ -17,7 +17,7 @@ pub struct Output {
 pub fn run(
     binary: String,
     args: &[String],
-    envs: &[(&str, String)],
+    envs: &[(String, String)],
     cwd: &str,
     timeout: u64,  // seconds
     working_dir: &str,

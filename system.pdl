@@ -130,6 +130,23 @@ You cannot use bash-style pipes or redirections.
 <command>cargo test</command>
 </run>
 
+You can insert environment variables to the subprocess with the `<env>` tag.
+
+<run>
+<env>ANTHROPIC_API_KEY=sk-ant-api03-ABCDEFG-XYZW-012345-hijklm</env>
+<command>cargo run -- ai-request --model=gpt --prompt="What's 1+1?"</command>
+</run>
+
+If you want to insert multiple env vars, use newline characters.
+
+<run>
+<env>
+KEY1=VALUE1
+KEY2=VALUE2
+</env>
+<command>cargo run -- ai-request --model=gpt --prompt="What's 1+1?"</command>
+</run>
+
 5. Ask
 
 You can ask questions to the user (the one who wrote `neukgu-instruction.md`) or an AI web-search agent.

@@ -171,7 +171,7 @@ fn mock_requests() -> Vec<MockRequest> {
         ),
         MockRequest::new(
             "<read><start>2</start></read>",
-            Some("`path` in tool `read` is missing"),
+            Some("`<path>` in tool `<read>` is missing"),
         ),
         MockRequest::new(
             "<read><start>abc</start><path>neukgu-instruction.md</path></read>",
@@ -185,6 +185,16 @@ fn mock_requests() -> Vec<MockRequest> {
         MockRequest::new(
             "I'll call multiple tools hahaha<read><path>logs/summary-files.md</path></read>I'll read it again haha<read><path>logs/summary-files.md</path></read>",
             Some("there's no instructions"),
+        ),
+        MockRequest::new(
+            "
+<run>
+<env>ADD_ARG_1=8070301090</env>
+<env>ADD_ARG_2=309030908</env>
+<command>python3 -c \"import os;print(int(os.getenv(\'ADD_ARG_1\')) + int(os.getenv(\'ADD_ARG_2\')))\"</command>
+</run>
+            ",
+            Some("use newline characters"),
         ),
         // parse test end
 
@@ -220,6 +230,32 @@ This is line 4.",
         ),
         // patch test end
 
+        // env var test
+        MockRequest::new(
+            "<write><path>env_var_test.py</path><mode>create</mode><content>import os; print(os.getenv(\"NEUKGU_TEST_ENV_VAR\", \"not found\"))</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<run><command>python3 env_var_test.py</command></run>",
+            Some("not found"),
+        ),
+        MockRequest::new(
+            "<run><env>NEUKGU_TEST_ENV_VAR=hello-from-neukgu</env><command>python3 env_var_test.py</command></run>",
+            Some("hello-from-neukgu"),
+        ),
+        MockRequest::new(
+            "
+<run>
+<env>
+ADD_ARG_1=8070301090
+ADD_ARG_2=309030908
+</env>
+<command>python3 -c \"import os;print(int(os.getenv(\'ADD_ARG_1\')) + int(os.getenv(\'ADD_ARG_2\')))\"</command>
+</run>
+            ",
+            Some("8379331998"),
+        ),
+        // env var test end
         // cargo test
         MockRequest::new(
             "<run>\n<command>cargo new new_crate</command>\n</run>",

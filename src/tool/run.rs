@@ -99,7 +99,7 @@ fn try_init_python_venv(working_dir: &str) -> Result<(), Error> {
 // Python venv doesn't work on some platforms (e.g. python 3.9 on my Mac book).
 // So it checks whether python3 & pip are alive in the sandbox.
 pub fn check_python_venv(
-    env: &[(&str, String)],
+    env: &[(String, String)],
     sandbox_at: &str,
     working_dir: &str,
 ) -> Result<(), Error> {

@@ -1,7 +1,9 @@
 use crate::{AskTo, LLMToken, ToolCall, ToolKind};
 use crate::tool::{LineDiff, WriteMode, parse_line_diff};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::hash_map::{Entry, HashMap};
+use std::sync::LazyLock;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ParsedSegment {
@@ -36,6 +38,10 @@ pub enum ParseError {
         tool: String,
         arg: String,
     },
+    ArgRepeated {
+        tool: String,
+        arg: String,
+    },
     UnterminatedArg {
         tool: String,
         arg: String,
@@ -59,6 +65,7 @@ pub enum ParseError {
         prefix: char,
     },
     NotBash,
+    InvalidEnv(String),
     InvalidAskTo(String),
 }
 
@@ -75,26 +82,47 @@ I can't find any XML-syntaxed tool calls in your response.
 Please call a tool.
 "),
             ParseError::InvalidTool(tool) => format!(
-                "`{tool}` is not a valid tool. Available tools are {}.",
+                "`<{tool}>` is not a valid tool. Available tools are {}.",
                 ToolKind::all().iter().map(
                     |tool| format!("<{tool:?}>").to_ascii_lowercase()
                 ).collect::<Vec<_>>().join(", "),
             ),
             ParseError::InvalidArg { tool, arg, valid_args } => format!(
-                "`<{arg}>` is not a valid argument for tool `{tool}`. Available arguments are {}.",
+                "`<{arg}>` is not a valid argument for tool `<{tool}>`. Available arguments are {}.",
                 valid_args.iter().map(|arg| format!("<{arg}>")).collect::<Vec<_>>().join(", "),
             ),
             ParseError::MissingArg { tool, arg } => format!(
-                "Argument `{arg}` in tool `{tool}` is missing. I can't find `<{arg}>..</{arg}>`.",
+                "Argument `<{arg}>` in tool `<{tool}>` is missing. I can't find `<{arg}>..</{arg}>`.",
             ),
+            ParseError::ArgRepeated { tool, arg } => {
+                if tool == "run" && arg == "env" {
+                    format!(
+                        "
+Argument `<{arg}>` in tool `<{tool}>` is repeated. If you want to insert multiple env vars, use newline characters.
+e.g.
+<run>
+<env>
+KEY1=VALUE1
+KEY2=VALUE2
+</env>
+<command>...</command>
+</run>
+                        ",
+                    )
+                }
+
+                else {
+                    format!("Argument `<{arg}>` in tool `<{tool}>` is repeated. You can use it only once.")
+                }
+            },
             ParseError::UnterminatedArg { tool, arg } => format!(
-                "Argument `{arg}` in tool `{tool}` is not terminated properly. I can't find `</{arg}>`.",
+                "Argument `<{arg}>` in tool `<{tool}>` is not terminated properly. I can't find `</{arg}>`.",
             ),
             ParseError::ArgTypeError { tool, expected_type, arg_name, arg } => format!(
-                "Argument `{arg_name}` in `{tool}` is expected to have type `{expected_type:?}`, but it doesn't. I've got `{arg}`.",
+                "Argument `<{arg_name}>` in `<{tool}>` is expected to have type `{expected_type:?}`, but it doesn't. I've got `{arg}`.",
             ),
             ParseError::InvalidIntegerRange { tool, arg_name, min, max, n } => format!(
-                "Argument `{arg_name}` in `{tool}` is supposed to be in range {}, but is {n}.",
+                "Argument `<{arg_name}>` in `<{tool}>` is supposed to be in range {}, but is {n}.",
                 match (min, max) {
                     (Some(min), Some(max)) => format!("{min}..={max}"),
                     (Some(min), _) => format!("{min}.."),
@@ -131,6 +159,9 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
 <command>python3 tests/your_e2e_test.py</command>
 </run>
 "),
+            ParseError::InvalidEnv(line) => format!(
+                "{line:?} is an invalid format for env var. It has to look like <env>KEY=VALUE</env>",
+            ),
             ParseError::InvalidAskTo(to) => format!(
                 "You can't ask to `{to}`. You can ask to either user or web.",
             ),
@@ -276,7 +307,18 @@ pub fn parse(input: &[u8]) -> Result<ParsedSegment, ParseError> {
 
                 loop {
                     if input.get(cursor..(cursor + end_tag.len())) == Some(end_tag) {
-                        args.insert(curr_arg_name.to_vec(), input[arg_start..cursor].to_vec());
+                        match args.entry(curr_arg_name.to_vec()) {
+                            Entry::Occupied(_) => {
+                                return Err(ParseError::ArgRepeated {
+                                    tool: String::from_utf8_lossy(&curr_tag_name).to_string(),
+                                    arg: String::from_utf8_lossy(&curr_arg_name).to_string(),
+                                });
+                            },
+                            Entry::Vacant(e) => {
+                                e.insert(input[arg_start..cursor].to_vec());
+                            },
+                        }
+
                         cursor += end_tag.len();
                         state = ParseState::Tool { kind: *kind, top_level: true };
                         break;
@@ -393,6 +435,11 @@ impl ToolCall {
                 Ok(ToolCall::Patch { path, diff })
             },
             ToolKind::Run => {
+                let timeout = match parse_int_arg("run", args, "timeout", Some(1), None) {
+                    Some(Ok(n)) => Some(n as u64),
+                    Some(Err(e)) => return Err(e),
+                    None => None,
+                };
                 let command = match parse_command_arg(args, "command") {
                     Some(command) => {
                         if command.iter().any(|arg| arg == "|" || arg == ">" || arg == "<" || arg.starts_with("2>") || arg.starts_with("&")) {
@@ -410,14 +457,14 @@ impl ToolCall {
                         });
                     },
                 };
-                let timeout = match parse_int_arg("run", args, "timeout", Some(1), None) {
-                    Some(Ok(n)) => Some(n as u64),
+                let env = match parse_env_arg(args, "env") {
+                    Some(Ok(env)) => env,
                     Some(Err(e)) => return Err(e),
-                    None => None,
+                    None => vec![],
                 };
                 let stdout = parse_path_arg(args, "stdout");
                 let stderr = parse_path_arg(args, "stderr");
-                Ok(ToolCall::Run { timeout, command, stdout, stderr })
+                Ok(ToolCall::Run { timeout, command, env, stdout, stderr })
             },
             ToolKind::Ask => {
                 let to = match parse_string_arg(args, "to") {
@@ -548,6 +595,33 @@ fn parse_command_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Vec<
     }
 
     Some(cli.into_iter().map(|chs| chs.into_iter().collect()).collect())
+}
+
+pub static ENV_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([a-zA-Z0-9_-]+)\s*\=\s*(.+)").unwrap());
+
+fn parse_env_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<Vec<(String, String)>, ParseError>> {
+    let env = args.get(arg.as_bytes())?;
+    let env = String::from_utf8_lossy(env);
+    let mut result = vec![];
+
+    for line in env.lines() {
+        if line.is_empty() {
+            continue;
+        }
+
+        match ENV_REGEX.captures(line) {
+            Some(m) => {
+                let key = m.get(1).unwrap().as_str().to_string();
+                let value = m.get(2).unwrap().as_str().to_string();
+                result.push((key, value));
+            },
+            None => {
+                return Some(Err(ParseError::InvalidEnv(line.to_string())));
+            },
+        }
+    }
+
+    Some(Ok(result))
 }
 
 fn parse_diff_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<Vec<LineDiff>, ParseError>> {
