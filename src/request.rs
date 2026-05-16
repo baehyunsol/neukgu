@@ -19,6 +19,7 @@ mod anthropic;
 mod mock;
 mod openai;
 mod openai_comp;
+mod gemini;
 
 pub use mock::{MockState, reset_mock_state, revert_mock_state};
 
@@ -98,6 +99,7 @@ impl Request {
                 ApiProvider::OpenAi => self.to_openai_request(working_dir)?,
                 ApiProvider::OpenAiComp => self.to_openai_comp_request(working_dir)?,
                 ApiProvider::Mock => self.to_mock_request()?,
+                ApiProvider::Gemini => self.to_gemini_request(working_dir)?,
             };
             let mut api_log = ApiLog::new();
             let mut request = client
@@ -140,6 +142,7 @@ impl Request {
                                         ApiProvider::OpenAi => Response::from_openai(&s)?,
                                         ApiProvider::OpenAiComp => Response::from_openai_comp(&s)?,
                                         ApiProvider::Mock => unreachable!(),
+                                        ApiProvider::Gemini => Response::from_gemini(&s)?,
                                     };
                                     logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                                     response.log = api_log;

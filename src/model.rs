@@ -11,6 +11,8 @@ pub enum Model {
     Sonnet,
     Opus,
     Mock,
+    GeminiPro,
+    GeminiFlash,
 
     // You can disable certain agents by selecting this model!
     Disabled,
@@ -26,6 +28,8 @@ impl Model {
             Model::Sonnet => "claude-sonnet-4-6".to_string(),
             Model::Opus => "claude-opus-4-7".to_string(),
             Model::Mock => "mock".to_string(),
+            Model::GeminiPro => "gemini-3.1-pro-preview".to_string(),
+            Model::GeminiFlash => "gemini-3-flash-preview".to_string(),
             Model::Disabled => "disabled".to_string(),
         }
     }
@@ -39,6 +43,8 @@ impl Model {
             Model::Sonnet => "sonnet",
             Model::Opus => "opus",
             Model::Mock => "mock",
+            Model::GeminiPro => "gemini-pro",
+            Model::GeminiFlash => "gemini-flash",
 
             // This name makes more sense in the ui.
             Model::Disabled => "disable",
@@ -55,6 +61,8 @@ impl Model {
             "opus" => Ok(Model::Opus),
             "mock" => Ok(Model::Mock),
             "disable" => Ok(Model::Disabled),
+            "gemini-pro" => Ok(Model::GeminiPro),
+            "gemini-flash" => Ok(Model::GeminiFlash),
             _ => Err(Error::InvalidModelName(s.to_string())),
         }
     }
@@ -68,6 +76,8 @@ impl Model {
             Model::Sonnet => true,
             Model::Opus => true,
             Model::Mock => false,
+            Model::GeminiPro => true,
+            Model::GeminiFlash => true,
             Model::Disabled => true,
         }
     }
@@ -81,11 +91,13 @@ impl Model {
             Model::Sonnet => ApiProvider::Anthropic,
             Model::Opus => ApiProvider::Anthropic,
             Model::Mock => ApiProvider::Mock,
+            Model::GeminiPro => ApiProvider::Gemini,
+            Model::GeminiFlash => ApiProvider::Gemini,
             Model::Disabled => ApiProvider::Mock,
         }
     }
 
-    pub fn all() -> [Model; 8] {
+    pub fn all() -> [Model; 10] {
         [
             Model::GptMini,
             Model::Gpt,
@@ -94,6 +106,8 @@ impl Model {
             Model::Sonnet,
             Model::Opus,
             Model::Mock,
+            Model::GeminiPro,
+            Model::GeminiFlash,
             Model::Disabled,
         ]
     }
@@ -145,4 +159,5 @@ pub enum ApiProvider {
     OpenAi,
     OpenAiComp,
     Mock,
+    Gemini,
 }
