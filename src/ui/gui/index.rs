@@ -92,6 +92,9 @@ pub struct IcedContext {
     pub long_text_editor_id: Id,
     pub main_view_scrolled: AbsoluteOffset,
     pub zoom: f32,
+    pub project_section_expanded: bool,
+    pub chat_section_expanded: bool,
+    pub tab_section_expanded: bool,
     pub now: String,
     pub battery: Option<(battery::State, f32)>,
     pub hovered_tab: Option<TabId>,
@@ -123,6 +126,9 @@ impl IcedContext {
             long_text_editor_id: Id::unique(),
             main_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             zoom: 1.0,
+            project_section_expanded: false,
+            chat_section_expanded: false,
+            tab_section_expanded: false,
             now: Local::now().to_rfc2822(),
             battery: None,
             hovered_tab: None,
@@ -203,6 +209,9 @@ pub enum IcedMessage {
     HoverOnTab(Option<TabId>),
     NewTab { tab: Tab, force_new_tab: bool },
     OpenTab { id: TabId, index: usize },
+    ExpandProjectSection,
+    ExpandChatSection,
+    ExpandTabSection,
     NewProject,
     NewChat,
     DeleteProject {
@@ -336,6 +345,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::NewTab { .. } => unreachable!(),
         IcedMessage::OpenTab { .. } => unreachable!(),
+        IcedMessage::ExpandProjectSection => {
+            context.project_section_expanded = !context.project_section_expanded;
+        },
+        IcedMessage::ExpandChatSection => {
+            context.chat_section_expanded = !context.chat_section_expanded;
+        },
+        IcedMessage::ExpandTabSection => {
+            context.tab_section_expanded = !context.tab_section_expanded;
+        },
         IcedMessage::NewProject => {
             let project_name = context.short_text_editor_content.to_string();
             validate_project_name(&project_name)?;
@@ -403,39 +421,50 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     fn section<'c>(
         title: &'static str,
-        button: Button<'c, IcedMessage>,
+        top_button: Button<'c, IcedMessage>,
+        is_expanded: bool,
+        expand_message: IcedMessage,
         entries: Element<'c, IcedMessage>,
         context: &'c IcedContext,
     ) -> Column<'c, IcedMessage> {
+        let expand_button: Button<IcedMessage> = match (context.curr_popup.is_some(), is_expanded) {
+            (true, true) => disabled_button("▼", white(), context.zoom),
+            (false, true) => button("▼", expand_message, white(), context.zoom),
+            (true, false) => disabled_button("▶", white(), context.zoom),
+            (false, false) => button("▶", expand_message, white(), context.zoom),
+        };
+
         Column::from_vec(vec![
             Row::from_vec(vec![
                 text!("{title}").size(context.zoom * 14.0).into(),
                 if context.curr_popup.is_some() {
-                    button.on_press_maybe(None).into()
+                    top_button.on_press_maybe(None).into()
                 } else {
-                    button.into()
+                    top_button.into()
                 },
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
-            Container::new(Scrollable::new(entries).width(Length::Fill)).style(
-                |_| Style {
-                    background: Some(Background::Color(black())),
-                    border: Border {
-                        color: white(),
-                        width: 0.0,
-                        radius: Radius::new(context.zoom * 8.0),
-                    },
-                    ..Style::default()
-                }
-            )
-                .padding(context.zoom * 8.0)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
+            Row::from_vec(vec![
+                expand_button.into(),
+                Container::new(Scrollable::new(entries).width(Length::Fill)).style(
+                    |_| Style {
+                        background: Some(Background::Color(black())),
+                        border: Border {
+                            color: white(),
+                            width: 0.0,
+                            radius: Radius::new(context.zoom * 8.0),
+                        },
+                        ..Style::default()
+                    }
+                )
+                    .padding(context.zoom * 8.0)
+                    .width(Length::Fill)
+                    .height(if is_expanded { context.window_size.height * 0.6 } else { context.window_size.height * 0.2 })
+                    .into(),
+            ]).spacing(context.zoom * 8.0).into(),
         ])
             .padding(context.zoom * 8.0)
             .spacing(context.zoom * 8.0)
             .width(context.window_size.width)
-            .height(context.window_size.height * 0.5)
     }
 
     let c = Column::from_vec(vec![
@@ -459,6 +488,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 green(),
                 context.zoom,
             ),
+            context.project_section_expanded,
+            IcedMessage::ExpandProjectSection,
             render_projects(context),
             context,
         ).into(),
@@ -470,6 +501,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 brown(),
                 context.zoom,
             ),
+            context.chat_section_expanded,
+            IcedMessage::ExpandChatSection,
             render_chats(context),
             context,
         ).into(),
@@ -484,6 +517,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 skyblue(),
                 context.zoom,
             ),
+            context.tab_section_expanded,
+            IcedMessage::ExpandTabSection,
             render_tabs(context),
             context,
         ).into(),
