@@ -100,12 +100,6 @@
   - ClaudeCode: inter-session으로 관리되는 memory가 있어서 사용자의 성향을 반영할 수 있대
   - ClaudeCode: instant rewind가 가능하대. 어찌됐든 rollback 기능은 꼭 넣어야 할 듯...
   - (레딧에서 봄) ClaudeCode: 사용자가 ClaudeCode를 안 쓰는 동안, 최근 session을 검토하면서 새로 알게된 정보들을 정리한대. 이 기능이름이 "dream"임 ㅋㅋ
-69. 지금은 diff를 edit마다 따로 봐야하잖아? 더 긴 기간에 걸친 diff를 한눈에 보고 싶음!!
-  - 구현은 쉬움. 첫번째 write의 content와 diff가 있잖아? 저 content에 diff를 rev-apply하면 첫번째 write 이전의 content가 나옴. 그럼 그 content랑 현재의 content를 diff를 떠버리면 됨.
-    - 현재의 content를 가져올 때는 반드시 파일을 직접 읽어야함! `<run>`같은 걸로 수정했을 수도 있으니까...
-    - There's a problem... the `similar` crate doesn't allow me to rev-apply a unified diff (which has a string type). If I store it as a diff object, I don't think that's serializable.
-  - 파일이 여러개여도... diff 뜨는 거는 쉽지!
-  - Let's add a "history" tab. It shows all the file writes in a session, with diffs.
 70. `my-project/.neukgu/`가 존재하는 상황에서 `my-project/foo/bar/.neukgu/`를 또 만들 경우
   - 둘이 동시에 돌리면 온갖 이상한 오류가 쏟아짐.
   - 둘이 동시에 안 돌린다는 가정 하에 저런 식의 작업이 도움이 되는 경우도 있음
@@ -142,10 +136,6 @@
   - 만약 동일한 상황에서 haiku도 `<write>`를 하고 opus도 `<write>`를 한다? 그럼 평상시에는 haiku를 쓰다가 write할 때만 opus로 갈아끼우면 됨!
   - 이걸 해보면 LLM 간의 능력차이가 얼마나 나는지도 한눈에 볼 수 있음. 예를 들어서 동일한 상황에서 opus가 하는 행동과 qwen이 하는 행동이 거의 비슷하면 굳이 비싸게 opus를 쓸 필요가 없는 거지...
   - 이거 테스트할 수 있는 환경을 만들어야함!
-88. text edit
-  - https://github.com/shareAI-lab/learn-claude-code/blob/main/agents/s02_tool_use.py 보니까 edit를 엄청 무식하게 구현해놨음. old_text랑 new_text 준 다음에 `.replace()` 해버림... 근데 또 생각해보면, 대부분의 경우에서는 잘 동작할 거 같기도?
-  - 늑구를 쓰다보니 이미 AI가 이런 식으로 시도를 함. 내가 `<edit>`을 안 주니까 본인들이 알아서 Python script를 짠 다음에 그 안에서 `.replace()`를 호출해버림! 일단 AI가 이런 작업을 할 역량이 있는 건 확인했으니 툴을 어떻게 예쁘게 만들지만 고민하면 됨!
-  - existing codebase에서 작업하려면 이게 필수인 듯! 일단 `sample_instructions/harness-1.md`를 돌려보자!!
 90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!! (yellow??!!)
   - 파일 수정 시각
   - dir일 경우, recursive하게 크기 측정
@@ -181,8 +171,6 @@
   - visualize agent를 custom tool로 구현하기?
     - custom tool에서 sub-agent를 호출할 수 있어야함!
     - 아직 sub-agent를 어떻게 할지도 안 정해졌는데...
-98. use neukgu to improve neukgu
-  - add gemini api
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files
@@ -245,6 +233,8 @@
   - ripgrep의 stdout을 redirect한 다음에, 결과물의 첫번째 200줄만 확인했음
   - 근데 이게 무지무지하게 길어서 이거 혼자서 200KiB를 넘겨버렸음...
   - 그렇게되니까 아직 10턴도 안됐는데 중간 턴들이 생략되기 시작하면서 context가 개판이 됐음...
+129. sandbox/snapshot ruins the incremental compilation of cargo
+  - It's a big problem when the cargo project is big...
 
 ## mock API
 
@@ -265,89 +255,4 @@ echo "spawning gui...";
 
 ## Real API
 
-```nu
-cargo run -- ai-request --model=gpt-mini --web-search --prompt="Give me a list of nice AI papers/articles published last week."
-
-cargo run -- ai-request --model=gpt-mini --no-web-search --prompt="Give me a list of nice AI papers/articles published last week."
-
-cargo run -- ai-request --model=haiku --web-search --prompt="Give me a list of nice AI papers/articles published last week."
-
-cargo run -- ai-request --model=haiku --no-web-search --prompt="Give me a list of nice AI papers/articles published last week."
-```
-
----
-
-설문을 돌리자!
-
-0. 응답자님의 현재 상태를 알려주세요.
-  - 학부생
-  - 석사생
-  - 박사생
-  - 학부 졸업 후 취직
-  - 석사 졸업 후 취직
-  - 박사 졸업 후 취직
-0. 주로 사용하는 harness를 모두 골라주세요.
-  - Antigravity
-  - Claude Code
-  - Claude Cowork
-  - Codex
-  - Cursor
-  - Gemini CLI
-  - Hermes Agent
-  - OpenCode
-  - Pi
-  - Windsurf
-  - Zed
-  - 기타
-  - 없음 (더 이상 이 설문조사를 하시지 않으셔도 됩니다.)
-0. 해당 harness를 사용하면서 "이런 기능이 있었다면 더 좋았을텐데" 했던 기능들을 자세히 적어주세요.
-0. 해당 harness를 사용하면서 "이런 기능은 정말 좋은 것 같아" 했던 기능들을 자세히 적어주세요.
-0. 최근 일주일동안 작성한 코드 중, 직접 작성한 코드와 AI가 작성한 코드의 비율이 어느정도 되나요?
-  - 90% 이상 손으로 작성
-  - 70% 정도 손으로 작성
-  - 50% 정도 손으로 작성
-  - 70% 정도 AI가 작성
-  - 90% 이상 AI가 작성
-0. 코딩을 제외하고 harness를 이용해서 다른 작업을 하신 적이 있나요? (e.g. 발표자료 만들기, 가계부 관리하기, 엑셀 파일 정리하기) (단, ChatGPT나 Perplexity같은 채팅 플랫폼으로는 하기 어려운 작업들만 적어주세요)
-0. harness를 사용할 때, AI의 작업 과정을 얼마나 꼼꼼하게 보시나요?
-  - AI가 어떻게 작업하는지 관심없고, 최종 결과물만 가져다 쓴다. 최종 결과물도 따로 검증 안하고 그대로 가져다가 쓴다.
-  - AI가 어떻게 작업하는지 관심없고, 최종 결과물만 가져다 쓴다. 단, 최종 결과물을 가져다 쓰기 전에 제대로 만들어졌는지 직접 확인해본다.
-  - AI의 작업 과정을 적당히 감시하면서, 가끔씩 개입한다.
-  - AI가 하는 모든 작업을 다 감시하면서, 조금이라도 이상한 행동을 하면 즉시 개입한다.
-0. AI가 하는 작업/결과물이 마음에 들지 않아서 개입하고 싶은 경우 주로 어떻게 하시나요?
-  - AI한테 추가적으로 프롬프트를 준다.
-  - 직접 코드 에디터를 열고 작업물을 수정한다.
-  - 진행 중인 작업을 중지시키고 완전 새로운 세션을 시작한다.
-  - AI가 알아서 잘 할테니 믿고 기다린다.
-0. harness가 성공적으로 해낸 작업 중 가장 어려웠던 작업은 뭐였나요? (e.g. 논문 한편 뚝딱 써줘)
-0. harness가 실패했던 작업 중 가장 쉬웠던 작업은 뭐였나요?
-0. 현재 사용하는 harness의 수준이 어느정도라고 생각하시나요?
-  - 아주 간단한 코딩 프로젝트는 할 수 있는데 그 이상은 무리이다.
-  - 학부생 수준에서 만들 수 있는 소프트웨어는 다 만들 수 있다.
-  - 박사급 연구도 할 수 있다. 단, 인간 석/박사가 옆에서 같이 보조를 해줘야한다.
-  - 인간 보조없이 박사급 연구를 할 수 있다.
-0. harness에게 오래 걸리는 일을 시키고 퇴근한 다음에 다음날 출근해서 결과를 확인해보신 적이 있나요? 있으시다면 어떤 작업이었는지 간단하게 설명해주세요. 8시간 동안 AI가 스스로 작업을 잘 했나요?
-0. 다음 기능에 대해서 어떻게 생각하시나요: "여러 AI agent가 서로 의견을 조율해가면서 한 프로젝트에서 동시에 작업하기"
-  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
-  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
-  - 있으면 조금 더 편리할 거 같긴하다.
-  - 별 생각 없다.
-0. 다음 기능에 대해서 어떻게 생각하시나요: "여러 독립적인 AI agent가 별개의 프로젝트에서 동시에 돌아가고 있고, 각 agent의 상태를 한 눈에 보기"
-  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
-  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
-  - 있으면 조금 더 편리할 거 같긴하다.
-  - 별 생각 없다.
-0. 다음 기능에 대해서 어떻게 생각하시나요: "AI agent한테 일을 시켰는데 작업 과정을 보니 영 아닌 것 같음. 5분전 상황으로 모든 걸 롤백"
-  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
-  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
-  - 있으면 조금 더 편리할 거 같긴하다.
-  - 별 생각 없다.
-0. 다음 기능에 대해서 어떻게 생각하시나요: "AI agent는 회사/연구실의 컴퓨터에서 돌고 있고, 난 집에서 핸드폰으로 agent의 진행상황을 실시간으로 확인"
-  - 내가 쓰는 harness에 이미 있고 잘 쓰고 있다.
-  - 내가 쓰는 harness에는 없지만 꼭 필요한 기능이다.
-  - 있으면 조금 더 편리할 거 같긴하다.
-  - 별 생각 없다.
-0. 기능이 많지만 사용법이 복잡한 harness에 대해서 어떻게 생각하시나요?
-  - harness는 아주 중요한 도구이기 때문에 내 시간을 투자해서 harness의 사용법을 공부할 의향이 있다.
-  - harness 사용법을 따로 공부하기는 귀찮다. 그냥 직관적으로 바로 사용가능했으면 좋겠다.
-0. 기타 하시고 싶은 말씀이 있으시면 적어주세요.
+run `sample_instructions/check-ai-api.md`
