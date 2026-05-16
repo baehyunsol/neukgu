@@ -4,20 +4,27 @@ use crate::{
     Config,
     Context,
     ContextJson,
+    DiffKind,
     Error,
+    LineDiff,
     LogId,
     NeukguId,
     SessionSummary,
     TokenUsage,
     ToolCall,
+    ToolCallSuccess,
     Turn,
     TurnId,
     TurnPreview,
+    TurnResult,
+    TurnResultSummary,
     TurnSummary,
+    WriteMode as ToolWriteMode,
     interrupt_be,
     load_json,
     load_log,
     load_logs_tail,
+    patch_diff,
     prettify_bytes,
     prettify_time,
     prettify_tokens,
@@ -36,6 +43,8 @@ use ragit_fs::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use similar::Algorithm as DiffAlgorithm;
+use similar::udiff::unified_diff;
 use std::collections::{HashMap, HashSet};
 use std::fs::TryLockError;
 use std::process::{Child, Command, Stdio};
@@ -545,6 +554,103 @@ impl FeContext {
 
     pub fn get_instruction(&self) -> Result<String, Error> {
         Ok(read_string(&join(&self.working_dir, "neukgu-instruction.md")?)?)
+    }
+
+    pub fn get_changed_files(&self) -> Result<Vec<(String /* path */, String /* original_content */)>, Error> {
+        let mut changed_files = vec![];
+        let mut changed_files_set = HashSet::new();
+
+        for TurnSummary { id, result, .. } in self.history.iter() {
+            if let TurnResultSummary::ToolCallSuccess = result {
+                let turn = Turn::load(id, &self.working_dir)?;
+
+                if let TurnResult::ToolCallSuccess(
+                    ToolCallSuccess::Write { path, .. } |
+                    ToolCallSuccess::Patch { path, .. }
+                ) = &turn.turn_result {
+                    if changed_files_set.contains(path) {
+                        continue;
+                    }
+
+                    let (path, original_content) = match turn.turn_result {
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Create, .. }) => (path, String::new()),
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Truncate, diff: Some(diff), mut content, .. }) => {
+                            let mut hunks = vec![];
+                            let mut curr_hunk = vec![];
+
+                            for line in diff.lines() {
+                                if line.starts_with("+") {
+                                    // revert the diff
+                                    curr_hunk.push(LineDiff { kind: DiffKind::Remove, line: line.get(1..).unwrap().to_string() });
+                                } else if line.starts_with("-") {
+                                    // revert the diff
+                                    curr_hunk.push(LineDiff { kind: DiffKind::Add, line: line.get(1..).unwrap().to_string() });
+                                } else if line.starts_with(" ") {
+                                    curr_hunk.push(LineDiff { kind: DiffKind::Context, line: line.get(1..).unwrap().to_string() });
+                                } else if line.starts_with("@") {
+                                    if !curr_hunk.is_empty() {
+                                        hunks.push(curr_hunk);
+                                    }
+
+                                    curr_hunk = vec![];
+                                } else {
+                                    panic!("TODO: {line:?}");
+                                }
+                            }
+
+                            if !curr_hunk.is_empty() {
+                                hunks.push(curr_hunk);
+                            }
+
+                            for hunk in hunks.iter() {
+                                // TODO: Practically, `patch_diff(..).unwrap()` will not fail, but what if...
+                                content = patch_diff(&content, hunk).unwrap();
+                            }
+
+                            (path, content)
+                        },
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Append, .. }) => todo!(),
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { path, diff, new_content }) => {
+                            let reverted_diff: Vec<LineDiff> = diff.into_iter().map(
+                                |LineDiff { kind, line }| LineDiff {
+                                    kind: kind.revert(),
+                                    line,
+                                }
+                            ).collect();
+
+                            // TODO: Practically, `patch_diff(..).unwrap()` will not fail, but what if...
+                            (path, patch_diff(&new_content, &reverted_diff).unwrap())
+                        },
+                        _ => unreachable!(),
+                    };
+
+                    changed_files_set.insert(path.to_string());
+                    changed_files.push((path, original_content));
+                }
+            }
+        }
+
+        Ok(changed_files)
+    }
+
+    pub fn get_file_change(&self, path: &str, original_content: &str) -> Result<Option<String>, Error> {
+        let path = join(&self.working_dir, path)?;
+        let new_content = match read_string(&path) {
+            Ok(s) => s,
+            Err(_) => String::new(),
+        };
+
+        if new_content.trim() == original_content.trim() {
+            return Ok(None);
+        }
+
+        Ok(Some(unified_diff(
+            DiffAlgorithm::Patience,
+            original_content,
+            &new_content,
+            5,
+            None,
+        )))
     }
 }
 

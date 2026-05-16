@@ -91,12 +91,15 @@ use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to
 use snapshot::{Snapshot, check_snapshot, clean_dangling_snapshots};
 pub use tool::{
     AskTo,
+    DiffKind,
+    LineDiff,
     ToolCall,
     ToolCallError,
     ToolCallSuccess,
     ToolKind,
     WriteMode,
     load_available_binaries,
+    patch_diff,
 };
 pub use turn::{
     Turn,

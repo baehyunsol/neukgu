@@ -16,6 +16,16 @@ pub enum DiffKind {
     Remove,
 }
 
+impl DiffKind {
+    pub fn revert(self) -> DiffKind {
+        match self {
+            DiffKind::Context => DiffKind::Context,
+            DiffKind::Add => DiffKind::Remove,
+            DiffKind::Remove => DiffKind::Add,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum PatchError {
     NoMatch,

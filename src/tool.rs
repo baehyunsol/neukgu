@@ -54,7 +54,7 @@ mod write;
 
 pub use ask::{AskTo, ask_question_to_web};
 pub use chrome::WebOrFile;
-pub use patch::{DiffKind, LineDiff, PatchError, parse_line_diff, patch_file};
+pub use patch::{DiffKind, LineDiff, PatchError, parse_line_diff, patch_diff, patch_file};
 pub use read::{
     FileEntry,
     RangeType,
@@ -389,10 +389,11 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
                 }
 
-                let result = patch_file(&real_path, diff);
+                let mut result = patch_file(&real_path, diff);
 
-                if let Ok(ToolCallSuccess::Patch { new_content, .. }) = &result {
+                if let Ok(ToolCallSuccess::Patch { new_content, path, .. }) = &mut result {
                     write_string(&real_path, new_content, WriteMode::Truncate.into())?;
+                    *path = joined_path;
                 }
 
                 Ok(result)

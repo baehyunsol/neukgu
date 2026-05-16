@@ -65,6 +65,10 @@ use std::process::Child;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
+mod file_change;
+
+use file_change::FileChange;
+
 const HELP_MESSAGE: &str = r#"
 This is a neukgu's working directory.
 
@@ -140,6 +144,7 @@ It doesn't rollback the configs, though.
   - If there's a popup and a copiable content, it copies the content
 - Ctrl+D: see diff (in turn popup)
 - Ctrl+F: find in page
+- Ctrl+G: see file changes
 - Ctrl+H: help message
 - Ctrl+L: see logs
 - Ctrl+O: open browser
@@ -328,6 +333,9 @@ impl IcedContext {
                 self.copy_buffer = Some(summary.summary.to_string());
                 self.set_long_text_editor_content(summary.summary.to_string());
             },
+            Popup::FileChanges(_) => {
+                self.update_file_changes()?;
+            },
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
@@ -459,6 +467,9 @@ pub enum IcedMessage {
     KeyPressed { key: Key, modifiers: Modifiers },
     TurnViewScrolled(AbsoluteOffset),
     HoverOnTurn(Option<TurnId>),
+    ExpandFileChange(String),
+    ExpandAllFileChanges,
+    CollapseAllFileChanges,
     OpenPopup {
         curr: Popup,
         prev: Option<Popup>,
@@ -529,6 +540,7 @@ pub enum Popup {
     Log((String, LogId)),
     Summaries,
     Summary(SessionSummary),
+    FileChanges(Vec<FileChange>),
     Help,
     Image(ImageId),
     Diff,
@@ -571,17 +583,24 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.has_to_update_config = false;
                 context.update_find_result();
 
-                if context.loaded_logs.is_some() {
-                    let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
-                    let logs = load_logs_tail(&log_dir)?;
-                    context.copy_buffer = Some(logs.join("\n"));
-                    context.loaded_logs = Some(logs);
-                }
+                // These are too expensive.
+                if frame % 16 == 0 || force_update {
+                    if context.loaded_logs.is_some() {
+                        let log_dir = join3(&context.fe_context.working_dir, ".neukgu", "logs")?;
+                        let logs = load_logs_tail(&log_dir)?;
+                        context.copy_buffer = Some(logs.join("\n"));
+                        context.loaded_logs = Some(logs);
+                    }
 
-                if let Some(Popup::TokenUsage) = &context.curr_popup {
-                    let token_usage = context.fe_context.get_token_usage()?;
-                    context.set_long_text_editor_content(token_usage.to_string());
-                    context.copy_buffer = Some(token_usage.to_string());
+                    if let Some(Popup::TokenUsage) = context.curr_popup {
+                        let token_usage = context.fe_context.get_token_usage()?;
+                        context.set_long_text_editor_content(token_usage.to_string());
+                        context.copy_buffer = Some(token_usage.to_string());
+                    }
+
+                    if let Some(Popup::FileChanges(_)) = context.curr_popup {
+                        context.update_file_changes()?;
+                    }
                 }
 
                 let llm_request = context.fe_context.get_llm_request()?;
@@ -716,6 +735,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }));
                 }
             },
+            (Key::Character("g"), true, false, false) => {
+                if context.can_click_turn_entry() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::FileChanges(vec![]), prev: None }));
+                }
+            },
             (Key::Character("h"), true, false, false) => {
                 if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Help, prev: None }));
@@ -788,6 +812,30 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::HoverOnTurn(id) => {
             context.hovered_turn = id;
+        },
+        IcedMessage::ExpandFileChange(path) => {
+            if let Some(Popup::FileChanges(changes)) = &mut context.curr_popup {
+                for change in changes.iter_mut() {
+                    if change.path == path {
+                        change.expanded = !change.expanded;
+                        break;
+                    }
+                }
+            }
+        },
+        IcedMessage::ExpandAllFileChanges => {
+            if let Some(Popup::FileChanges(changes)) = &mut context.curr_popup {
+                for change in changes.iter_mut() {
+                    change.expanded = true;
+                }
+            }
+        },
+        IcedMessage::CollapseAllFileChanges => {
+            if let Some(Popup::FileChanges(changes)) = &mut context.curr_popup {
+                for change in changes.iter_mut() {
+                    change.expanded = false;
+                }
+            }
         },
         IcedMessage::OpenPopup { curr, prev } => {
             let mut tasks: Vec<Task<IcedMessage>> = vec![
@@ -1109,6 +1157,13 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::FileChanges(changes)) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(render_file_changes(changes, context), context).into(),
+        ]).into();
+    }
+
     else if let Some(Popup::Config) = context.curr_popup {
         let config_popup = Column::from_vec(vec![
             text!("Config").size(context.zoom * 18.0).into(),
@@ -1230,6 +1285,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("See (l)ogs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, yellow(), context.zoom));
     buttons_row1.push(button("See (s)ummaries", IcedMessage::OpenPopup { curr: Popup::Summaries, prev: None }, yellow(), context.zoom));
     buttons_row1.push(button("Token (u)sage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, yellow(), context.zoom));
+    buttons_row1.push(button("File Chan(g)es", IcedMessage::OpenPopup { curr: Popup::FileChanges(vec![]), prev: None }, yellow(), context.zoom));
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom));
 
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom));
@@ -1574,4 +1630,95 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
         ).id(context.popup_scroll_id.clone()).into(),
         context,
     )
+}
+
+fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedContext) -> Element<'co, IcedMessage> {
+    let mut all_expanded = true;
+    let mut changes: Vec<Element<IcedMessage>> = changes.iter().map(
+        |change| {
+            let view: Element<IcedMessage> = if change.expanded {
+                let mut diff_lines: Vec<Element<IcedMessage>> = vec![];
+                let (mut add, mut remove) = (0, 0);
+
+                for line in change.diff.lines() {
+                    if line.starts_with("+") {
+                        add += 1;
+                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).color(green()).into());
+                    } else if line.starts_with("-") {
+                        remove += 1;
+                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).color(red()).into());
+                    } else if line.starts_with(" ") {
+                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).into());
+                    } else {
+                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).color(yellow()).into());
+                    }
+                }
+
+                Column::from_vec(vec![
+                    Row::from_vec(vec![
+                        button("▼", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
+                        Space::new().width(context.zoom * 8.0).into(),
+                        text!("{} (", change.path).size(context.zoom * 14.0).into(),
+                        text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
+                        text!(", ").size(context.zoom * 14.0).into(),
+                        text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
+                        text!(")").size(context.zoom * 14.0).into(),
+                    ]).align_y(Vertical::Center).into(),
+                    Column::from_vec(diff_lines).into(),
+                ]).into()
+            } else {
+                all_expanded = false;
+                let (mut add, mut remove) = (0, 0);
+
+                for line in change.diff.lines() {
+                    if line.starts_with("+") {
+                        add += 1;
+                    } else if line.starts_with("-") {
+                        remove += 1;
+                    }
+                }
+
+                Row::from_vec(vec![
+                    button("▶", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
+                    Space::new().width(context.zoom * 8.0).into(),
+                    text!("{} (", change.path).size(context.zoom * 14.0).into(),
+                    text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
+                    text!(", ").size(context.zoom * 14.0).into(),
+                    text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
+                    text!(")").size(context.zoom * 14.0).into(),
+                ]).align_y(Vertical::Center).into()
+            };
+
+            Container::new(view)
+                .width(context.window_size.width)
+                .padding(context.zoom * 8.0)
+                .style(|_| Style {
+                    background: Some(Background::Color(gray(0.25))),
+                    border: Border {
+                        color: white(),
+                        width: 0.0,
+                        radius: Radius::new(context.zoom * 8.0),
+                    },
+                    ..Style::default()
+                })
+                .into()
+        }
+    ).collect();
+
+    changes.insert(0, Row::from_vec(vec![
+        text!("File Changes").size(context.zoom * 18.0).into(),
+        if all_expanded {
+            button("Collapse all", IcedMessage::CollapseAllFileChanges, white(), context.zoom).into()
+        } else {
+            button("Expand all", IcedMessage::ExpandAllFileChanges, white(), context.zoom).into()
+        },
+    ]).align_y(Vertical::Center).spacing(context.zoom * 12.0).into());
+
+    Container::new(
+        Scrollable::new(
+            Column::from_vec(changes)
+                .width(context.window_size.width)
+                .spacing(context.zoom * 8.0)
+        ).id(context.popup_scroll_id.clone())
+    ).padding(context.zoom * 12.0).into()
 }
