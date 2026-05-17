@@ -1,5 +1,5 @@
 use crate::{AskTo, LLMToken, ToolCall, ToolKind};
-use crate::tool::{LineDiff, WriteMode, parse_line_diff};
+use crate::tool::{LineDiff, ParseCommandError, WriteMode, parse_command, parse_line_diff};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::{Entry, HashMap};
@@ -64,6 +64,7 @@ pub enum ParseError {
         line: String,
         prefix: char,
     },
+    InvalidCommand(ParseCommandError),
     NotBash,
     InvalidEnv(String),
     InvalidAskTo(String),
@@ -136,6 +137,10 @@ KEY2=VALUE2
             ParseError::InvalidPatchPrefix { line, prefix } => format!(
                 "There's a syntax error in line {line:?}. A line must start with either ' ', '+' or '-', but it starts with {prefix:?}.",
             ),
+            ParseError::InvalidCommand(ParseCommandError::EmptyInput) => String::from("<command> is empty. Please tell me what command you want to run."),
+            ParseError::InvalidCommand(ParseCommandError::UnclosedQuote) => String::from("<command> has an unclosed quote."),
+            ParseError::InvalidCommand(ParseCommandError::TrailingBackslash) => String::from("<command> has a trailing backslash."),
+            ParseError::InvalidCommand(ParseCommandError::InvalidBinaryName(bin)) => format!("`{bin}` is not a valid name of a binary."),
             ParseError::NotBash => String::from("
 Failed to run the command.
 
@@ -441,7 +446,7 @@ impl ToolCall {
                     None => None,
                 };
                 let command = match parse_command_arg(args, "command") {
-                    Some(command) => {
+                    Some(Ok(command)) => {
                         if command.iter().any(|arg| arg == "|" || arg == ">" || arg == "<" || arg.starts_with("2>") || arg.starts_with("&")) {
                             return Err(ParseError::NotBash);
                         }
@@ -449,6 +454,9 @@ impl ToolCall {
                         else {
                             command
                         }
+                    },
+                    Some(Err(e)) => {
+                        return Err(e);
                     },
                     None => {
                         return Err(ParseError::MissingArg {
@@ -561,40 +569,10 @@ fn parse_string_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Strin
     args.get(arg.as_bytes()).map(|s| String::from_utf8_lossy(s).to_string())
 }
 
-fn parse_command_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Vec<String>> {
+fn parse_command_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<Vec<String>, ParseError>> {
     let command = args.get(arg.as_bytes())?;
     let command = String::from_utf8_lossy(command);
-
-    let mut buffer = vec![];
-    let mut cli = vec![];
-    let mut in_quotation = false;
-
-    for ch in command.chars() {
-        match ch {
-            ' ' => {
-                if in_quotation {
-                    buffer.push(' ');
-                }
-
-                else if !buffer.is_empty() {
-                    cli.push(buffer);
-                    buffer = vec![];
-                }
-            },
-            '"' => {
-                in_quotation = !in_quotation;
-            },
-            c => {
-                buffer.push(c);
-            },
-        }
-    }
-
-    if !buffer.is_empty() {
-        cli.push(buffer);
-    }
-
-    Some(cli.into_iter().map(|chs| chs.into_iter().collect()).collect())
+    Some(parse_command(&command).map_err(|e| ParseError::InvalidCommand(e)))
 }
 
 pub static ENV_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([a-zA-Z0-9_-]+)\s*\=\s*(.+)").unwrap());

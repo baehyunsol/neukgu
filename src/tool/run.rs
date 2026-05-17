@@ -1,6 +1,7 @@
 use crate::{Context, Error, subprocess};
 use ragit_fs::{exists, join, join3};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 impl Context {
     // For example, if `bin` is `"git"`, it'll just call `git` and rust's `std::process::Command`
@@ -152,4 +153,262 @@ pub fn check_python_venv(
     }
 
     Ok(())
+}
+
+// VIBE NOTE: The parsing stuff is written by sonnet (via neukgu)
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub enum ParseCommandError {
+    EmptyInput,
+    UnclosedQuote,
+    TrailingBackslash,
+    InvalidBinaryName(String),
+}
+
+fn is_valid_binary_name(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    s.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '\\'))
+}
+
+pub fn parse_command(input: &str) -> Result<Vec<String>, ParseCommandError> {
+    #[derive(Debug)]
+    enum State {
+        Normal,
+        Quoted,
+        QuotedEscape,
+    }
+
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_token = false;
+    let mut current_has_quotes = false;
+    let mut first_token_had_quotes = false;
+    let mut state = State::Normal;
+
+    for ch in input.chars() {
+        match state {
+            State::Normal => match ch {
+                '"' => {
+                    in_token = true;
+                    current_has_quotes = true;
+                    state = State::Quoted;
+                }
+                '\\' => {
+                    // Outside quotes, treat backslash literally (no special handling)
+                    in_token = true;
+                    current.push(ch);
+                }
+                ' ' | '\t' | '\n' => {
+                    if in_token {
+                        if tokens.is_empty() && current_has_quotes {
+                            first_token_had_quotes = true;
+                        }
+                        tokens.push(current.clone());
+                        current.clear();
+                        in_token = false;
+                        current_has_quotes = false;
+                    }
+                }
+                _ => {
+                    in_token = true;
+                    current.push(ch);
+                }
+            },
+            State::Quoted => match ch {
+                '"' => {
+                    // End of quoted section; stay in token (don't push yet)
+                    state = State::Normal;
+                }
+                '\\' => {
+                    state = State::QuotedEscape;
+                }
+                _ => {
+                    current.push(ch);
+                }
+            },
+            State::QuotedEscape => {
+                current.push(ch);
+                state = State::Quoted;
+            }
+        }
+    }
+
+    // Check for unclosed states
+    match state {
+        State::Quoted | State::QuotedEscape => {
+            return Err(ParseCommandError::UnclosedQuote);
+        }
+        State::Normal => {}
+    }
+
+    if in_token {
+        if tokens.is_empty() && current_has_quotes {
+            first_token_had_quotes = true;
+        }
+        tokens.push(current);
+    }
+
+    // Empty input check
+    if tokens.is_empty() {
+        return Err(ParseCommandError::EmptyInput);
+    }
+
+    // Validate binary name (first token)
+    if first_token_had_quotes || !is_valid_binary_name(&tokens[0]) {
+        return Err(ParseCommandError::InvalidBinaryName(tokens[0].clone()));
+    }
+
+    Ok(tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic() {
+        assert_eq!(
+            parse_command("cargo run --release"),
+            Ok(vec!["cargo".to_string(), "run".to_string(), "--release".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_quoted_standalone() {
+        // Quoted string as a standalone token (separated by space)
+        assert_eq!(
+            parse_command(r#"cargo run -- ai-request --model gpt --prompt "What is 1 + 1?""#),
+            Ok(vec![
+                "cargo".to_string(),
+                "run".to_string(),
+                "--".to_string(),
+                "ai-request".to_string(),
+                "--model".to_string(),
+                "gpt".to_string(),
+                "--prompt".to_string(),
+                "What is 1 + 1?".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_quoted_attached() {
+        // Quoted string attached to a token via `=`
+        assert_eq!(
+            parse_command(r#"cargo run -- ai-request --model gpt --prompt="What is 1 + 1?""#),
+            Ok(vec![
+                "cargo".to_string(),
+                "run".to_string(),
+                "--".to_string(),
+                "ai-request".to_string(),
+                "--model".to_string(),
+                "gpt".to_string(),
+                "--prompt=What is 1 + 1?".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_escaped_quote_in_quoted() {
+        // The instruction's example with escaped quotes around the prompt value
+        assert_eq!(
+            parse_command(r#"cargo run -- ai-request --model gpt --prompt "What is 1 + 1?""#),
+            Ok(vec![
+                "cargo".to_string(),
+                "run".to_string(),
+                "--".to_string(),
+                "ai-request".to_string(),
+                "--model".to_string(),
+                "gpt".to_string(),
+                "--prompt".to_string(),
+                "What is 1 + 1?".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_multiple_spaces() {
+        assert_eq!(
+            parse_command("a   b"),
+            Ok(vec!["a".to_string(), "b".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_empty_quoted_string() {
+        // Empty quoted string becomes an empty token
+        assert_eq!(
+            parse_command(r#"cargo run """#),
+            Ok(vec!["cargo".to_string(), "run".to_string(), "".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_unclosed_quote() {
+        assert_eq!(
+            parse_command(r#"cargo run "hello"#),
+            Err(ParseCommandError::UnclosedQuote)
+        );
+    }
+
+    #[test]
+    fn test_trailing_backslash_in_quote() {
+        // A backslash at the end of a quoted string (nothing follows it before closing quote)
+        assert_eq!(
+            parse_command("cargo run \"hello\\"),
+            Err(ParseCommandError::UnclosedQuote)
+        );
+    }
+
+    #[test]
+    fn test_empty_input() {
+        assert_eq!(parse_command(""), Err(ParseCommandError::EmptyInput));
+        assert_eq!(parse_command("   "), Err(ParseCommandError::EmptyInput));
+    }
+
+    #[test]
+    fn test_invalid_binary_name_quoted() {
+        // Binary name was formed from a quoted string
+        assert_eq!(
+            parse_command(r#""cargo" run"#),
+            Err(ParseCommandError::InvalidBinaryName("cargo".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_invalid_binary_name_with_special_chars() {
+        // Binary name contains characters not in the allowed set
+        assert_eq!(
+            parse_command("car!go run"),
+            Err(ParseCommandError::InvalidBinaryName("car!go".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_valid_binary_paths() {
+        // Path-like binary names should be valid
+        assert_eq!(
+            parse_command("./my_script --flag"),
+            Ok(vec!["./my_script".to_string(), "--flag".to_string()])
+        );
+        assert_eq!(
+            parse_command("/usr/bin/python3 script.py"),
+            Ok(vec!["/usr/bin/python3".to_string(), "script.py".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_escaped_quote_inside_quotes() {
+        // \"...\" inside a quoted string
+        assert_eq!(
+            parse_command(r#"cargo run --prompt "say \"hello\"""#),
+            Ok(vec![
+                "cargo".to_string(),
+                "run".to_string(),
+                "--prompt".to_string(),
+                r#"say "hello""#.to_string(),
+            ])
+        );
+    }
 }

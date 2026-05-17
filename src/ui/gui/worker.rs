@@ -1,6 +1,8 @@
 use super::tab::TabId;
 use base64::Engine;
-use crate::{ChatId, Error, LLMToken, add_chat_turn, get_global_index_dir, subprocess, subprocess::Output};
+use crate::{ChatId, Error, LLMToken, add_chat_turn, get_global_index_dir};
+use crate::subprocess::{self, Output};
+use crate::tool::parse_command;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -47,6 +49,9 @@ pub struct JobResult {
 pub enum JobResultKind {
     Rg { regex: String, matches: Vec<RgMatch>, count: usize },
     RgTimeout,
+    Run(Output),
+    RunError(String),
+    InvalidCommand { command: String, error: String },
     AddChatTurnSuccess,
     AddChatTurnError(String),
     WorkerError(String),
@@ -128,7 +133,29 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
 
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
             },
-            Job { id, kind: JobKind::Run { path, command } } => todo!(),
+            Job { id, kind: JobKind::Run { path, command } } => match parse_command(&command) {
+                Ok(command) => {
+                    let run_result = match subprocess::run(
+                        command[0].to_string(),
+                        &command[1..],
+                        &[],
+                        &path,
+                        600,  // timeout
+                        "",     // working_dir (it's None because it's not a neugku dir)
+                        false,  // check_interruption
+                    ) {
+                        Ok(output) => {
+                            tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::Run(output) }).unwrap();
+                        },
+                        Err(e) => {
+                            tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::RunError(format!("{e:?}")) }).unwrap();
+                        },
+                    };
+                },
+                Err(e) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::InvalidCommand { command, error: format!("{e:?}") } }).unwrap();
+                },
+            },
             Job { id, kind: JobKind::AddChatTurn { chat_id, query } } => match add_chat_turn_blocked(chat_id, query) {
                 Ok(()) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnSuccess }).unwrap();

@@ -75,6 +75,10 @@
     - 파일 내용 안에서 검색하는 거 점점 절실히 필요해짐... 아니면 이런 거 ㅇㄸ: popup 아래에 text_input을 박아두는 거임. 거기서 검색 버튼 누르면 검색 결과 popup이 뜸
   - chat 안에서 검색하기
     - 생각해보니까 이거 결과를 highlight하는게 무지 빡셀 듯...
+  - chat 목록에서 검색하기
+    - 이건 구현이랑 ui 만드는게 쉬움!!
+    - "New Chat" 버튼 옆에 search 버튼 붙이면 됨.
+    - 결과 보여주는 popup을 만들면 되고, 거기서 클릭하면 해당 chat으로 바로 연결되게 하면 됨!!
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 59. More configuration in GUI
   - config ui
@@ -155,6 +159,7 @@
   - vis agent가 만든 결과물을 사람이 확인했는데 마음에 안 들면?
   - vis agent가 만든 결과물을 main agent가 확인할 수 있으려면 `<read>`가 쟤네를 전부 지원해야함...
   - vis agent가 돌면 GUI에서는 어떻게 보임?
+  - chat 하다가도 비슷한 수요가 생김. AI가 한 대답이 아주 긴 텍스트일 때, 그 텍스트를 그대로 주면서 "이걸 그림으로 설명해줘" 하면 괜찮을 듯? viz agent를 재활용하면 됨!!
 96. Issues (literally, like github)
   - Issues are stored in `.neukgu/`.
   - It provides github-like interface.
@@ -214,6 +219,7 @@
 121. 파일을 보다가 (혹은 뭐가 됐든 긴 글을 보다가), 그 글을 주고 질문을 할 수 있게 하고 싶음!
   - 아주 가벼운 ragit을 만드는 거지
   - 파일 길이가 웬만큼 짧으면, 파일 내용과 질문을 통으로 다 주고 응답을 받으면 됨
+  - 파일이 아니더라도 이런 수요가 엄청 많음! AI가 쓴 대답이 길어서 읽기 귀찮을 때도 있고, command run result가 길어서 읽기 귀찮을 때도 있고... 대충 Copy 버튼이 있는 경우에는 다 적용 가능할 듯??
 124. attach image files in chat
   - 그러려면 파일 브라우저를 popup으로 띄워야하는데...
 125. 다른 세션을 볼 수 있는 ui를 만들자

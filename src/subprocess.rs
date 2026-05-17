@@ -11,6 +11,7 @@ pub struct Output {
     pub status: i32,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+    pub elapsed_ms: u64,
     pub timeout: bool,
 }
 
@@ -79,6 +80,7 @@ pub fn run(
         }
     };
 
+    let elapsed_ms = Instant::now().duration_since(started_at).as_millis() as u64;
     let stdout = stdout_thread.join().unwrap_or_default();
     let stderr = stderr_thread.join().unwrap_or_default();
 
@@ -86,6 +88,7 @@ pub fn run(
         status,
         stdout,
         stderr,
+        elapsed_ms,
         timeout: timeout_flag,
     })
 }

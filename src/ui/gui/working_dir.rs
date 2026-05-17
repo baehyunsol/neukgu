@@ -54,8 +54,10 @@ use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
+    Binding,
     Content as TextEditorContent,
     Edit as TextEditorEdit,
+    KeyPress,
     TextEditor,
 };
 use ragit_fs::{join, join3};
@@ -610,6 +612,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                         if context.llm_request.is_none() {
                             context.close_popup();
                             context.user_response_timeout_counter = Instant::now();
+                            context.llm_request = llm_request;
+                            return Ok(focus(context.long_text_editor_id.clone()));
                         }
 
                         context.llm_request = llm_request;
@@ -1525,20 +1529,35 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
     let elapsed_secs = Instant::now().duration_since(context.user_response_timeout_counter.clone()).as_secs();
 
     into_popup(
-        Column::from_vec(vec![
-            text!("{}", context.llm_request.as_ref().unwrap().1).size(context.zoom * 14.0).into(),
-            TextEditor::new(&context.long_text_editor_content)
-                .placeholder("Answer neukgu's question")
-                .size(context.zoom * 14.0)
-                .width(context.window_size.width - context.zoom * 128.0)
-                .on_action(|action| IcedMessage::EditLongText(action))
-                .into(),
-            Row::from_vec(vec![
-                button("Answer", IcedMessage::AnswerLLMRequest, green(), context.zoom).into(),
-                button("Dismiss", IcedMessage::DismissLLMRequest, red(), context.zoom).into(),
-                text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
-            ]).spacing(context.zoom * 20.0).into(),
-        ]).padding(context.zoom * 20.0).spacing(context.zoom * 20.0).into(),
+        Scrollable::new(
+            Column::from_vec(vec![
+                text!("{}", context.llm_request.as_ref().unwrap().1).size(context.zoom * 14.0).into(),
+                TextEditor::new(&context.long_text_editor_content)
+                    .id(context.long_text_editor_id.clone())
+                    .placeholder("Answer neukgu's question")
+                    .size(context.zoom * 14.0)
+                    .width(context.window_size.width - context.zoom * 128.0)
+                    .on_action(|action| IcedMessage::EditLongText(action))
+                    .key_binding(|key_press| {
+                        let KeyPress { key, modifiers, .. } = &key_press;
+
+                        match (key.as_ref(), modifiers.control()) {
+                            (Key::Named(NamedKey::Enter), true) => Some(Binding::Sequence(vec![Binding::Unfocus, Binding::Custom(IcedMessage::AnswerLLMRequest)])),
+                            _ => Binding::from_key_press(key_press),
+                        }
+                    })
+                    .into(),
+                Row::from_vec(vec![
+                    button("Answer", IcedMessage::AnswerLLMRequest, green(), context.zoom).into(),
+                    button("Dismiss", IcedMessage::DismissLLMRequest, red(), context.zoom).into(),
+                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
+                ]).spacing(context.zoom * 20.0).into(),
+            ])
+                .padding(context.zoom * 20.0)
+                .spacing(context.zoom * 20.0),
+        )
+            .id(context.popup_scroll_id.clone())
+            .into(),
         context,
     )
 }

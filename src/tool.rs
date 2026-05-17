@@ -62,7 +62,7 @@ pub use read::{
     check_read_permission,
     read_file,
 };
-pub use run::{check_python_venv, load_available_binaries};
+pub use run::{ParseCommandError, check_python_venv, load_available_binaries, parse_command};
 pub use write::{DumpOrRedirect, WriteMode, check_write_permission};
 
 type Path = Vec<String>;
@@ -488,7 +488,7 @@ impl ToolCall {
                 let timeout_value = timeout;
                 let stdout_dst = stdout;
                 let stderr_dst = stderr;
-                let subprocess::Output { status, stdout, stderr, timeout } = result;
+                let subprocess::Output { status, stdout, stderr, elapsed_ms: _, timeout } = result;
 
                 let stdout = match stdout_dst {
                     Some(path) => {

@@ -31,6 +31,8 @@ use crate::{
     Error,
     init_working_dir,
     prettify_bytes,
+    prettify_time,
+    prettify_timestamp,
     render_first_10_pages,
     subprocess::Output as SubprocessOutput,
     validate_project_name,
@@ -331,6 +333,7 @@ pub enum IcedMessage {
     OpenPopup(Popup),
     ClosePopup,
     CopyPopupContent,
+    CopyString(String),
     ChDir(String),
     DeleteFile(String),
     DeleteDirectory(String),
@@ -574,6 +577,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::CopyPopupContent => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
         },
+        IcedMessage::CopyString(s) => {
+            return Ok(iced::clipboard::write(s.to_string()));
+        },
         IcedMessage::ChDir(path) => {
             context.close_popup();
             context.cwd = path.to_string();
@@ -701,6 +707,18 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 },
                 _ => {},
             },
+            JobResultKind::Run(o) => match &mut context.curr_popup {
+                Some(Popup::RunResult { job_id, output, .. }) if Some(*job_id) == job_result.id => {
+                    *output = Some(o.clone());
+                },
+                _ => {},
+            },
+            JobResultKind::InvalidCommand { error: err, .. } | JobResultKind::RunError(err) => match &mut context.curr_popup {
+                Some(Popup::RunResult { job_id, error, .. }) if Some(*job_id) == job_result.id => {
+                    *error = Some(err.to_string());
+                },
+                _ => {},
+            },
             _ => {},
         },
         IcedMessage::Kill => {
@@ -802,10 +820,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     } else if let Some(Popup::FindResult { regex, matches, truncate, match_count }) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(render_find_result(regex, matches, *truncate, *match_count, context), context).into(),
+            into_popup(render_find_result(regex, matches, *truncate, *match_count, context), context),
         ]).into();
-    } else if let Some(Popup::RunResult { .. }) = context.curr_popup {
-        todo!()
+    } else if let Some(Popup::RunResult { job_id: _, started_at, command, output, error }) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(render_run_result(*started_at, command, output, error, context), context),
+        ]).into();
     } else if let Some(Popup::EntryError(_) | Popup::Preview { .. } | Popup::Help) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
 
@@ -1283,4 +1304,85 @@ fn render_find_result<'f, 'm, 'c>(
             Column::from_vec(lines).width(context.window_size.width)
         ).id(context.popup_scroll_id.clone()).into(),
     ]).padding(context.zoom * 8.0).spacing(context.zoom * 8.0).into()
+}
+
+fn render_run_result<'cm, 'o, 'e, 'cn>(
+    started_at: i64,
+    command: &'cm str,
+    output: &'o Option<SubprocessOutput>,
+    error: &'e Option<String>,
+    context: &'cn IcedContext,
+) -> Element<'cn, IcedMessage> {
+    fn text_box<'c>(
+        title: &str,
+        s: &str,
+        context: &'c IcedContext,
+        text_boxes: &mut Vec<Element<'c, IcedMessage>>,
+    ) {
+        let title = Row::from_vec(vec![
+            text!("{title}").size(context.zoom * 14.0).into(),
+            button("Copy", IcedMessage::CopyString(s.to_string()), blue(), context.zoom).into(),
+        ]).spacing(context.zoom * 8.0).align_y(Vertical::Center);
+        let text_box = Container::new(
+            if s.len() > 32768 {
+                text!("The text is too long to display, please copy the text and paste it to another text editor.").size(context.zoom * 14.0).width(context.window_size.width)
+            } else {
+                text!("{s}").size(context.zoom * 14.0).width(context.window_size.width)
+            }
+        )
+            .padding(context.zoom * 8.0)
+            .style(|_| set_round_bg(gray(0.25), context.zoom));
+
+        text_boxes.push(title.into());
+        text_boxes.push(text_box.into());
+    }
+
+    match (output, error) {
+        (None, None) => Column::from_vec(vec![text!("Running `{command}` ({})", prettify_timestamp(started_at)).size(context.zoom * 14.0).into()])
+            .width(context.window_size.width)
+            .align_x(Horizontal::Center)
+            .into(),
+        (None, Some(error)) => Scrollable::new(
+            Column::from_vec(vec![
+                text!("Error with `{command}`").size(context.zoom * 18.0).into(),
+                text!("{error}").size(context.zoom * 14.0).color(red()).into(),
+            ])
+                .width(context.window_size.width)
+                .spacing(context.zoom * 16.0)
+        ).id(context.popup_scroll_id.clone()).into(),
+        (Some(output), None) => {
+            let mut text_boxes: Vec<Element<_>> = vec![text!("{command}").size(context.zoom * 18.0).into()];
+            text_box(
+                "Elapsed time",
+                &format!("{}{}", prettify_time(output.elapsed_ms), if output.timeout { " (timeout)" } else { "" }),
+                context,
+                &mut text_boxes,
+            );
+            text_box(
+                "Status code",
+                &output.status.to_string(),
+                context,
+                &mut text_boxes,
+            );
+            text_box(
+                "stdout",
+                &String::from_utf8_lossy(&output.stdout),
+                context,
+                &mut text_boxes,
+            );
+            text_box(
+                "stderr",
+                &String::from_utf8_lossy(&output.stderr),
+                context,
+                &mut text_boxes,
+            );
+
+            Scrollable::new(
+                Column::from_vec(text_boxes)
+                    .spacing(context.zoom * 8.0)
+                    .padding(context.zoom * 8.0)
+            ).id(context.popup_scroll_id.clone()).into()
+        },
+        _ => unreachable!(),
+    }
 }
