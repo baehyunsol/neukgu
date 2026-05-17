@@ -27,6 +27,10 @@ pub enum JobKind {
         path: String,
         regex: String,
     },
+    Run {
+        path: String,
+        command: String,
+    },
     AddChatTurn {
         chat_id: ChatId,
         query: Vec<LLMToken>,
@@ -124,6 +128,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
 
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
             },
+            Job { id, kind: JobKind::Run { path, command } } => todo!(),
             Job { id, kind: JobKind::AddChatTurn { chat_id, query } } => match add_chat_turn_blocked(chat_id, query) {
                 Ok(()) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnSuccess }).unwrap();

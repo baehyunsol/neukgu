@@ -171,6 +171,8 @@
   - visualize agent를 custom tool로 구현하기?
     - custom tool에서 sub-agent를 호출할 수 있어야함!
     - 아직 sub-agent를 어떻게 할지도 안 정해졌는데...
+  - Can tools call other tools? If so, that's a sub agent!
+  - Come to think about it, we can write tools in rust: it's guaranteed that `cargo` exists in the local machine, so we can just compile it!
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files
@@ -209,10 +211,6 @@
   - 최대한 빨리 해결하려면, 늑구가 쓸 수 있는 모양으로 cli를 만들어서 tool로 붙이는 거밖에 없음...
   - 근데 대부분의 real-world project가 이럴 거임. 당장 rust compiler만 봐도 디버그하려면 세팅해야하는게 한 트럭임.
   - 근본적으로 해결하려면, 1) 늑구가 쓸 수 있는 tool을 훨씬 더 많이 줘서 모든 상황에 대비할 수 있게 하거나, 2) 그때그때 필요한 tool을 내가 구현해서 늑구한테 붙여주거나 정도임...
-118. 지금 파이썬에 넘어가는 PATH가 `py-venv/bin/`밖에 없거든? 근데 늑구가 ENV VAR를 이용해서 cargo를 호출하려고 파이썬을 쓰려니까 안되네...
-  - 파이썬한테 PATH를 최대한 많이 넘겨주자!! 얼마나 넘겨줘야하지?? 다 넘겨주면 좀 위험할 것 같기도 하고...
-  - 최소한 늑구가 보는 `bins/`에 있는 바이너리는 다 줘야하는 거 아님??
-  - fix for ENV_VAR would be adding an optional argument to `<run>`: `<env>`
 121. 파일을 보다가 (혹은 뭐가 됐든 긴 글을 보다가), 그 글을 주고 질문을 할 수 있게 하고 싶음!
   - 아주 가벼운 ragit을 만드는 거지
   - 파일 길이가 웬만큼 짧으면, 파일 내용과 질문을 통으로 다 주고 응답을 받으면 됨
@@ -223,11 +221,6 @@
   - 19, 94, 105번 이슈에 다 영향을 줄 수 있음.
     - subagent가 돌면, subagent의 상태를 볼 수 있는 ui도 필요하고 main agent의 상태를 볼 수 있는 ui도 필요하거든
     - 과거의 session을 파일로 저장했으면, 그 파일을 읽을 수 있는 ui도 필요하거든
-126. 오랜만에 늑구 (with gpt-5.5)로 psd-rs를 짜보려고 했는데...
-  - 일단, 기존의 코드가 존재하니까 코드를 일부만 수정하려고 계속 시도함. 얘는 Python을 이용해서 edit을 하려고 하는데 이럴 바에는 그냥 `<edit>` tool을 만들어주는게 나을 듯!
-  - 수정된 파일의 목록을 한번에 보는 view가 필요함
-    - `<run>`으로 수정된 파일도 보여줘야하나... 이거 추적하는게 무지하게 빡셈 ㅠㅠ
-    - `<write>`랑 `<edit>`으로 수정된 파일은 당연히 보여줘야함!! 이러면 `<edit>`이 더더욱 중요해지네...
 127. pragmatic instruction: tera template 적용시키면 괜찮을 수도?? 특히 cron일 때!
 128. 돌리다가 또 문제
   - ripgrep의 stdout을 redirect한 다음에, 결과물의 첫번째 200줄만 확인했음

@@ -225,7 +225,6 @@ pub enum IcedMessage {
     CopyPopupContent,
     EditShortText(String),
     EditLongText(TextEditorAction),
-    FocusShortTextEdit,
     FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
     MainViewScrolled(AbsoluteOffset),
@@ -398,9 +397,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditLongText(a) => {
             context.long_text_editor_content.perform(a);
         },
-        IcedMessage::FocusShortTextEdit => {
-            return Ok(focus(context.short_text_editor_id.clone()));
-        },
         IcedMessage::FocusLongTextEdit => {
             return Ok(focus(context.long_text_editor_id.clone()));
         },
@@ -412,6 +408,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::BackgroundJobResult(_) => todo!(),
         IcedMessage::Focus => {
+            context.hovered_tab = None;
             return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
         },
     }
