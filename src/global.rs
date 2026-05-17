@@ -9,10 +9,12 @@ use ragit_fs::{
     join3,
     read_dir,
     read_string,
+    remove_dir_all,
     remove_file,
     write_string,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 pub struct Project {
     pub neukgu_id: NeukguId,
@@ -72,11 +74,16 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         create_dir(&join(global_index_dir, "chat-turns")?)?;
     }
 
+    if !exists(&join(global_index_dir, "cargo-targets")?) {
+        create_dir(&join(global_index_dir, "cargo-targets")?)?;
+    }
+
     Ok(())
 }
 
 pub fn clean_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
     let mut dangling_ids = vec![];
+    let mut valid_ids = HashSet::new();
 
     for index in load_all_indexes(global_index_dir).iter() {
         if index.error.is_some() {
@@ -94,6 +101,10 @@ pub fn clean_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
                 if context.neukgu_id != index.neukgu_id {
                     dangling_ids.push(index.neukgu_id);
                 }
+
+                else {
+                    valid_ids.insert(format!("{:016x}", index.neukgu_id.0));
+                }
             },
             Err(_) => {
                 dangling_ids.push(index.neukgu_id);
@@ -104,6 +115,16 @@ pub fn clean_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
     for dangling_id in dangling_ids.iter() {
         let index_at = join3(global_index_dir, "indexes", &format!("{:016x}", dangling_id.0))?;
         remove_file(&index_at)?;
+    }
+
+    let cargo_targets_at = join(global_index_dir, "cargo-targets")?;
+
+    for target in read_dir(&cargo_targets_at, false)? {
+        let neukgu_id = basename(&target)?;
+
+        if !valid_ids.contains(&neukgu_id) {
+            remove_dir_all(&target)?;
+        }
     }
 
     Ok(())

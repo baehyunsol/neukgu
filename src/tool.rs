@@ -457,6 +457,20 @@ impl ToolCall {
                     check_python_venv(&env, &sandbox_at, &context.working_dir)?;
                 }
 
+                if bin_path == "cargo" {
+                    env.push((
+                        String::from("CARGO_TARGET_DIR"),
+
+                        // If there're multiple cargo projects in the working directory,
+                        // incremental compilation is not gonna work, but it's gonna compile anyway hahaha
+                        join3(
+                            &context.global_index_dir,
+                            "cargo-targets",
+                            &format!("{:016x}", context.neukgu_id.0),
+                        )?,
+                    ));
+                }
+
                 let started_at = Instant::now();
                 let result = subprocess::run(
                     bin_path,
