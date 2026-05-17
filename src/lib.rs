@@ -86,7 +86,7 @@ pub use request::{
     stringify_llm_tokens,
 };
 use request::{MockState, reset_mock_state, revert_mock_state};
-pub use response::Response;
+pub use response::{Response, WebSearchResult};
 use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to_sandbox, import_from_sandbox};
 use snapshot::{Snapshot, check_snapshot, clean_dangling_snapshots};
 pub use tool::{

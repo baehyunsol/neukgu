@@ -116,6 +116,14 @@ impl IcedContext {
         let mut neukgu_id = None;
         let (title, flag) = self.get_title_and_flag(true);
         let (status, error) = match &self.local {
+            LocalContext::Chat(c) => {
+                let status = if c.bg_job.is_some() {
+                    Some(String::from("Processing..."))
+                } else {
+                    None
+                };
+                (status, c.bg_error.clone())
+            },
             LocalContext::WorkingDir(c) => {
                 neukgu_id = Some(c.fe_context.neukgu_id);
 
@@ -132,7 +140,7 @@ impl IcedContext {
                     )
                 }
             },
-            LocalContext::Browser(_) | LocalContext::Chat(_) | LocalContext::Error(_) => (None, None),
+            LocalContext::Browser(_) | LocalContext::Error(_) => (None, None),
         };
 
         TabPreview {

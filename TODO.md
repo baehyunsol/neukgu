@@ -235,6 +235,7 @@
   - 그렇게되니까 아직 10턴도 안됐는데 중간 턴들이 생략되기 시작하면서 context가 개판이 됐음...
 129. sandbox/snapshot ruins the incremental compilation of cargo
   - It's a big problem when the cargo project is big...
+  - Let's use `CARGO_TARGET_DIR` env and place it out of the working directory!! (maybe global index dir?)
 
 ## mock API
 

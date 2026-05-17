@@ -86,6 +86,18 @@ fn circle<'m, Message: 'm>(radius: f32, color: Color) -> Element<'m, Message> {
     }).into()
 }
 
+fn set_round_bg(color: Color, zoom: f32) -> Style {
+    Style {
+        background: Some(Background::Color(color)),
+        border: Border {
+            color: white(),
+            width: 0.0,
+            radius: Radius::new(zoom * 8.0),
+        },
+        ..Style::default()
+    }
+}
+
 fn set_bg(color: Color) -> Style {
     Style {
         background: Some(Background::Color(color)),

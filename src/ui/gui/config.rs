@@ -1,10 +1,8 @@
-use super::{gray, white};
+use super::{gray, set_round_bg};
 use crate::{Config, Model};
-use iced::{Background, Element};
+use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
-use iced::border::{Border, Radius};
-use iced::widget::{Column, Radio, Row, text};
-use iced::widget::container::{Container, Style};
+use iced::widget::{Column, Container, Radio, Row, text};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Questionable {
@@ -81,7 +79,7 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
 
         panels.push(Container::new(
             Row::from_vec(vec![text!("{title}").size(zoom * 14.0).into(), radios]).align_y(Vertical::Center)
-        ).style(move |_| panel_style(zoom)).padding(zoom * 8.0).into());
+        ).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
     }
 
     let curr_q = match config.user_response_timeout {
@@ -108,19 +106,7 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
                 .size(zoom * 14.0)
                 .into(),
         ]).spacing(zoom * 16.0).into(),
-    ]).align_x(Horizontal::Center).spacing(zoom * 8.0)).style(move |_| panel_style(zoom)).padding(zoom * 8.0).into());
+    ]).align_x(Horizontal::Center).spacing(zoom * 8.0)).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
-}
-
-fn panel_style(zoom: f32) -> Style {
-    Style {
-        background: Some(Background::Color(gray(0.15))),
-        border: Border {
-            color: white(),
-            width: 0.0,
-            radius: Radius::new(zoom * 8.0),
-        },
-        ..Style::default()
-    }
 }

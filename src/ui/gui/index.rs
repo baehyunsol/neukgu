@@ -8,6 +8,7 @@ use super::{
     green,
     pink,
     red,
+    set_round_bg,
     skyblue,
     white,
     yellow,
@@ -445,17 +446,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             Row::from_vec(vec![
                 expand_button.into(),
-                Container::new(Scrollable::new(entries).width(Length::Fill)).style(
-                    |_| Style {
-                        background: Some(Background::Color(black())),
-                        border: Border {
-                            color: white(),
-                            width: 0.0,
-                            radius: Radius::new(context.zoom * 8.0),
-                        },
-                        ..Style::default()
-                    }
-                )
+                Container::new(Scrollable::new(entries).width(Length::Fill))
+                    .style(|_| set_round_bg(black(), context.zoom))
                     .padding(context.zoom * 8.0)
                     .width(context.window_size.width)
                     .height(if is_expanded { context.window_size.height * 0.6 } else { context.window_size.height * 0.2 })
@@ -674,17 +666,10 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                         ]).spacing(context.zoom * 4.0).into()
                     },
                 ]).spacing(context.zoom * 4.0)
-            ).style(
-                |_| Style {
-                    background: Some(Background::Color(gray(0.3))),
-                    border: Border {
-                        color: white(),
-                        width: 0.0,
-                        radius: Radius::new(context.zoom * 8.0),
-                    },
-                    ..Style::default()
-                }
-            ).padding(context.zoom * 8.0).into()
+            )
+                .style(|_| set_round_bg(gray(0.3), context.zoom))
+                .padding(context.zoom * 8.0)
+                .into()
         }
     ).collect();
     Column::from_vec(column).spacing(context.zoom * 8.0).into()
@@ -714,15 +699,7 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 ).spacing(context.zoom * 8.0).into(),
             ]).spacing(context.zoom * 8.0)
         )
-            .style(|_| Style {
-                background: Some(Background::Color(gray(0.3))),
-                border: Border {
-                    color: white(),
-                    width: 0.0,
-                    radius: Radius::new(context.zoom * 8.0),
-                },
-                ..Style::default()
-            })
+            .style(|_| set_round_bg(gray(0.3), context.zoom))
             .padding(context.zoom * 8.0)
             .into()
     ).collect();
@@ -732,15 +709,8 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     fn draw_bg(e: Row<IcedMessage>, is_hovered: bool, window_width: f32, zoom: f32) -> Container<IcedMessage> {
-        Container::new(e).style(move |_| Style {
-            background: Some(if is_hovered { Background::Color(gray(0.45)) } else { Background::Color(gray(0.15)) }),
-            border: Border {
-                color: white(),
-                width: 0.0,
-                radius: Radius::new(zoom * 8.0),
-            },
-            ..Style::default()
-        })
+        Container::new(e)
+            .style(move |_| set_round_bg(if is_hovered { gray(0.45) } else { gray(0.15) }, zoom))
             .width(window_width)
             .padding(zoom * 8.0)
     }

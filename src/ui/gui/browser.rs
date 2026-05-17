@@ -9,6 +9,7 @@ use super::{
     pink,
     red,
     set_bg,
+    set_round_bg,
     skyblue,
     take_chars,
     white,
@@ -31,12 +32,10 @@ use crate::{
     render_first_10_pages,
     validate_project_name,
 };
-use iced::{Background, Element, Length, Size, Task};
+use iced::{Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
-use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
-use iced::widget::container::{Container, Style};
+use iced::widget::{Button, Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::image::{
     Handle as ImageHandle,
     Viewer as ImageViewer,
@@ -864,17 +863,10 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         gray(0.5)
     };
 
-    let name_container = Container::new(truncated_name).padding(context.zoom * 8.0).style(
-        move |_| Style {
-            background: Some(Background::Color(name_bg_color)),
-            border: Border {
-                color: black(),
-                width: 0.0,
-                radius: Radius::new(8.0),
-            },
-            ..Style::default()
-        }
-    );
+    let zoom = context.zoom;
+    let name_container = Container::new(truncated_name)
+        .padding(context.zoom * 8.0)
+        .style(move |_| set_round_bg(name_bg_color, zoom));
     let name_container: Element<IcedMessage> = if entry.error.is_none() && context.curr_popup.is_none() {
         MouseArea::new(name_container)
             .on_enter(IcedMessage::HoverOnEntry(Some(entry.name.to_string())))

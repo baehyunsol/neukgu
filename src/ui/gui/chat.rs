@@ -6,6 +6,7 @@ use super::{
     pink,
     red,
     set_bg,
+    set_round_bg,
     white,
     yellow,
 };
@@ -33,17 +34,16 @@ use crate::{
     LLMToken,
     Model,
     Thinking,
+    WebSearchResult,
     get_global_index_dir,
     load_log,
     prettify_timestamp,
     stringify_llm_tokens,
 };
-use iced::{Background, Color, Element, Length, Padding, Size, Task};
+use iced::{Color, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
-use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Checkbox, Id, MouseArea, PickList, Row, Scrollable, Space, Stack, text};
-use iced::widget::container::{Container, Style};
+use iced::widget::{Checkbox, Column, Container, Id, MouseArea, PickList, Row, Scrollable, Space, Stack, text};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -164,6 +164,7 @@ impl IcedContext {
                 self.set_long_text_editor_content(thinking.to_string());
                 self.popup_title = Some(String::from("Thinking"));
             },
+            Popup::WebSearchResults(_) => {},
             _ => todo!(),
         }
 
@@ -272,6 +273,7 @@ pub enum Popup {
     TokenUsage,
     Help,
     Thinking(String),
+    WebSearchResults(Vec<WebSearchResult>),
     Image(ImageId),
     Find { re: Option<String>, error: Option<String> },
 }
@@ -437,7 +439,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.bg_error = None;
             context.curr_processing_tokens = Some(query.clone());
             context.is_chat_button_hovered = false;
-            context.set_chat_input_content(String::new());
 
             return Ok(Task::batch(vec![
                 Task::done(IcedMessage::BackgroundJob(Job {
@@ -455,6 +456,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.bg_job = None;
                 context.bg_error = None;
                 context.curr_processing_tokens = None;
+                context.set_chat_input_content(String::new());
             },
             JobResultKind::AddChatTurnError(e) if context.bg_job.is_some() && context.bg_job == job_result.id => {
                 context.bg_at = None;
@@ -486,6 +488,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             turn.user_at,
             &turn.user,
             &None,
+            &[],
             turn.api.request_body.clone(),
             Horizontal::Right,
             context,
@@ -495,6 +498,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             turn.assistant_at,
             &[LLMToken::String(turn.assistant.to_string())],
             &turn.thinking,
+            &turn.web_search_results,
             turn.api.response_body.clone(),
             Horizontal::Left,
             context,
@@ -507,6 +511,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             context.bg_at.unwrap(),
             tokens,
             &None,
+            &[],
             None,
             Horizontal::Right,
             context,
@@ -574,7 +579,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let mut full_view_stacked: Element<IcedMessage> = full_view_with_text_input.into();
 
-    if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_)) = &context.curr_popup {
+    if let Some(Popup::WebSearchResults(s)) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(render_web_search_results(s, context), context),
+        ]).into();
+    }
+
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_)) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
@@ -622,6 +634,7 @@ pub fn render_turn<'n, 'cn, 'cx>(
     timestamp: i64,
     content: &'cn [LLMToken],
     thinking: &Option<String>,
+    web_search_results: &[WebSearchResult],
     raw_api: Option<LogId>,
     align_name: Horizontal,
     context: &'cx IcedContext,
@@ -631,7 +644,11 @@ pub fn render_turn<'n, 'cn, 'cx>(
     ];
 
     if let Some(thinking) = thinking {
-        buttons.push(button("Think", IcedMessage::OpenPopup { curr: Popup::Thinking(thinking.to_string()), prev: None }, black(), context.zoom));
+        buttons.push(button("Thinking", IcedMessage::OpenPopup { curr: Popup::Thinking(thinking.to_string()), prev: None }, black(), context.zoom));
+    }
+
+    if !web_search_results.is_empty() {
+        buttons.push(button("Web Search", IcedMessage::OpenPopup { curr: Popup::WebSearchResults(web_search_results.to_vec()), prev: None }, black(), context.zoom));
     }
 
     if let Some(raw_api) = raw_api {
@@ -677,16 +694,38 @@ pub fn render_turn<'n, 'cn, 'cx>(
         Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
     ]).spacing(context.zoom * 8.0))
         .padding(context.zoom * 8.0)
-        .style(|_| Style {
-            background: Some(Background::Color(gray(0.25))),
-            border: Border {
-                color: white(),
-                width: 0.0,
-                radius: Radius::new(context.zoom * 8.0),
-            },
-            ..Style::default()
-        })
+        .style(|_| set_round_bg(gray(0.25), context.zoom))
         .into()
+}
+
+fn render_web_search_results<'s, 'c>(results: &'s [WebSearchResult], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let results: Vec<Element<IcedMessage>> = results.iter().map(
+        |search_result| {
+            let mut elements = vec![
+                text!("{}", search_result.title.clone().unwrap_or(String::from("(untitled)")))
+                    .width(context.window_size.width)
+                    .size(context.zoom * 18.0)
+                    .into(),
+            ];
+
+            if let Some(summary) = &search_result.summary {
+                elements.push(text!("{summary}").size(context.zoom * 14.0).into());
+            }
+
+            if let Some(url) = &search_result.url {
+                elements.push(Row::from_vec(vec![
+                    text!("{url}").size(context.zoom * 14.0).into(),
+                    button("Copy", IcedMessage::CopyString(url.to_string()), blue(), context.zoom).into(),
+                ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into());
+            }
+
+            Container::new(Column::from_vec(elements).spacing(context.zoom * 8.0))
+                .padding(context.zoom * 8.0)
+                .style(|_| set_round_bg(gray(0.15), context.zoom))
+                .into()
+        }
+    ).collect();
+    Scrollable::new(Column::from_vec(results).spacing(context.zoom * 12.0)).id(context.popup_scroll_id.clone()).into()
 }
 
 fn chat_config_ui<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
@@ -801,15 +840,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
             blue()
         };
 
-        Style {
-            background: Some(Background::Color(bg_color)),
-            border: Border {
-                color: black(),
-                width: 0.0,
-                radius: Radius::new(zoom * 6.0),
-            },
-            ..Style::default()
-        }
+        set_round_bg(bg_color, zoom)
     })
         .width(button_width)
         .height(button_height)
