@@ -2,6 +2,7 @@ use super::{
     black,
     blue,
     button,
+    disabled_button,
     gray,
     pink,
     red,
@@ -159,6 +160,7 @@ impl IcedContext {
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
                 self.syntax_highlight = Some(String::from("md"));
             },
+            Popup::ChangeTitle => {},
             Popup::Thinking(thinking) => {
                 self.copy_buffer = Some(thinking.to_string());
                 self.set_long_text_editor_content(thinking.to_string());
@@ -272,6 +274,7 @@ pub enum Popup {
     Log((String, LogId)),
     TokenUsage,
     Help,
+    ChangeTitle,
     Thinking(String),
     WebSearchResults(Vec<WebSearchResult>),
     Image(ImageId),
@@ -541,7 +544,18 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
     let mut full_view = vec![
-        Container::new(text!("{}", context.chat.title.as_ref().unwrap_or(&String::new())).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
+        Row::from_vec(vec![
+            text!("{}", context.chat.title.as_ref().unwrap_or(&String::from("(untitled)"))).size(context.zoom * 18.0).into(),
+            if context.curr_popup.is_some() {
+                disabled_button("Change", blue(), context.zoom).into()
+            } else {
+                button("Change", IcedMessage::OpenPopup { curr: Popup::ChangeTitle, prev: None }, blue(), context.zoom).into()
+            },
+        ])
+            .padding(context.zoom * 8.0)
+            .spacing(context.zoom * 16.0)
+            .align_y(Vertical::Center)
+            .into(),
         render_buttons(context),
     ];
 
@@ -584,6 +598,10 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(render_web_search_results(s, context), context),
         ]).into();
+    }
+
+    else if let Some(Popup::ChangeTitle) = context.curr_popup {
+        todo!()
     }
 
     else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_)) = &context.curr_popup {
