@@ -1,8 +1,8 @@
 use super::{gray, set_round_bg};
-use crate::{Config, Model};
+use crate::{Config, Model, ToolKind};
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{Column, Container, Radio, Row, Slider, text};
+use iced::widget::{Checkbox, Column, Container, Radio, Row, Slider, text};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Questionable {
@@ -19,6 +19,7 @@ pub enum SetProjectConfig {
     SummaryAgent(Model),
     AgentQuestionable(Questionable),
     ContextSize(u64),
+    ToggleTool(ToolKind, bool),
 }
 
 pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
@@ -52,10 +53,30 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
             config.dir_max_entries = n * 128;
             config.stdout_max_len = n * 1280;
         },
+        SetProjectConfig::ToggleTool(tool, activate) => {
+            if activate {
+                config.activated_tools.push(tool);
+            } else {
+                config.activated_tools = config.activated_tools.iter().filter(
+                    |t| **t != tool
+                ).map(
+                    |t| *t
+                ).collect();
+            }
+
+            // sort and dedup
+            config.activated_tools = ToolKind::all().into_iter().filter(
+                |tool| config.activated_tools.contains(tool)
+            ).collect();
+        },
     }
 }
 
 pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjectConfig> {
+    fn panel_container(panel: Element<SetProjectConfig>, zoom: f32) -> Element<SetProjectConfig> {
+        Container::new(panel).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into()
+    }
+
     let mut panels = vec![];
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
         ("    Big Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.big, SetProjectConfig::BigAgent),
@@ -86,9 +107,7 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
             ).collect()).spacing(zoom * 8.0).into()
         };
 
-        panels.push(Container::new(
-            Row::from_vec(vec![text!("{title}").size(zoom * 14.0).into(), radios]).align_y(Vertical::Center)
-        ).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
+        panels.push(panel_container(Row::from_vec(vec![text!("{title}").size(zoom * 14.0).into(), radios]).align_y(Vertical::Center).into(), zoom));
     }
 
     let curr_q = match config.user_response_timeout {
@@ -96,7 +115,7 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
         999_999 => Questionable::Always,
         _ => Questionable::Maybe,
     };
-    panels.push(Container::new(Column::from_vec(vec![
+    panels.push(panel_container(Column::from_vec(vec![
         text!("Will you answer neukgu's questions?").size(zoom * 14.0).into(),
         Row::from_vec(vec![
             Radio::new("Always", Questionable::Always, Some(curr_q), SetProjectConfig::AgentQuestionable)
@@ -115,16 +134,41 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
                 .size(zoom * 14.0)
                 .into(),
         ]).spacing(zoom * 16.0).into(),
-    ]).align_x(Horizontal::Center).spacing(zoom * 8.0)).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
+    ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
 
-    panels.push(Container::new(Column::from_vec(vec![
+    panels.push(panel_container(Column::from_vec(vec![
         text!("Context size: {} KiB", config.llm_context_max_len / 1024).size(zoom * 14.0).into(),
         Slider::new(
             1..=16,
             config.llm_context_max_len as u32 / 65536,
             |n| SetProjectConfig::ContextSize(n as u64),
         ).width(zoom * 256.0).into(),
-    ]).align_x(Horizontal::Center).spacing(zoom * 8.0)).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
+    ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
+
+    let mut tool_checkboxes = vec![];
+
+    for tools in ToolKind::all().chunks(4) {
+        let tools: Vec<ToolKind> = tools.to_vec();
+        tool_checkboxes.push(Row::from_vec(tools.into_iter().map(
+            move |tool| Checkbox::new(config.activated_tools.contains(&tool))
+                .label(format!("{tool:?}").to_ascii_lowercase())
+                .on_toggle_maybe(
+                    if tool.optional() {
+                        Some(move |t| SetProjectConfig::ToggleTool(tool, t))
+                    } else {
+                        None
+                    }
+                )
+                .size(zoom * 14.0)
+                .text_size(zoom * 14.0)
+                .into()
+        ).collect()).spacing(zoom * 8.0).into());
+    }
+
+    panels.push(panel_container(Column::from_vec(vec![
+        text!("Tools").size(zoom * 14.0).into(),
+        Column::from_vec(tool_checkboxes).spacing(zoom * 8.0).into(),
+    ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
 }

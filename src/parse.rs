@@ -1,4 +1,4 @@
-use crate::{AskTo, LLMToken, ToolCall, ToolKind};
+use crate::{AskTo, Config, LLMToken, ToolCall, ToolKind};
 use crate::tool::{LineDiff, ParseCommandError, WriteMode, parse_command, parse_line_diff};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -76,7 +76,7 @@ pub enum ArgType {
 }
 
 impl ParseError {
-    pub fn to_llm_tokens(&self) -> Vec<LLMToken> {
+    pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         let s = match self {
             ParseError::NoTool => String::from("
 I can't find any XML-syntaxed tool calls in your response.
@@ -84,7 +84,7 @@ Please call a tool.
 "),
             ParseError::InvalidTool(tool) => format!(
                 "`<{tool}>` is not a valid tool. Available tools are {}.",
-                ToolKind::all().iter().map(
+                config.activated_tools.iter().map(
                     |tool| format!("<{tool:?}>").to_ascii_lowercase()
                 ).collect::<Vec<_>>().join(", "),
             ),
@@ -179,7 +179,7 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
 // Most LLMs, especially gpts try to call multiple tools per turn. I tried to prevent that with
 // prompts, but I couldn't. Instead, if there are multiple tool calls, the parser only takes the
 // first tool and ignores the others.
-pub fn parse(input: &[u8]) -> Result<ParsedSegment, ParseError> {
+pub fn parse(input: &[u8], activated_tools: &[ToolKind]) -> Result<ParsedSegment, ParseError> {
     let mut cursor = 0;
     let mut cot = String::new();
     let mut tool = None;
@@ -206,7 +206,7 @@ pub fn parse(input: &[u8]) -> Result<ParsedSegment, ParseError> {
 
                     match maybe_tag {
                         Some(t) => match ToolKind::from_name(t) {
-                            Some(tool_kind) => {
+                            Some(tool_kind) if activated_tools.contains(&tool_kind) => {
                                 curr_tag_name = t.to_vec();
                                 args = HashMap::new();
 
@@ -218,7 +218,7 @@ pub fn parse(input: &[u8]) -> Result<ParsedSegment, ParseError> {
                                 cursor += t.len() + 2;  // 2 for '<' and '>'.
                                 state = ParseState::Tool { kind: tool_kind, top_level: true };
                             },
-                            None => {
+                            _ => {
                                 if first_tag_but_wrong_name.is_none() {
                                     first_tag_but_wrong_name = Some(t.to_vec());
                                 }

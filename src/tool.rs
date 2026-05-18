@@ -1170,7 +1170,7 @@ Command timeout! The process didn't terminate for {timeout} seconds.
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ToolKind {
     Read,
     Write,
@@ -1205,20 +1205,7 @@ impl ToolKind {
     }
 
     pub fn check_arg_name(&self, arg: &[u8]) -> bool {
-        match (self, arg) {
-            (ToolKind::Read, b"path" | b"start" | b"end") => true,
-            (ToolKind::Read, _) => false,
-            (ToolKind::Write, b"path" | b"mode" | b"content") => true,
-            (ToolKind::Write, _) => false,
-            (ToolKind::Patch, b"path" | b"diff") => true,
-            (ToolKind::Patch, _) => false,
-            (ToolKind::Run, b"timeout" | b"command" | b"env" | b"stdout" | b"stderr") => true,
-            (ToolKind::Run, _) => false,
-            (ToolKind::Ask, b"to" | b"question") => true,
-            (ToolKind::Ask, _) => false,
-            (ToolKind::Chrome, b"input" | b"output" | b"script") => true,
-            (ToolKind::Chrome, _) => false,
-        }
+        self.valid_args().contains(&String::from_utf8_lossy(arg).to_string())
     }
 
     pub fn valid_args(&self) -> Vec<String> {
@@ -1230,6 +1217,17 @@ impl ToolKind {
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
         }.iter().map(|arg| arg.to_string()).collect()
+    }
+
+    pub fn optional(&self) -> bool {
+        match self {
+            ToolKind::Read => false,
+            ToolKind::Write => false,
+            ToolKind::Patch => true,
+            ToolKind::Run => false,
+            ToolKind::Ask => false,
+            ToolKind::Chrome => true,
+        }
     }
 }
 

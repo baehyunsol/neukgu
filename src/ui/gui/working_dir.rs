@@ -361,6 +361,12 @@ impl IcedContext {
                 self.set_long_text_editor_content(token_usage.to_string());
                 self.copy_buffer = Some(token_usage.to_string());
             },
+            Popup::Prompt => {
+                let system_prompt = self.fe_context.get_system_prompt();
+                self.set_long_text_editor_content(system_prompt.to_string());
+                self.copy_buffer = Some(system_prompt.to_string());
+                self.syntax_highlight = None;
+            },
             Popup::Instruction => {
                 let instruction = self.fe_context.get_instruction()?;
                 self.set_long_text_editor_content(instruction.to_string());
@@ -552,6 +558,7 @@ pub enum Popup {
     Image(ImageId),
     Diff,
     TokenUsage,
+    Prompt,
     Instruction,
     Config,
     Reset,
@@ -1236,7 +1243,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Instruction) = &context.curr_popup {
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Prompt | Popup::Instruction) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
@@ -1278,6 +1285,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("File Chan(g)es", IcedMessage::OpenPopup { curr: Popup::FileChanges(vec![]), prev: None }, yellow(), context.zoom));
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom));
 
+    buttons_row2.push(button("Prompt", IcedMessage::OpenPopup { curr: Popup::Prompt, prev: None }, yellow(), context.zoom));
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom));
     buttons_row2.push(button("(C)onfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom));
     buttons_row2.push(button("Br(o)wser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));

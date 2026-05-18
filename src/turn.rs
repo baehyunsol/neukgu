@@ -271,7 +271,7 @@ pub enum TurnResult {
 impl TurnResult {
     pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         match self {
-            TurnResult::ParseError(e) => e.to_llm_tokens(),
+            TurnResult::ParseError(e) => e.to_llm_tokens(config),
             TurnResult::ToolCallError(e) => e.to_llm_tokens(config),
             TurnResult::ToolCallSuccess(r) => r.to_llm_tokens(config),
         }

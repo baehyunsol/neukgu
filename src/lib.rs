@@ -27,6 +27,7 @@ mod model;
 mod parse;
 mod pdf;
 mod prettify;
+mod prompt;
 mod request;
 mod response;
 mod sandbox;
@@ -77,6 +78,7 @@ use prettify::{
     prettify_timestamp,
     prettify_tokens,
 };
+use prompt::system_prompt;
 pub use request::{
     ApiLog,
     LLMToken,
@@ -220,7 +222,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
 
     let tool_call_started_at = Instant::now();
     let mut wrote_summary = false;
-    let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes()) {
+    let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes(), &config.activated_tools) {
         Ok(ref parse_result @ ParsedSegment { tool: Some(ref tool), .. }) => {
             if let Err(e) = context.validate_tool_call(tool)? {
                 (Some(parse_result.clone()), TurnResult::ToolCallError(e))

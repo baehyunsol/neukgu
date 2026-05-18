@@ -10,6 +10,7 @@ use crate::{
     Request,
     Thinking,
     ToolCallSuccess,
+    ToolKind,
     Turn,
     TurnId,
     TurnKind,
@@ -20,6 +21,7 @@ use crate::{
     load_available_binaries,
     request,
     revert_mock_state,
+    system_prompt,
 };
 use ragit_fs::{
     WriteMode,
@@ -63,7 +65,6 @@ pub struct Context {
 
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
-    pub system_prompt: String,
     pub available_binaries: Vec<String>,
     pub global_index_dir: String,
     pub logger: Logger,
@@ -87,11 +88,6 @@ pub struct ContextJson {
 
 impl Context {
     pub fn new(config: &Config, working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
-        let system_prompt = tera::Tera::one_off(
-            include_str!("../system.pdl"),
-            &config.system_prompt_context(),
-            true,
-        )?;
         let available_binaries = load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
         let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, true, true);
@@ -108,7 +104,6 @@ impl Context {
             hidden_turns: HashSet::new(),
             pinned_turns: HashSet::new(),
             is_in_global_index_dir,
-            system_prompt,
             available_binaries,
             global_index_dir,
             logger,
@@ -224,7 +219,7 @@ impl Context {
 
         Ok(Request {
             model: config.agents.big,
-            system_prompt: self.system_prompt.to_string(),
+            system_prompt: system_prompt(config),
             history,
             query,
             enable_web_search: false,
@@ -443,7 +438,7 @@ impl Context {
 ";
         // Let's make sure that the schema is correct.
         self.curr_raw_response = Some((q.to_string(), 0, ApiLog::new()));
-        let parse_result = crate::parse::parse(q.as_bytes()).unwrap();
+        let parse_result = crate::parse::parse(q.as_bytes(), &[ToolKind::Ask]).unwrap();
 
         let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: interrupt });
         self.finish_turn(

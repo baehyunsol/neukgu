@@ -166,19 +166,8 @@
   - It provides github-like interface.
   - Neukgu will read the issues and tries to fix them, and close them.
 97. Custom tools
-  - 첫번째 4개의 tool (read, write, run, ask)는 필수고 chrome은 optional하게 만들자
-  - config_ui에서 tool도 고를 수 있게 하자!!
-  - what consists a tool...
-    - parameters (name, type, optional)
-    - document (like those in `system.pdl`)
-    - python script
-      - basically, a custom tool is just `<run>`
-  - system.pdl도 parametric하게 바꿔야함.
-  - visualize agent를 custom tool로 구현하기?
-    - custom tool에서 sub-agent를 호출할 수 있어야함!
-    - 아직 sub-agent를 어떻게 할지도 안 정해졌는데...
-  - Can tools call other tools? If so, that's a sub agent!
-  - Come to think about it, we can write tools in rust: it's guaranteed that `cargo` exists in the local machine, so we can just compile it!
+  - 일단은 기본 툴 중에서 2개 (patch, chrome)을 configurable하게 바꿨고, 관련된 코드도 다 수정했음 (아직 실제 LLM으로 테스트는 안 해봄)
+  - 지금 생각은 "어차피 나 혼자 쓸 건데 필요할 때마다 tool을 만들어서 neukgu에 built-in으로 추가하면 되는 거 아님?"이긴 한데, 그때그때 임시로 필요한 tool이 생길 확률이 높으니 script-able tool이 필요하기는 함!!
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files

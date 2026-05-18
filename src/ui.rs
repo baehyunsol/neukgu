@@ -28,6 +28,7 @@ use crate::{
     prettify_bytes,
     prettify_time,
     prettify_tokens,
+    system_prompt,
 };
 use ragit_fs::{
     FileError,
@@ -550,6 +551,10 @@ impl FeContext {
 
     pub fn interrupt_be(&self) -> Result<(), Error> {
         interrupt_be(&self.working_dir)
+    }
+
+    pub fn get_system_prompt(&self) -> String {
+        system_prompt(&self.config)
     }
 
     pub fn get_instruction(&self) -> Result<String, Error> {
