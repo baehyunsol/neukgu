@@ -134,23 +134,21 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
             },
             Job { id, kind: JobKind::Run { path, command } } => match parse_command(&command) {
-                Ok(command) => {
-                    let run_result = match subprocess::run(
-                        command[0].to_string(),
-                        &command[1..],
-                        &[],
-                        &path,
-                        600,  // timeout
-                        "",     // working_dir (it's None because it's not a neugku dir)
-                        false,  // check_interruption
-                    ) {
-                        Ok(output) => {
-                            tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::Run(output) }).unwrap();
-                        },
-                        Err(e) => {
-                            tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::RunError(format!("{e:?}")) }).unwrap();
-                        },
-                    };
+                Ok(command) => match subprocess::run(
+                    command[0].to_string(),
+                    &command[1..],
+                    &[],
+                    &path,
+                    600,  // timeout
+                    "",     // working_dir (it's None because it's not a neugku dir)
+                    false,  // check_interruption
+                ) {
+                    Ok(output) => {
+                        tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::Run(output) }).unwrap();
+                    },
+                    Err(e) => {
+                        tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::RunError(format!("{e:?}")) }).unwrap();
+                    },
                 },
                 Err(e) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::InvalidCommand { command, error: format!("{e:?}") } }).unwrap();

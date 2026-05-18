@@ -143,6 +143,7 @@
 90. browser에 `delete` 버튼 왼쪽에 `info` 버튼도 추가하자!! (yellow??!!)
   - 파일 수정 시각
   - dir일 경우, recursive하게 크기 측정
+  - `copy` 버튼은 ㅇㄸ? top_bar에 `paste` 버튼도 추가하면 됨!
 91. 내가 개입해서 특정 행동을 하기
   - e.g. git push를 하고 싶을 경우, gui에다가 `git push origin main`을 입력함.
   - 그럼 interrupt turn이 생기고 user request로 "I want you to run git push origin main"이 들어가고 그 다음 turn에 자동으로 `<run>`이 추가되는 거임. AI는 지가 했다고 생각하겠지!
@@ -232,9 +233,23 @@
   - ripgrep의 stdout을 redirect한 다음에, 결과물의 첫번째 200줄만 확인했음
   - 근데 이게 무지무지하게 길어서 이거 혼자서 200KiB를 넘겨버렸음...
   - 그렇게되니까 아직 10턴도 안됐는데 중간 턴들이 생략되기 시작하면서 context가 개판이 됐음...
-129. sandbox/snapshot ruins the incremental compilation of cargo
-  - It's a big problem when the cargo project is big...
-  - Let's use `CARGO_TARGET_DIR` env and place it out of the working directory!! (maybe global index dir?)
+130. deploy any model locally
+  - huggingface 링크를 하나 주고 "이 모델을 로컬에서 openai-compatible하게 API로 띄워줘"라고 부탁하고 싶음. 이미지도 지원해야함
+  - 이러니까 문제가, 늑구에서는 백그라운드에 프로세스를 띄울 방법이 없음...
+    - 그나마 제일 간단한 거는 `<run>`에다가 옵션을 추가해서 그게 떠 있으면 백그라운드에서 돌게 놔두는 거임
+    - 일단 stateful 해지면 문제가 엄청 많아지거든? 정리를 해보자...
+      - 늑구를 껐다가 다시 돌아오면 서버가 내려갔을텐데 AI는 그걸 알 방법이 없음
+      - 롤백 불가능
+      - 서버를 올리는게 가능하면 내리는 것도 가능해야함. 이거는 지가 알아서 `<run>`으로 하려나?
+  - serve라는 tool을 만들까?
+131. psd-rs를 다시 시도하면서 여러가지 이슈들...
+  - file changes 볼 때 log랑 나머지랑 따로 보여주자!
+  - patch 툴을 썼을 때도 diff 볼 수 있게 하자... 색깔을 보고 싶음
+  - 지금은 diff가 줄단위로만 되는데, 이거 단어단위로도 highlight를 해주자. 그러려면 diff 보여주는 뷰 자체를 함수로 빼야할 듯?
+132. web search tool -> 이거 내가 만들어버리면 안됨??
+  - built-in web search가 있으면 그걸 쓰고, 없으면 내가 만든 걸 쓰는 거지
+  - 구글에 http로 직접 요청 날린 다음에 결과물 분석하면 됨 -> 이거는 걍 늑구한테 만들어달라고 하면 바로 될 듯?
+  - url의 목록을 읽어오는 것까지는 쉽고, 각 url이 유효한지 확인하는 거랑 html 내용을 읽기 쉽게 요약하는게 어려움... ㅠㅠ
 
 ## mock API
 

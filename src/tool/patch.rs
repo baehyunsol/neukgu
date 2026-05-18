@@ -2,6 +2,7 @@ use super::{ToolCallError, ToolCallSuccess};
 use crate::ParseError;
 use ragit_fs::read_string;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LineDiff {
@@ -9,11 +10,27 @@ pub struct LineDiff {
     pub line: String,
 }
 
+impl fmt::Display for LineDiff {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}{}", self.kind, self.line)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum DiffKind {
     Context,
     Add,
     Remove,
+}
+
+impl fmt::Display for DiffKind {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            DiffKind::Context => write!(fmt, " "),
+            DiffKind::Add => write!(fmt, "+"),
+            DiffKind::Remove => write!(fmt, "-"),
+        }
+    }
 }
 
 impl DiffKind {

@@ -121,8 +121,16 @@ fn red() -> Color {
     Color::from_rgb(0.8, 0.2, 0.2)
 }
 
+fn red_transparent() -> Color {
+    Color::from_rgba(0.8, 0.2, 0.2, 0.5)
+}
+
 fn green() -> Color {
     Color::from_rgb(0.2, 0.8, 0.2)
+}
+
+fn green_transparent() -> Color {
+    Color::from_rgba(0.2, 0.8, 0.2, 0.5)
 }
 
 fn blue() -> Color {

@@ -7,8 +7,10 @@ use super::{
     disabled_button,
     gray,
     green,
+    green_transparent,
     pink,
     red,
+    red_transparent,
     set_bg,
     skyblue,
     spawn_be_process,
@@ -69,7 +71,7 @@ use std::time::Instant;
 
 mod file_change;
 
-use file_change::FileChange;
+use file_change::{FileChange, render_udiff};
 
 const HELP_MESSAGE: &str = r#"
 This is a neukgu's working directory.
@@ -285,6 +287,10 @@ impl IcedContext {
                     self.text_diff = Some(diff.to_string());
                 }
 
+                else if let TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { diff, .. }) = &turn.turn_result {
+                    self.text_diff = Some(diff.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"));
+                }
+
                 else {
                     self.text_diff = None;
                 }
@@ -470,8 +476,7 @@ pub enum IcedMessage {
     TurnViewScrolled(AbsoluteOffset),
     HoverOnTurn(Option<TurnId>),
     ExpandFileChange(String),
-    ExpandAllFileChanges,
-    CollapseAllFileChanges,
+    ExpandAllFileChanges { log: bool, expand: bool },
     OpenPopup {
         curr: Popup,
         prev: Option<Popup>,
@@ -827,17 +832,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             }
         },
-        IcedMessage::ExpandAllFileChanges => {
+        IcedMessage::ExpandAllFileChanges { log, expand } => {
             if let Some(Popup::FileChanges(changes)) = &mut context.curr_popup {
                 for change in changes.iter_mut() {
-                    change.expanded = true;
-                }
-            }
-        },
-        IcedMessage::CollapseAllFileChanges => {
-            if let Some(Popup::FileChanges(changes)) = &mut context.curr_popup {
-                for change in changes.iter_mut() {
-                    change.expanded = false;
+                    if change.path.starts_with("logs/") == log {
+                        change.expanded = expand;
+                    }
                 }
             }
         },
@@ -1139,22 +1139,8 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    // TODO: we can use the syntax highlighter
     else if let Some(Popup::Diff) = context.curr_popup {
-        let diff_view = Column::from_vec(context.text_diff.as_ref().unwrap().lines().map(
-            |line| {
-                let color = match line.chars().next() {
-                    Some('+') => green(),
-                    Some('-') => red(),
-                    Some('@') => yellow(),
-                    _ => white(),
-                };
-
-                text!("{line}").size(context.zoom * 14.0).color(color).into()
-            }
-        ).collect()).width(Length::Fill);
-        let diff_view = Scrollable::new(diff_view).id(context.popup_scroll_id.clone());
-
+        let diff_view = Scrollable::new(render_udiff(context.text_diff.as_ref().unwrap(), context.window_size.width, context)).id(context.popup_scroll_id.clone());
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(diff_view.into(), context).into(),
@@ -1652,84 +1638,80 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
 }
 
 fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedContext) -> Element<'co, IcedMessage> {
-    let mut all_expanded = true;
-    let mut changes: Vec<Element<IcedMessage>> = changes.iter().map(
-        |change| {
-            let view: Element<IcedMessage> = if change.expanded {
-                let mut diff_lines: Vec<Element<IcedMessage>> = vec![];
-                let (mut add, mut remove) = (0, 0);
+    fn render_file_change<'ch, 'co, 'ae>(change: &'ch FileChange, context: &'co IcedContext, all_expanded: &'ae mut bool) -> Element<'co, IcedMessage> {
+        let (mut add, mut remove) = (0, 0);
 
-                for line in change.diff.lines() {
-                    if line.starts_with("+") {
-                        add += 1;
-                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).color(green()).into());
-                    } else if line.starts_with("-") {
-                        remove += 1;
-                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).color(red()).into());
-                    } else if line.starts_with(" ") {
-                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).into());
-                    } else {
-                        diff_lines.push(text!("{line}").size(context.zoom * 14.0).color(yellow()).into());
-                    }
-                }
+        for line in change.udiff.lines() {
+            if line.starts_with("+") {
+                add += 1;
+            } else if line.starts_with("-") {
+                remove += 1;
+            }
+        }
 
-                Column::from_vec(vec![
-                    Row::from_vec(vec![
-                        button("▼", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
-                        Space::new().width(context.zoom * 8.0).into(),
-                        text!("{} (", change.path).size(context.zoom * 14.0).into(),
-                        text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
-                        text!(", ").size(context.zoom * 14.0).into(),
-                        text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
-                        text!(")").size(context.zoom * 14.0).into(),
-                    ]).align_y(Vertical::Center).into(),
-                    Column::from_vec(diff_lines).into(),
-                ]).into()
-            } else {
-                all_expanded = false;
-                let (mut add, mut remove) = (0, 0);
-
-                for line in change.diff.lines() {
-                    if line.starts_with("+") {
-                        add += 1;
-                    } else if line.starts_with("-") {
-                        remove += 1;
-                    }
-                }
-
+        let view: Element<IcedMessage> = if change.expanded {
+            Column::from_vec(vec![
                 Row::from_vec(vec![
-                    button("▶", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
+                    button("▼", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
                     Space::new().width(context.zoom * 8.0).into(),
                     text!("{} (", change.path).size(context.zoom * 14.0).into(),
                     text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
                     text!(", ").size(context.zoom * 14.0).into(),
                     text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
                     text!(")").size(context.zoom * 14.0).into(),
-                ]).align_y(Vertical::Center).into()
-            };
+                ]).align_y(Vertical::Center).into(),
+                render_udiff(&change.udiff, context.window_size.width, context),
+            ]).into()
+        } else {
+            *all_expanded = false;
+            Row::from_vec(vec![
+                button("▶", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
+                Space::new().width(context.zoom * 8.0).into(),
+                text!("{} (", change.path).size(context.zoom * 14.0).into(),
+                text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
+                text!(", ").size(context.zoom * 14.0).into(),
+                text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
+                text!(")").size(context.zoom * 14.0).into(),
+            ]).align_y(Vertical::Center).into()
+        };
 
-            Container::new(view)
-                .width(context.window_size.width)
-                .padding(context.zoom * 8.0)
-                .style(|_| Style {
-                    background: Some(Background::Color(gray(0.25))),
-                    border: Border {
-                        color: white(),
-                        width: 0.0,
-                        radius: Radius::new(context.zoom * 8.0),
-                    },
-                    ..Style::default()
-                })
-                .into()
+        Container::new(view)
+            .width(context.window_size.width)
+            .padding(context.zoom * 8.0)
+            .style(|_| Style {
+                background: Some(Background::Color(gray(0.25))),
+                border: Border {
+                    color: white(),
+                    width: 0.0,
+                    radius: Radius::new(context.zoom * 8.0),
+                },
+                ..Style::default()
+            })
+            .into()
         }
-    ).collect();
 
+    let mut all_files_expanded = true;
+    let file_changes: Vec<&FileChange> = changes.iter().filter(|change| !change.path.starts_with("logs/")).collect();
+    let mut all_logs_expanded = true;
+    let log_changes: Vec<&FileChange> = changes.iter().filter(|change| change.path.starts_with("logs/")).collect();
+    let mut changes = vec![];
+    changes.extend(file_changes.iter().map(|change| render_file_change(change, context, &mut all_files_expanded)));
+    let insert_log_title_at = changes.len();
+    changes.extend(log_changes.iter().map(|change| render_file_change(change, context, &mut all_logs_expanded)));
     changes.insert(0, Row::from_vec(vec![
         text!("File Changes").size(context.zoom * 18.0).into(),
-        if all_expanded {
-            button("Collapse all", IcedMessage::CollapseAllFileChanges, white(), context.zoom).into()
+        if all_files_expanded {
+            button("Collapse all", IcedMessage::ExpandAllFileChanges { log: false, expand: false }, white(), context.zoom).into()
         } else {
-            button("Expand all", IcedMessage::ExpandAllFileChanges, white(), context.zoom).into()
+            button("Expand all", IcedMessage::ExpandAllFileChanges { log: false, expand: true }, white(), context.zoom).into()
+        },
+    ]).align_y(Vertical::Center).spacing(context.zoom * 12.0).into());
+    changes.insert(insert_log_title_at + 1, Row::from_vec(vec![
+        text!("Log Changes").size(context.zoom * 18.0).into(),
+        if all_logs_expanded {
+            button("Collapse all", IcedMessage::ExpandAllFileChanges { log: true, expand: false }, white(), context.zoom).into()
+        } else {
+            button("Expand all", IcedMessage::ExpandAllFileChanges { log: true, expand: true }, white(), context.zoom).into()
         },
     ]).align_y(Vertical::Center).spacing(context.zoom * 12.0).into());
 

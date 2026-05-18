@@ -56,11 +56,11 @@ impl Default for Config {
         Config {
             agents: Agents::default(),
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
-            llm_context_max_len: 204_800,
+            llm_context_max_len: 262_144,
             text_file_max_len: 32_768,
             text_file_max_lines: 512,
             pdf_max_pages: 5,
-            dir_max_entries: 256,
+            dir_max_entries: 512,
             stdout_max_len: 5120,
             default_command_timeout: 600,
             user_response_timeout: 300,

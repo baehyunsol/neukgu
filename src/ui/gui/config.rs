@@ -2,7 +2,7 @@ use super::{gray, set_round_bg};
 use crate::{Config, Model};
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{Column, Container, Radio, Row, text};
+use iced::widget::{Column, Container, Radio, Row, Slider, text};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Questionable {
@@ -13,28 +13,29 @@ pub enum Questionable {
 
 #[derive(Clone, Debug)]
 pub enum SetProjectConfig {
-    SetBigAgent(Model),
-    SetSmallAgent(Model),
-    SetSearchAgent(Model),
-    SetSummaryAgent(Model),
-    SetAgentQuestionable(Questionable),
+    BigAgent(Model),
+    SmallAgent(Model),
+    SearchAgent(Model),
+    SummaryAgent(Model),
+    AgentQuestionable(Questionable),
+    ContextSize(u64),
 }
 
 pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
     match set {
-        SetProjectConfig::SetBigAgent(m) => {
+        SetProjectConfig::BigAgent(m) => {
             config.agents.big = m;
         },
-        SetProjectConfig::SetSmallAgent(m) => {
+        SetProjectConfig::SmallAgent(m) => {
             config.agents.small = m;
         },
-        SetProjectConfig::SetSearchAgent(m) => {
+        SetProjectConfig::SearchAgent(m) => {
             config.agents.search = m;
         },
-        SetProjectConfig::SetSummaryAgent(m) => {
+        SetProjectConfig::SummaryAgent(m) => {
             config.agents.summary = m;
         },
-        SetProjectConfig::SetAgentQuestionable(q) => {
+        SetProjectConfig::AgentQuestionable(q) => {
             let timeout = match q {
                 Questionable::Never => 0,
                 Questionable::Always => 999_999,
@@ -43,16 +44,24 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
 
             config.user_response_timeout = timeout;
         },
+        SetProjectConfig::ContextSize(n) => {
+            config.llm_context_max_len = n * 65536;
+            config.text_file_max_len = n * 8192;
+            config.text_file_max_lines = n * 128;
+            // config.pdf_max_pages = _;  // TODO
+            config.dir_max_entries = n * 128;
+            config.stdout_max_len = n * 1280;
+        },
     }
 }
 
 pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjectConfig> {
     let mut panels = vec![];
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
-        ("    Big Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.big, SetProjectConfig::SetBigAgent),
-        ("  Small Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.small, SetProjectConfig::SetSmallAgent),
-        (" Search Agent: ", |m| m.supports_web_search(), config.agents.search, SetProjectConfig::SetSearchAgent),
-        ("Summary Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.summary, SetProjectConfig::SetSummaryAgent),
+        ("    Big Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.big, SetProjectConfig::BigAgent),
+        ("  Small Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.small, SetProjectConfig::SmallAgent),
+        (" Search Agent: ", |m| m.supports_web_search(), config.agents.search, SetProjectConfig::SearchAgent),
+        ("Summary Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.summary, SetProjectConfig::SummaryAgent),
     ];
 
     for (title, filter, state, message) in agent_panels.into_iter() {
@@ -90,22 +99,31 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
     panels.push(Container::new(Column::from_vec(vec![
         text!("Will you answer neukgu's questions?").size(zoom * 14.0).into(),
         Row::from_vec(vec![
-            Radio::new("Always", Questionable::Always, Some(curr_q), SetProjectConfig::SetAgentQuestionable)
+            Radio::new("Always", Questionable::Always, Some(curr_q), SetProjectConfig::AgentQuestionable)
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .into(),
-            Radio::new("If I'm available", Questionable::Maybe, Some(curr_q), SetProjectConfig::SetAgentQuestionable)
+            Radio::new("If I'm available", Questionable::Maybe, Some(curr_q), SetProjectConfig::AgentQuestionable)
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .into(),
-            Radio::new("Never", Questionable::Never, Some(curr_q), SetProjectConfig::SetAgentQuestionable)
+            Radio::new("Never", Questionable::Never, Some(curr_q), SetProjectConfig::AgentQuestionable)
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .into(),
         ]).spacing(zoom * 16.0).into(),
+    ]).align_x(Horizontal::Center).spacing(zoom * 8.0)).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
+
+    panels.push(Container::new(Column::from_vec(vec![
+        text!("Context size: {} KiB", config.llm_context_max_len / 1024).size(zoom * 14.0).into(),
+        Slider::new(
+            1..=16,
+            config.llm_context_max_len as u32 / 65536,
+            |n| SetProjectConfig::ContextSize(n as u64),
+        ).width(zoom * 256.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0)).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into());
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()

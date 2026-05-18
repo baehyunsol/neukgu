@@ -326,27 +326,51 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
                 }
 
+                let prev_content = if *mode == WriteMode::Create {
+                    String::new()
+                } else {
+                    String::from_utf8_lossy(&read_bytes(&real_path)?).to_string()
+                };
+
+                // It applies some heuristics to trailing/leading newlines.
+                if *mode == WriteMode::Append {
+                    write_string(
+                        &real_path,
+                        "\n",
+                        (*mode).into(),
+                    )?;
+                }
+
+                write_string(
+                    &real_path,
+                    content.trim(),
+                    (*mode).into(),
+                )?;
+
+                if *mode != WriteMode::Append {
+                    write_string(
+                        &real_path,
+                        "\n",
+                        WriteMode::Append.into(),
+                    )?;
+                }
+
                 let byte_count = content.len() as u64;
                 let char_count = content.chars().count() as u64;
                 let line_count = content.lines().count() as u64;
                 let mut diff = None;
 
-                if *mode == WriteMode::Truncate {
-                    let prev_content = String::from_utf8_lossy(&read_bytes(&real_path)?).to_string();
+                // `diff` is later used to calculate the original content of the file.
+                // So we need `diff` even if the mode is `Append`.
+                if let WriteMode::Truncate | WriteMode::Append = mode {
                     diff = Some(unified_diff(
                         DiffAlgorithm::Patience,
                         &prev_content,
-                        content,
+                        &String::from_utf8_lossy(&read_bytes(&real_path)?),
                         5,
                         None,
                     ));
                 }
-
-                write_string(
-                    &real_path,
-                    content,
-                    (*mode).into(),
-                )?;
 
                 Ok(Ok(ToolCallSuccess::Write {
                     path: joined_path,
@@ -1067,6 +1091,9 @@ impl ToolCallError {
                 prettify_bytes(*length),
             ),
             ToolCallError::NoSummaryInDoneFile => String::from("You're supposed to write summary of what you've done at `logs/done` file. Try write the file again with the summary."),
+            ToolCallError::CanOnlyPatchText { path, error } => format!("`read_string({path:?})` failed with `{error}`."),
+            ToolCallError::CannotApplyPatch(PatchError::NoMatch) => String::from("I can't apply the patch because no matches are found."),
+            ToolCallError::CannotApplyPatch(PatchError::MultipleMatch) => String::from("I found multiple matches in the file that can apply your patch. Please give me more contexts so that I can decide where to patch."),
             ToolCallError::NoSuchBinary { binary, available_binaries } => format!(
                 "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
                 available_binaries.join(", "),

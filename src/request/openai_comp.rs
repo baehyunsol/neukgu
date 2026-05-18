@@ -1,4 +1,4 @@
-use super::{HttpRequest, LLMToken, Request};
+use super::{HttpRequest, LLMToken, Request, Thinking};
 use base64::Engine;
 use crate::Error;
 use ragit_fs::read_bytes;
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 pub struct OpenAiCompRequest {
     model: String,
     messages: Vec<Value>,
+    reasoning_effort: String,
 }
 
 impl Request {
@@ -49,9 +50,16 @@ impl Request {
             "content": contents_to_json(&self.query, working_dir)?,
         }));
 
+        let reasoning_effort = match self.thinking {
+            Thinking::Enabled => "high",
+            Thinking::Disabled => "none",
+            Thinking::Adaptive => "low",
+        }.to_string();
+
         let body = OpenAiCompRequest {
             model: self.model.api_name().to_string(),
             messages,
+            reasoning_effort,
         };
 
         let base_url = std::env::var("OPENAI_BASE_URL")

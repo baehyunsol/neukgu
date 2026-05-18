@@ -574,7 +574,7 @@ impl FeContext {
 
                     let (path, original_content) = match turn.turn_result {
                         TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Create, .. }) => (path, String::new()),
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Truncate, diff: Some(diff), mut content, .. }) => {
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: _, diff: Some(diff), mut content, .. }) => {
                             let mut hunks = vec![];
                             let mut curr_hunk = vec![];
 
@@ -609,7 +609,6 @@ impl FeContext {
 
                             (path, content)
                         },
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Append, .. }) => todo!(),
                         TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { path, diff, new_content }) => {
                             let reverted_diff: Vec<LineDiff> = diff.into_iter().map(
                                 |LineDiff { kind, line }| LineDiff {
