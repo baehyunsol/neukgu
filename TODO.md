@@ -247,6 +247,7 @@
 138. Qwen 35B-A3B
   - It does better at implementing `voxel.md` than the 397B one. The 397B one keeps failing with the patch tool, but it doesn't. It does fail a few times, but succeeds in the end.
   - Deepinfra rejects API request if it has more than 4 images...
+139. some config_ui uses `Config::default` instead of `get_global_config`
 
 ## mock API
 
