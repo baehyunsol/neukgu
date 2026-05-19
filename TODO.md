@@ -241,6 +241,12 @@
   - 나중에 `docs/codex.md`에다가 글을 쓰려고 하니 `ToolCallError`가 나야하는데 그냥 error가 나서 backend가 죽어버림...
   - codex 관련된 걸 분석하라고 하고 web-agent를 꺼 놨음. 분명히 git이 있으니까 git clone해서 보면 되는데 그냥 포기해버리고 지가 알고있는 지식으로만 대답함...
 135. 지금은 gui에 pause/resume 버튼만 있잖아? backend_process가 죽어있으면 respawn이라는 버튼이 되게 하자!
+136. "Favorites" button to the browser tab
+137. Qwen 397B 찐빠
+  - patch tool에서 context line은 앞부분에 ' '를 추가로 넣어야하는데 안 넣고 있음... 맞춰보고 ' '만 넣으면 좋은 상황이면 에러메시지로 알려주자!
+138. Qwen 35B-A3B
+  - It does better at implementing `voxel.md` than the 397B one. The 397B one keeps failing with the patch tool, but it doesn't. It does fail a few times, but succeeds in the end.
+  - Deepinfra rejects API request if it has more than 4 images...
 
 ## mock API
 
