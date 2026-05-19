@@ -60,11 +60,13 @@ pub use error::{Error, from_browser_error};
 pub use global::{
     Project,
     clean_global_index_dir,
+    get_global_chat_config,
     get_global_config,
     get_global_index_dir,
     init_global_index_dir,
     load_all_indexes,
     remove_global_index,
+    save_global_chat_config,
     save_global_config,
     update_global_index,
 };

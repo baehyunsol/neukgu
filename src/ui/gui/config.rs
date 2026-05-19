@@ -1,8 +1,9 @@
 use super::{gray, set_round_bg};
-use crate::{Config, Model, ToolKind};
+use crate::{Config, Model, Thinking, ToolKind};
+use crate::chat::Config as ChatConfig;
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{Checkbox, Column, Container, Radio, Row, Slider, TextInput, text};
+use iced::widget::{Checkbox, Column, Container, PickList, Radio, Row, Slider, TextInput, text};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Questionable {
@@ -116,6 +117,35 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
             } else {
                 config.openai_etc3_model = Some(model);
             }
+        },
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum SetChatConfig {
+    Model(Model),
+    Thinking(bool),
+    WebSearch(bool),
+}
+
+pub fn set_chat_config(config: &mut ChatConfig, set: SetChatConfig) {
+    match set {
+        SetChatConfig::Model(model) => {
+            config.model = model;
+
+            if !config.model.supports_web_search() {
+                config.enable_web_search = false;
+            }
+        },
+        SetChatConfig::Thinking(t) => {
+            if t {
+                config.thinking = Thinking::Enabled;
+            } else {
+                config.thinking = Thinking::Disabled;
+            }
+        },
+        SetChatConfig::WebSearch(w) => {
+            config.enable_web_search = w;
         },
     }
 }
@@ -289,4 +319,40 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
     ));
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
+}
+
+pub fn chat_config_ui<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, SetChatConfig> {
+    Row::from_vec(vec![
+        text!("Model:").size(zoom * 14.0).into(),
+        PickList::new(
+            Model::all().into_iter().filter(
+                |model| *model != Model::Mock && *model != Model::Disabled
+            ).collect::<Vec<_>>(),
+            Some(config.model),
+            |model| SetChatConfig::Model(model),
+        )
+            .text_size(zoom * 14.0)
+            .width(zoom * 160.0)
+            .into(),
+        Checkbox::new(config.thinking != Thinking::Disabled)
+            .label("Thinking")
+            .on_toggle(|t| SetChatConfig::Thinking(t))
+            .size(zoom * 14.0)
+            .text_size(zoom * 14.0)
+            .into(),
+        Checkbox::new(config.enable_web_search)
+            .label("Web Search")
+            .on_toggle_maybe(if config.model.supports_web_search() {
+                Some(|s| SetChatConfig::WebSearch(s))
+            } else {
+                None
+            })
+            .size(zoom * 14.0)
+            .text_size(zoom * 14.0)
+            .into(),
+    ])
+        .spacing(zoom * 8.0)
+        .height(zoom * 48.0)
+        .align_y(Vertical::Center)
+        .into()
 }

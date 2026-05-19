@@ -17,6 +17,7 @@ use super::api_key::{
     IcedMessage as GetApiKeysMessage,
     get_api_keys_popup,
 };
+use super::config::{SetChatConfig, chat_config_ui, set_chat_config};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::worker::{
     Job,
@@ -40,7 +41,6 @@ use crate::{
     LogId,
     LLMToken,
     Model,
-    Thinking,
     WebSearchResult,
     get_global_index_dir,
     load_log,
@@ -50,7 +50,7 @@ use crate::{
 use iced::{Color, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Checkbox, Column, Container, Id, MouseArea, PickList, Row, Scrollable, Space, Stack, text};
+use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, text};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -244,9 +244,7 @@ pub enum IcedMessage {
     ClosePopup,
     CopyPopupContent,
     CopyString(String),
-    SelectModel(Model),
-    ToggleThinking(bool),
-    ToggleWebSearch(bool),
+    SetChatConfig(SetChatConfig),
     EditChatInput(TextEditorAction),
     IsChatInputFocused(bool),
     HoverChatButton,
@@ -431,26 +429,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::CopyString(s) => {
             return Ok(iced::clipboard::write(s));
         },
-        IcedMessage::SelectModel(model) => {
-            context.chat.config.model = model;
-
-            if !model.supports_web_search() {
-                context.chat.config.enable_web_search = false;
-            }
-
-            context.chat.store(&context.global_index_dir)?;
-        },
-        IcedMessage::ToggleThinking(t) => {
-            if t {
-                context.chat.config.thinking = Thinking::Enabled;
-            } else {
-                context.chat.config.thinking = Thinking::Disabled;
-            }
-
-            context.chat.store(&context.global_index_dir)?;
-        },
-        IcedMessage::ToggleWebSearch(s) => {
-            context.chat.config.enable_web_search = s;
+        IcedMessage::SetChatConfig(c) => {
+            set_chat_config(&mut context.chat.config, c);
             context.chat.store(&context.global_index_dir)?;
         },
         IcedMessage::EditChatInput(a) => {
@@ -620,7 +600,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let full_view = Column::from_vec(full_view);
     let chat_config_ui_in_container = Container::new(
-        Column::from_vec(vec![chat_config_ui(context)])
+        Column::from_vec(vec![chat_config_ui(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig)])
             .padding(Padding { right: context.zoom * 8.0, ..Padding::ZERO })
             .width(context.window_size.width)
             .align_x(Horizontal::Right)
@@ -817,42 +797,6 @@ fn get_missing_api_keys(api_keys: &HashMap<String, String>, model: Model) -> Vec
     } else {
         vec![]
     }
-}
-
-fn chat_config_ui<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Row::from_vec(vec![
-        text!("Model:").size(context.zoom * 14.0).into(),
-        PickList::new(
-            Model::all().into_iter().filter(
-                |model| *model != Model::Mock && *model != Model::Disabled
-            ).collect::<Vec<_>>(),
-            Some(context.chat.config.model),
-            |model| IcedMessage::SelectModel(model),
-        )
-            .text_size(context.zoom * 14.0)
-            .width(context.zoom * 160.0)
-            .into(),
-        Checkbox::new(context.chat.config.thinking != Thinking::Disabled)
-            .label("Thinking")
-            .on_toggle(|t| IcedMessage::ToggleThinking(t))
-            .size(context.zoom * 14.0)
-            .text_size(context.zoom * 14.0)
-            .into(),
-        Checkbox::new(context.chat.config.enable_web_search)
-            .label("Web Search")
-            .on_toggle_maybe(if context.chat.config.model.supports_web_search() {
-                Some(|s| IcedMessage::ToggleWebSearch(s))
-            } else {
-                None
-            })
-            .size(context.zoom * 14.0)
-            .text_size(context.zoom * 14.0)
-            .into(),
-    ])
-        .spacing(context.zoom * 8.0)
-        .height(context.zoom * 48.0)
-        .align_y(Vertical::Center)
-        .into()
 }
 
 pub trait ChatMessage {

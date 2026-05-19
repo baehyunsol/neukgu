@@ -1,5 +1,6 @@
 use chrono::Local;
 use crate::{Context, ContextJson, Config, Error, NeukguId, init_log_dir, load_json};
+use crate::chat::Config as ChatConfig;
 use ragit_fs::{
     WriteMode,
     basename,
@@ -86,6 +87,14 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         )?;
     }
 
+    if !exists(&join(global_index_dir, "chat-config.json")?) {
+        write_string(
+            &join(global_index_dir, "chat-config.json")?,
+            &serde_json::to_string_pretty(&ChatConfig::default())?,
+            WriteMode::AlwaysCreate,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -167,6 +176,18 @@ pub fn get_global_config(global_index_dir: &str) -> Result<Config, Error> {
 pub fn save_global_config(config: &Config, global_index_dir: &str) -> Result<(), Error> {
     Ok(write_string(
         &join(global_index_dir, "config.json")?,
+        &serde_json::to_string_pretty(config)?,
+        WriteMode::CreateOrTruncate,
+    )?)
+}
+
+pub fn get_global_chat_config(global_index_dir: &str) -> Result<ChatConfig, Error> {
+    Ok(serde_json::from_str(&read_string(&join(global_index_dir, "chat-config.json")?)?)?)
+}
+
+pub fn save_global_chat_config(config: &ChatConfig, global_index_dir: &str) -> Result<(), Error> {
+    Ok(write_string(
+        &join(global_index_dir, "chat-config.json")?,
         &serde_json::to_string_pretty(config)?,
         WriteMode::CreateOrTruncate,
     )?)

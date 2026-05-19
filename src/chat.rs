@@ -47,7 +47,7 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn new(title: Option<String>) -> Chat {
+    pub fn new(title: Option<String>, config: Config) -> Chat {
         let now = Local::now().timestamp_millis();
 
         Chat {
@@ -55,7 +55,7 @@ impl Chat {
             title,
             started_at: now,
             updated_at: now,
-            config: Config::new(),
+            config,
             turns: vec![],
         }
     }
@@ -169,18 +169,20 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new() -> Config {
-        Config {
-            model: Model::Gpt,
-            thinking: Thinking::Enabled,
-            enable_web_search: false,
-        }
-    }
-
     pub fn request_config(&self, fallback_api_keys: HashMap<String, String>) -> RequestConfig {
         RequestConfig {
             fallback_api_keys,
             ..RequestConfig::default()  // TODO: models
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            model: Model::Gpt,
+            thinking: Thinking::Enabled,
+            enable_web_search: false,
         }
     }
 }
@@ -205,8 +207,8 @@ pub fn delete_chat(chat_id: ChatId, global_index_dir: &str) -> Result<(), Error>
     Ok(())
 }
 
-pub fn init_chat(global_index_dir: &str, title: Option<String>) -> Result<ChatId, Error> {
-    let chat = Chat::new(title);
+pub fn init_chat(title: Option<String>, config: Config, global_index_dir: &str) -> Result<ChatId, Error> {
+    let chat = Chat::new(title, config);
     chat.store(global_index_dir)?;
     Ok(chat.id)
 }

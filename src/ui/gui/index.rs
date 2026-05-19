@@ -14,7 +14,14 @@ use super::{
     white,
     yellow,
 };
-use super::config::{SetProjectConfig, config_ui, set_project_config};
+use super::config::{
+    SetChatConfig,
+    SetProjectConfig,
+    chat_config_ui,
+    config_ui,
+    set_chat_config,
+    set_project_config,
+};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
@@ -29,6 +36,7 @@ use crate::{
     Project,
     clean_global_index_dir,
     delete_chat,
+    get_global_chat_config,
     get_global_config,
     get_global_index_dir,
     get_neukgu_id,
@@ -39,9 +47,11 @@ use crate::{
     load_all_indexes,
     prettify_timestamp,
     remove_global_index,
+    save_global_chat_config,
     save_global_config,
     validate_project_name,
 };
+use crate::chat::Config as ChatConfig;
 use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
@@ -108,6 +118,7 @@ pub struct IcedContext {
     pub syntax_highlight: Option<String>,
 
     pub new_project_config: Config,
+    pub new_chat_config: ChatConfig,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
 }
@@ -142,6 +153,7 @@ impl IcedContext {
             copy_buffer: None,
             syntax_highlight: None,
             new_project_config: get_global_config(&global_index_dir).unwrap(),
+            new_chat_config: get_global_chat_config(&global_index_dir).unwrap(),
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
         }
@@ -170,7 +182,12 @@ impl IcedContext {
             Popup::ProjectConfig => {
                 self.new_project_config = get_global_config(&self.global_index_dir)?;
             },
-            Popup::NewChat => {},
+            Popup::NewChat => {
+                self.new_chat_config = get_global_chat_config(&self.global_index_dir)?;
+            },
+            Popup::ChatConfig => {
+                self.new_chat_config = get_global_chat_config(&self.global_index_dir)?;
+            },
             Popup::Instruction { working_dir } => {
                 let instruction = read_string(&join(&working_dir, "neukgu-instruction.md")?)?;
                 self.copy_buffer = Some(instruction.to_string());
@@ -226,6 +243,7 @@ pub enum IcedMessage {
     NewProject,
     SaveGlobalProjectConfig,
     NewChat,
+    SaveGlobalChatConfig,
     DeleteProject {
         project_name: String,
         working_dir: String,
@@ -238,6 +256,7 @@ pub enum IcedMessage {
     EditLongText(TextEditorAction),
     FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
+    SetChatConfig(SetChatConfig),
     MainViewScrolled(AbsoluteOffset),
     BackgroundJobResult(JobResult),
     Focus,
@@ -254,6 +273,7 @@ pub enum Popup {
     NewProject,
     ProjectConfig,
     NewChat,
+    ChatConfig,
     Instruction {
         working_dir: String,
     },
@@ -391,9 +411,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
         },
         IcedMessage::NewChat => {
-            let chat_id = init_chat(&context.global_index_dir, None)?;
+            let chat_title = context.short_text_editor_content.to_string();
+            let chat_title = if chat_title.is_empty() { None } else { Some(chat_title) };
+            let chat_id = init_chat(chat_title, context.new_chat_config.clone(), &context.global_index_dir)?;
             context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }));
+        },
+        IcedMessage::SaveGlobalChatConfig => {
+            save_global_chat_config(&context.new_chat_config, &context.global_index_dir)?;
+            context.close_popup();
         },
         IcedMessage::DeleteProject { project_name, working_dir } => {
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
@@ -428,6 +454,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
+        },
+        IcedMessage::SetChatConfig(c) => {
+            set_chat_config(&mut context.new_chat_config, c);
         },
         IcedMessage::MainViewScrolled(o) => {
             context.main_view_scrolled = o;
@@ -518,12 +547,20 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ).into(),
         section(
             "Recent chats",
-            vec![button(
-                "New (c)hat",
-                IcedMessage::OpenPopup(Popup::NewChat),
-                brown(),
-                context.zoom,
-            )],
+            vec![
+                button(
+                    "New (c)hat",
+                    IcedMessage::OpenPopup(Popup::NewChat),
+                    brown(),
+                    context.zoom,
+                ),
+                button(
+                    "Config",
+                    IcedMessage::OpenPopup(Popup::ChatConfig),
+                    blue(),
+                    context.zoom,
+                ),
+            ],
             context.chat_section_expanded,
             IcedMessage::ExpandChatSection,
             render_chats(context),
@@ -564,7 +601,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(Scrollable::new(
                 Column::from_vec(vec![
-                    config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)),
+                    config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig),
                     button("Save", IcedMessage::SaveGlobalProjectConfig, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
@@ -578,6 +615,21 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_new_chat_popup(context),
+        ]).into();
+    }
+
+    else if let Some(Popup::ChatConfig) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(Scrollable::new(
+                Column::from_vec(vec![
+                    chat_config_ui(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
+                    button("Save", IcedMessage::SaveGlobalChatConfig, green(), context.zoom).into(),
+                ])
+                    .spacing(context.zoom * 20.0)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill)
+            ).id(context.popup_scroll_id.clone()).into(), context),
         ]).into();
     }
 
@@ -834,7 +886,7 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
             Column::from_vec(vec![
                 short_text_editor.into(),
                 long_text_editor.into(),
-                config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
+                config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::NewProject, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
@@ -848,7 +900,26 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
 }
 
 fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    into_popup(button("Create", IcedMessage::NewChat, brown(), context.zoom).into(), context)
+    let short_text_editor = TextInput::new("(untitled)", &context.short_text_editor_content)
+        .size(context.zoom * 14.0)
+        .id(context.short_text_editor_id.clone())
+        .on_input(|input| IcedMessage::EditShortText(input));
+
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(vec![
+                short_text_editor.into(),
+                chat_config_ui(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig).into(),
+                button("Create", IcedMessage::NewChat, brown(), context.zoom).into(),
+            ])
+                .spacing(context.zoom * 20.0)
+                .align_x(Horizontal::Center)
+                .width(Length::Fill),
+        )
+            .width(Length::Fill)
+            .into(),
+        context,
+    )
 }
 
 fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
