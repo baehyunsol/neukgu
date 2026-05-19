@@ -18,7 +18,7 @@ use std::time::Duration;
 mod anthropic;
 mod mock;
 mod openai;
-mod openai_comp;
+mod openai_legacy;
 mod gemini;
 
 pub use mock::{MockState, reset_mock_state, revert_mock_state};
@@ -53,19 +53,49 @@ pub struct Turn {
     pub response: String,
 }
 
+pub struct Config {
+    pub openai_etc1_base_url: Option<String>,
+    pub openai_etc1_model: Option<String>,
+    pub openai_etc2_base_url: Option<String>,
+    pub openai_etc2_model: Option<String>,
+    pub openai_etc3_base_url: Option<String>,
+    pub openai_etc3_model: Option<String>,
+    pub request_timeout: u64,  // millis
+    pub sleep_between_retry: u64,  // millis
+    pub max_retry: usize,
+    pub fallback_api_keys: HashMap<String, String>,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            openai_etc1_base_url: None,
+            openai_etc1_model: None,
+            openai_etc2_base_url: None,
+            openai_etc2_model: None,
+            openai_etc3_base_url: None,
+            openai_etc3_model: None,
+            request_timeout: 600_000,
+            sleep_between_retry: 300_000,
+            max_retry: 4,
+            fallback_api_keys: HashMap::new(),
+        }
+    }
+}
+
 impl Request {
-    pub async fn bare_request(&self, log_dir: Option<String>) -> Result<Response, Error> {
+    pub async fn bare_request(&self, config: &Config, log_dir: Option<String>) -> Result<Response, Error> {
         let logger = match log_dir {
             Some(log_dir) => Logger::new(log_dir, false, true),
             None => Logger::new(String::new(), false, false),
         };
 
-        self.request_inner("", &logger).await
+        self.request_inner(config, "", &logger).await
     }
 
     // VIBE NOTE: gemini 3.1 pro (via perplexity) taught me how to use `tokio::select` macro.
-    pub async fn request(&self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
-        let request_future = self.request_inner(working_dir, logger);
+    pub async fn request(&self, config: &Config, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
+        let request_future = self.request_inner(config, working_dir, logger);
         tokio::pin!(request_future);
         let mut interval = tokio::time::interval(Duration::from_millis(200));
 
@@ -89,23 +119,23 @@ impl Request {
         }
     }
 
-    async fn request_inner(&self, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
+    async fn request_inner(&self, config: &Config, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let mut error = None;
 
-        for _ in 0..5 {
+        for _ in 0..(config.max_retry + 1) {
             let http_request = match self.model.provider() {
-                ApiProvider::Anthropic => self.to_anthropic_request(working_dir)?,
-                ApiProvider::OpenAi => self.to_openai_request(working_dir)?,
-                ApiProvider::OpenAiComp => self.to_openai_comp_request(working_dir)?,
-                ApiProvider::Mock => self.to_mock_request()?,
-                ApiProvider::Gemini => self.to_gemini_request(working_dir)?,
+                ApiProvider::Anthropic => self.to_anthropic_request(config, working_dir)?,
+                ApiProvider::Openai => self.to_openai_request(config, working_dir)?,
+                ApiProvider::OpenaiLegacy => self.to_openai_legacy_request(config, working_dir)?,
+                ApiProvider::Mock => self.to_mock_request(config)?,
+                ApiProvider::Gemini => self.to_gemini_request(config, working_dir)?,
             };
             let mut api_log = ApiLog::new();
             let mut request = client
                 .post(&http_request.url)
                 .json(&http_request.body)
-                .timeout(Duration::from_millis(600_000));
+                .timeout(Duration::from_millis(config.request_timeout));
 
             for (key, value) in http_request.headers.iter() {
                 request = request.header(key, value);
@@ -139,8 +169,8 @@ impl Request {
                                 200..=299 => {
                                     let mut response = match self.model.provider() {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
-                                        ApiProvider::OpenAi => Response::from_openai(&s)?,
-                                        ApiProvider::OpenAiComp => Response::from_openai_comp(&s)?,
+                                        ApiProvider::Openai => Response::from_openai(&s)?,
+                                        ApiProvider::OpenaiLegacy => Response::from_openai_legacy(&s)?,
                                         ApiProvider::Mock => unreachable!(),
                                         ApiProvider::Gemini => Response::from_gemini(&s)?,
                                     };
@@ -151,30 +181,30 @@ impl Request {
                                 429 => {
                                     logger.log(LogEntry::TooManyRequests)?;
                                     error = Some(Error::HttpError { status_code });
-                                    sleep(Duration::from_millis(60_000)).await;
+                                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                                 },
                                 500..600 => {
                                     logger.log(LogEntry::LLMServerBusy)?;
                                     error = Some(Error::HttpError { status_code });
-                                    sleep(Duration::from_millis(200_000)).await;
+                                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                                 },
                                 _ => {
                                     error = Some(Error::HttpError { status_code });
-                                    sleep(Duration::from_millis(20_000)).await;
+                                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                                 },
                             }
                         },
                         Err(e) => {
                             logger.log(LogEntry::ReqwestError(format!("{e:?}")))?;
                             error = Some(Error::ReqwestError(e));
-                            sleep(Duration::from_millis(20_000)).await;
+                            sleep(Duration::from_millis(config.sleep_between_retry)).await;
                         },
                     }
                 },
                 Err(e) => {
                     logger.log(LogEntry::ReqwestError(format!("{e:?}")))?;
                     error = Some(Error::ReqwestError(e));
-                    sleep(Duration::from_millis(20_000)).await;
+                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                 },
             }
         }

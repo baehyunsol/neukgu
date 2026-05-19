@@ -60,10 +60,12 @@ pub use error::{Error, from_browser_error};
 pub use global::{
     Project,
     clean_global_index_dir,
+    get_global_config,
     get_global_index_dir,
     init_global_index_dir,
     load_all_indexes,
     remove_global_index,
+    save_global_config,
     update_global_index,
 };
 pub use image::{ImageId, normalize_and_get_id};
@@ -188,7 +190,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
             None => {
                 let llm_call_started_at = Instant::now();
                 let request = context.to_request(config)?;
-                let (response, api_log) = match request.request(&context.working_dir, &context.logger).await {
+                let (response, api_log) = match request.request(&config.request_config(), &context.working_dir, &context.logger).await {
                     Ok(response) => (response.response.to_string(), response.log.clone()),
                     Err(Error::UserInterrupt) => {
                         context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
@@ -380,7 +382,7 @@ pub fn init_working_dir(
         RagitFsWriteMode::AlwaysCreate,
     )?;
 
-    let context = Context::new(&config, working_dir, is_in_global_index_dir)?;
+    let context = Context::new(working_dir, is_in_global_index_dir)?;
     context.store()?;
     config.store(working_dir)?;
 
@@ -436,8 +438,8 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
     )?;
 
     let config = Config::load(working_dir)?;
-    let old_context = Context::load(&config, working_dir)?;
-    let mut new_context = Context::new(&config, working_dir, old_context.is_in_global_index_dir)?;
+    let old_context = Context::load(working_dir)?;
+    let mut new_context = Context::new(working_dir, old_context.is_in_global_index_dir)?;
     new_context.neukgu_id = old_context.neukgu_id;
     new_context.store()?;
     new_context.remove_done_mark()?;
@@ -537,8 +539,7 @@ pub fn load_json<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
 }
 
 pub fn get_neukgu_id(working_dir: &str) -> Result<NeukguId, Error> {
-    let config = Config::load(working_dir)?;
-    let context = Context::load(&config, working_dir)?;
+    let context = Context::load(working_dir)?;
     Ok(context.neukgu_id)
 }
 

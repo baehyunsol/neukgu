@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 mod anthropic;
 mod openai;
-mod openai_comp;
+mod openai_legacy;
 mod gemini;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

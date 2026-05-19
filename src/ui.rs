@@ -812,11 +812,12 @@ impl Context {
     }
 }
 
-fn spawn_be_process(working_dir: &str) -> Result<Child, Error> {
+fn spawn_be_process(api_keys: &HashMap<String, String>, working_dir: &str) -> Result<Child, Error> {
     Ok(
         Command::new(&std::env::current_exe()?)
             .args(["headless", "--attach-fe"])
             .current_dir(working_dir)
+            .envs(api_keys)
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()?

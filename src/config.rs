@@ -1,4 +1,5 @@
 use crate::{Agents, Error, ToolKind};
+use crate::request::Config as RequestConfig;
 use ragit_fs::{
     WriteMode,
     join3,
@@ -27,6 +28,13 @@ pub struct Config {
 
     // I'm worried if AI mistakens millisec and sec.
     pub command_max_timeout: u64,  // seconds
+
+    pub openai_etc1_base_url: Option<String>,
+    pub openai_etc1_model: Option<String>,
+    pub openai_etc2_base_url: Option<String>,
+    pub openai_etc2_model: Option<String>,
+    pub openai_etc3_base_url: Option<String>,
+    pub openai_etc3_model: Option<String>,
 }
 
 impl Config {
@@ -43,12 +51,16 @@ impl Config {
         )?)
     }
 
-    pub fn system_prompt_context(&self) -> tera::Context {
-        let mut result = tera::Context::new();
-        result.insert("text_file_max_len", &self.text_file_max_len);
-        result.insert("stdout_max_len", &self.stdout_max_len);
-        result.insert("default_command_timeout", &self.default_command_timeout);
-        result
+    pub fn request_config(&self) -> RequestConfig {
+        RequestConfig {
+            openai_etc1_base_url: self.openai_etc1_base_url.clone(),
+            openai_etc1_model: self.openai_etc1_model.clone(),
+            openai_etc2_base_url: self.openai_etc2_base_url.clone(),
+            openai_etc2_model: self.openai_etc2_model.clone(),
+            openai_etc3_base_url: self.openai_etc3_base_url.clone(),
+            openai_etc3_model: self.openai_etc3_model.clone(),
+            ..RequestConfig::default()
+        }
     }
 }
 
@@ -68,6 +80,12 @@ impl Default for Config {
             user_response_timeout: 300,
             max_read_without_write: 6,
             command_max_timeout: 3 * 3600,
+            openai_etc1_base_url: None,
+            openai_etc1_model: None,
+            openai_etc2_base_url: None,
+            openai_etc2_model: None,
+            openai_etc3_base_url: None,
+            openai_etc3_model: None,
         }
     }
 }

@@ -35,6 +35,7 @@ pub enum JobKind {
     },
     AddChatTurn {
         chat_id: ChatId,
+        api_keys: HashMap<String, String>,
         query: Vec<LLMToken>,
     },
 }
@@ -154,7 +155,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::InvalidCommand { command, error: format!("{e:?}") } }).unwrap();
                 },
             },
-            Job { id, kind: JobKind::AddChatTurn { chat_id, query } } => match add_chat_turn_blocked(chat_id, query) {
+            Job { id, kind: JobKind::AddChatTurn { chat_id, api_keys, query } } => match add_chat_turn_blocked(chat_id, api_keys, query) {
                 Ok(()) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnSuccess }).unwrap();
                 },
@@ -270,8 +271,8 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
     JobResultKind::Rg { regex, matches, count }
 }
 
-fn add_chat_turn_blocked(chat_id: ChatId, query: Vec<LLMToken>) -> Result<(), Error> {
+fn add_chat_turn_blocked(chat_id: ChatId, api_keys: HashMap<String, String>, query: Vec<LLMToken>) -> Result<(), Error> {
     let global_index_dir = get_global_index_dir()?;
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(add_chat_turn(chat_id, query, &global_index_dir))
+    runtime.block_on(add_chat_turn(chat_id, api_keys, query, &global_index_dir))
 }

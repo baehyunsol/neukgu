@@ -1,11 +1,13 @@
 use super::{FeContext, Truncation, spawn_be_process};
 use crate::{Error, TurnResultSummary, prettify_time, prettify_timestamp};
+use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::Duration;
 
 pub fn run(no_backend: bool, working_dir: &str) -> Result<(), Error> {
     if !no_backend {
-        spawn_be_process(working_dir)?;
+        // TODO: get api_keys
+        spawn_be_process(&HashMap::new(), working_dir)?;
     }
 
     // Backend might dump error messages to stderr. So we wait here.

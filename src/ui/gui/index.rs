@@ -1,5 +1,6 @@
 use super::{
     black,
+    blue,
     brown,
     button,
     circle,
@@ -28,6 +29,7 @@ use crate::{
     Project,
     clean_global_index_dir,
     delete_chat,
+    get_global_config,
     get_global_index_dir,
     get_neukgu_id,
     init_chat,
@@ -37,6 +39,7 @@ use crate::{
     load_all_indexes,
     prettify_timestamp,
     remove_global_index,
+    save_global_config,
     validate_project_name,
 };
 use iced::{Background, Color, Element, Length, Size, Task};
@@ -91,6 +94,7 @@ pub struct IcedContext {
     pub main_view_id: Id,
     pub short_text_editor_id: Id,
     pub long_text_editor_id: Id,
+    pub popup_scroll_id: Id,
     pub main_view_scrolled: AbsoluteOffset,
     pub zoom: f32,
     pub project_section_expanded: bool,
@@ -116,7 +120,7 @@ impl IcedContext {
 
         IcedContext {
             home_dir: home_dir.to_string(),
-            global_index_dir,
+            global_index_dir: global_index_dir.to_string(),
             window_size: Size::new(0.0, 0.0),
             recent_projects: vec![],
             recent_chats: vec![],
@@ -125,6 +129,7 @@ impl IcedContext {
             main_view_id: Id::unique(),
             short_text_editor_id: Id::unique(),
             long_text_editor_id: Id::unique(),
+            popup_scroll_id: Id::unique(),
             main_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             zoom: 1.0,
             project_section_expanded: false,
@@ -136,7 +141,7 @@ impl IcedContext {
             curr_popup: None,
             copy_buffer: None,
             syntax_highlight: None,
-            new_project_config: Config::default(),
+            new_project_config: get_global_config(&global_index_dir).unwrap(),
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
         }
@@ -159,7 +164,12 @@ impl IcedContext {
         self.curr_popup = Some(popup.clone());
 
         match popup {
-            Popup::NewProject => {},
+            Popup::NewProject => {
+                self.new_project_config = get_global_config(&self.global_index_dir)?;
+            },
+            Popup::ProjectConfig => {
+                self.new_project_config = get_global_config(&self.global_index_dir)?;
+            },
             Popup::NewChat => {},
             Popup::Instruction { working_dir } => {
                 let instruction = read_string(&join(&working_dir, "neukgu-instruction.md")?)?;
@@ -196,7 +206,7 @@ impl IcedContext {
 }
 
 impl PopupContext for IcedContext {
-    fn can_close_popup(&self) -> bool { true }
+    fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
@@ -214,6 +224,7 @@ pub enum IcedMessage {
     ExpandChatSection,
     ExpandTabSection,
     NewProject,
+    SaveGlobalProjectConfig,
     NewChat,
     DeleteProject {
         project_name: String,
@@ -241,6 +252,7 @@ impl PopupMessage for IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Popup {
     NewProject,
+    ProjectConfig,
     NewChat,
     Instruction {
         working_dir: String,
@@ -287,16 +299,26 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
-                return Ok(Task::done(IcedMessage::ClosePopup));
+                if context.can_close_popup() {
+                    return Ok(Task::done(IcedMessage::ClosePopup));
+                }
             },
             (Key::Named(NamedKey::ArrowUp), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(snap_to(context.main_view_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }));
                 }
+
+                else {
+                    return Ok(snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }));
+                }
             },
             (Key::Named(NamedKey::ArrowDown), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(snap_to(context.main_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }));
+                }
+
+                else {
+                    return Ok(snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }));
                 }
             },
             (Key::Character("c"), true, false, false) => {
@@ -364,6 +386,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.close_popup();
             return Ok(Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }));
         },
+        IcedMessage::SaveGlobalProjectConfig => {
+            save_global_config(&context.new_project_config, &context.global_index_dir)?;
+            context.close_popup();
+        },
         IcedMessage::NewChat => {
             let chat_id = init_chat(&context.global_index_dir, None)?;
             context.close_popup();
@@ -419,7 +445,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     fn section<'c>(
         title: &'static str,
-        top_button: Button<'c, IcedMessage>,
+        buttons: Vec<Button<'c, IcedMessage>>,
         is_expanded: bool,
         expand_message: IcedMessage,
         entries: Element<'c, IcedMessage>,
@@ -431,15 +457,16 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             (true, false) => disabled_button("▶", white(), context.zoom),
             (false, false) => button("▶", expand_message, white(), context.zoom),
         };
+        let buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
+            buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+        } else {
+            buttons.into_iter().map(|button| button.into()).collect()
+        };
 
         Column::from_vec(vec![
             Row::from_vec(vec![
                 text!("{title}").size(context.zoom * 14.0).into(),
-                if context.curr_popup.is_some() {
-                    top_button.on_press_maybe(None).into()
-                } else {
-                    top_button.into()
-                },
+                Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             Row::from_vec(vec![
                 expand_button.into(),
@@ -470,12 +497,20 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .into(),
         section(
             "Recent projects",
-            button(
-                "New (p)roject",
-                IcedMessage::OpenPopup(Popup::NewProject),
-                green(),
-                context.zoom,
-            ),
+            vec![
+                button(
+                    "New (p)roject",
+                    IcedMessage::OpenPopup(Popup::NewProject),
+                    green(),
+                    context.zoom,
+                ),
+                button(
+                    "Config",
+                    IcedMessage::OpenPopup(Popup::ProjectConfig),
+                    blue(),
+                    context.zoom,
+                ),
+            ],
             context.project_section_expanded,
             IcedMessage::ExpandProjectSection,
             render_projects(context),
@@ -483,12 +518,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ).into(),
         section(
             "Recent chats",
-            button(
+            vec![button(
                 "New (c)hat",
                 IcedMessage::OpenPopup(Popup::NewChat),
                 brown(),
                 context.zoom,
-            ),
+            )],
             context.chat_section_expanded,
             IcedMessage::ExpandChatSection,
             render_chats(context),
@@ -496,7 +531,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ).into(),
         section(
             "Current tabs",
-            button(
+            vec![button(
                 "New (t)ab",
                 IcedMessage::NewTab {
                     tab: Tab::Browser { dir: context.home_dir.to_string(), file: None },
@@ -504,7 +539,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 },
                 skyblue(),
                 context.zoom,
-            ),
+            )],
             context.tab_section_expanded,
             IcedMessage::ExpandTabSection,
             render_tabs(context),
@@ -521,6 +556,21 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_new_project_popup(context),
+        ]).into();
+    }
+
+    else if let Some(Popup::ProjectConfig) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(Scrollable::new(
+                Column::from_vec(vec![
+                    config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)),
+                    button("Save", IcedMessage::SaveGlobalProjectConfig, green(), context.zoom).into(),
+                ])
+                    .spacing(context.zoom * 20.0)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill)
+            ).id(context.popup_scroll_id.clone()).into(), context),
         ]).into();
     }
 
@@ -589,7 +639,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(Scrollable::new(text_editor).width(Length::Fill).into(), context),
+            into_popup(Scrollable::new(text_editor).id(context.popup_scroll_id.clone()).width(Length::Fill).into(), context),
         ]).into();
     }
 

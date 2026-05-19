@@ -3,38 +3,38 @@ use crate::{Error, ApiLog};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
-pub struct OpenAiCompResponse {
-    choices: Vec<OpenAiCompChoice>,
-    usage: Option<OpenAiCompUsage>,
+pub struct OpenaiLegacyResponse {
+    choices: Vec<OpenaiLegacyChoice>,
+    usage: Option<OpenaiLegacyUsage>,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct OpenAiCompChoice {
-    message: OpenAiCompMessage,
+pub struct OpenaiLegacyChoice {
+    message: OpenaiLegacyMessage,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct OpenAiCompMessage {
+pub struct OpenaiLegacyMessage {
     content: Option<String>,
     reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct OpenAiCompUsage {
+pub struct OpenaiLegacyUsage {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
     total_tokens: Option<u64>,
-    prompt_tokens_details: Option<OpenAiCompPromptTokensDetails>,
+    prompt_tokens_details: Option<OpenaiLegacyPromptTokensDetails>,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct OpenAiCompPromptTokensDetails {
+pub struct OpenaiLegacyPromptTokensDetails {
     cached_tokens: Option<u64>,
 }
 
 impl Response {
-    pub fn from_openai_comp(s: &str) -> Result<Response, Error> {
-        let raw_response: OpenAiCompResponse = serde_json::from_str(s)?;
+    pub fn from_openai_legacy(s: &str) -> Result<Response, Error> {
+        let raw_response: OpenaiLegacyResponse = serde_json::from_str(s)?;
         let Some(choice) = raw_response.choices.first() else {
             return Err(Error::FailedToParseAPIResponse(s.to_string()));
         };

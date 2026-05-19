@@ -7,6 +7,8 @@ use neukgu::{
     Model,
     Request,
     Thinking,
+    get_global_config,
+    get_global_index_dir,
     gui,
     init_log_dir,
     init_working_dir,
@@ -105,7 +107,11 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             let project_name = parsed_args.get_args_exact(1)?[0].clone();
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
             let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap());
-            let mut config = Config::default();
+            let mut config = if let Ok(global_index_dir) = get_global_index_dir() && let Ok(config) = get_global_config(&global_index_dir) {
+                config
+            } else {
+                Config::default()
+            };
 
             if let Some(model) = model {
                 config.agents = Agents::single(model);
@@ -125,7 +131,11 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
             let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap());
-            let mut config = Config::default();
+            let mut config = if let Ok(global_index_dir) = get_global_index_dir() && let Ok(config) = get_global_config(&global_index_dir) {
+                config
+            } else {
+                Config::default()
+            };
 
             if let Some(model) = model {
                 config.agents = Agents::single(model);
@@ -151,7 +161,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             }
 
             let mut config = Config::load(&working_dir)?;
-            let mut context = Context::load(&config, &working_dir)?;
+            let mut context = Context::load(&working_dir)?;
 
             if !exists(&config.sandbox_root) {
                 create_dir_all(&config.sandbox_root)?;
@@ -211,7 +221,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             }
 
             let tokio_runtime = tokio::runtime::Runtime::new()?;
-            let response = tokio_runtime.block_on(request.bare_request(log_dir))?;
+            let response = tokio_runtime.block_on(request.bare_request(&Default::default(), log_dir))?;
             println!("{}", response.response);
             Ok(())
         },

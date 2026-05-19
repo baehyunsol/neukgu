@@ -11,6 +11,12 @@ use super::{
     white,
     yellow,
 };
+use super::api_key::{
+    self,
+    IcedContext as GetApiKeysContext,
+    IcedMessage as GetApiKeysMessage,
+    get_api_keys_popup,
+};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::worker::{
     Job,
@@ -63,6 +69,8 @@ const HELP_MESSAGE: &str = "(TODO: write help message)";
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
+    pub api_keys: HashMap<String, String>,
+    pub get_api_keys_context: GetApiKeysContext,
     pub chat: Chat,
     pub turns: HashMap<ChatTurnId, ChatTurn>,
 
@@ -99,16 +107,24 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
-    pub fn new(chat_id: ChatId, window_size: Size) -> Result<IcedContext, Error> {
+    pub fn new(chat_id: ChatId, api_keys: HashMap<String, String>, window_size: Size) -> Result<IcedContext, Error> {
         let global_index_dir = get_global_index_dir()?;
         let chat = Chat::load(chat_id, &global_index_dir)?;
+        let missing_api_keys = get_missing_api_keys(&api_keys, chat.config.model);
         let mut turns = HashMap::with_capacity(chat.turns.len());
+        let mut curr_popup = None;
+
+        if !missing_api_keys.is_empty() {
+            curr_popup = Some(Popup::GetApiKeys);
+        }
 
         for turn in chat.turns.iter() {
             turns.insert(*turn, ChatTurn::load(*turn, &global_index_dir)?);
         }
 
         Ok(IcedContext {
+            api_keys,
+            get_api_keys_context: GetApiKeysContext::new(missing_api_keys),
             chat: chat.clone(),
             turns,
             bg_at: None,
@@ -124,7 +140,7 @@ impl IcedContext {
             chat_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             find_pattern: None,
             find_result: HashMap::new(),
-            curr_popup: None,
+            curr_popup,
             prev_popup: None,
             copy_buffer: None,
             long_text_editor_content: TextEditorContent::new(),
@@ -142,6 +158,7 @@ impl IcedContext {
         self.curr_popup = Some(popup.clone());
 
         match popup {
+            Popup::GetApiKeys => unreachable!(),
             Popup::Log((title, id)) => {
                 let (mut log, mut extension) = load_log(&id, &self.log_dir)?;
                 self.copy_buffer = Some(log.to_string());
@@ -199,7 +216,7 @@ impl IcedContext {
 }
 
 impl PopupContext for IcedContext {
-    fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
+    fn can_close_popup(&self) -> bool { !matches!(self.curr_popup, Some(Popup::GetApiKeys) | None) }
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
@@ -220,6 +237,7 @@ impl ImagePopup for IcedContext {
 pub enum IcedMessage {
     Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
+    GetApiKeys(GetApiKeysMessage),
     ChatViewScrolled(AbsoluteOffset),
     OpenPopup { curr: Popup, prev: Option<Popup> },
     BackPopup,
@@ -271,6 +289,7 @@ impl ChatMessage for IcedMessage {
 
 #[derive(Clone, Debug)]
 pub enum Popup {
+    GetApiKeys,
     Log((String, LogId)),
     TokenUsage,
     Help,
@@ -305,7 +324,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
-                if context.curr_popup.is_some() {
+                if context.can_close_popup() {
                     return Ok(Task::done(IcedMessage::ClosePopup));
                 }
             },
@@ -360,6 +379,27 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.zoom = context.zoom.min(2.4) + 0.1;
             },
             _ => {},
+        },
+        IcedMessage::GetApiKeys(m) => match m {
+            GetApiKeysMessage::Enter => {
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(0) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key1.to_string());
+                }
+
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(1) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key2.to_string());
+                }
+
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(2) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key3.to_string());
+                }
+
+                context.close_popup();
+            },
+            m => {
+                // It doesn't do further tasks.
+                let _ = api_key::update(&mut context.get_api_keys_context, m);
+            },
         },
         IcedMessage::ChatViewScrolled(o) => {
             context.chat_view_scrolled = o;
@@ -446,7 +486,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::batch(vec![
                 Task::done(IcedMessage::BackgroundJob(Job {
                     id: job_id,
-                    kind: JobKind::AddChatTurn { chat_id: context.chat.id, query },
+                    kind: JobKind::AddChatTurn {
+                        chat_id: context.chat.id,
+                        api_keys: context.api_keys.clone(),
+                        query,
+                    },
                 })),
                 snap_to(context.chat_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
             ]));
@@ -575,6 +619,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     full_view.push(Space::new().width(context.window_size.width).height(context.window_size.height).into());
 
     let full_view = Column::from_vec(full_view);
+    let chat_config_ui_in_container = Container::new(
+        Column::from_vec(vec![chat_config_ui(context)])
+            .padding(Padding { right: context.zoom * 8.0, ..Padding::ZERO })
+            .width(context.window_size.width)
+            .align_x(Horizontal::Right)
+    )
+        .style(|_| set_bg(gray(0.35)))
+        .into();
     let full_view_with_text_input = Stack::from_vec(vec![
         full_view.into(),
         chat_ui(
@@ -584,7 +636,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             context.chat_input_id.clone(),
             &context.chat_input_content,
             "Send",
-            chat_config_ui(context),
+            chat_config_ui_in_container,
             context.zoom * 48.0,
             context.window_size,
             context.zoom,
@@ -593,7 +645,18 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let mut full_view_stacked: Element<IcedMessage> = full_view_with_text_input.into();
 
-    if let Some(Popup::WebSearchResults(s)) = &context.curr_popup {
+    if let Some(Popup::GetApiKeys) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            get_api_keys_popup(
+                &context.get_api_keys_context,
+                context,
+                context.zoom,
+            ).map(|m| IcedMessage::GetApiKeys(m)),
+        ]).into();
+    }
+
+    else if let Some(Popup::WebSearchResults(s)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(render_web_search_results(s, context), context),
@@ -746,48 +809,49 @@ fn render_web_search_results<'s, 'c>(results: &'s [WebSearchResult], context: &'
     Scrollable::new(Column::from_vec(results).spacing(context.zoom * 12.0)).id(context.popup_scroll_id.clone()).into()
 }
 
+fn get_missing_api_keys(api_keys: &HashMap<String, String>, model: Model) -> Vec<String> {
+    let env_var = model.api_key_env_var();
+
+    if std::env::var(env_var).is_err() && !api_keys.contains_key(env_var) {
+        vec![env_var.to_string()]
+    } else {
+        vec![]
+    }
+}
+
 fn chat_config_ui<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Container::new(
-        Column::from_vec(vec![
-            Row::from_vec(vec![
-                text!("Model:").size(context.zoom * 14.0).into(),
-                PickList::new(
-                    Model::all().into_iter().filter(
-                        |model| *model != Model::Mock && *model != Model::Disabled
-                    ).collect::<Vec<_>>(),
-                    Some(context.chat.config.model),
-                    |model| IcedMessage::SelectModel(model),
-                )
-                    .text_size(context.zoom * 14.0)
-                    .width(context.zoom * 160.0)
-                    .into(),
-                Checkbox::new(context.chat.config.thinking != Thinking::Disabled)
-                    .label("Thinking")
-                    .on_toggle(|t| IcedMessage::ToggleThinking(t))
-                    .size(context.zoom * 14.0)
-                    .text_size(context.zoom * 14.0)
-                    .into(),
-                Checkbox::new(context.chat.config.enable_web_search)
-                    .label("Web Search")
-                    .on_toggle_maybe(if context.chat.config.model.supports_web_search() {
-                        Some(|s| IcedMessage::ToggleWebSearch(s))
-                    } else {
-                        None
-                    })
-                    .size(context.zoom * 14.0)
-                    .text_size(context.zoom * 14.0)
-                    .into(),
-            ])
-                .spacing(context.zoom * 8.0)
-                .height(context.zoom * 48.0)
-                .align_y(Vertical::Center)
-                .into()
-        ])
-            .padding(Padding { right: context.zoom * 8.0, ..Padding::ZERO })
-            .width(context.window_size.width)
-            .align_x(Horizontal::Right),
-    )
-        .style(|_| set_bg(gray(0.35)))
+    Row::from_vec(vec![
+        text!("Model:").size(context.zoom * 14.0).into(),
+        PickList::new(
+            Model::all().into_iter().filter(
+                |model| *model != Model::Mock && *model != Model::Disabled
+            ).collect::<Vec<_>>(),
+            Some(context.chat.config.model),
+            |model| IcedMessage::SelectModel(model),
+        )
+            .text_size(context.zoom * 14.0)
+            .width(context.zoom * 160.0)
+            .into(),
+        Checkbox::new(context.chat.config.thinking != Thinking::Disabled)
+            .label("Thinking")
+            .on_toggle(|t| IcedMessage::ToggleThinking(t))
+            .size(context.zoom * 14.0)
+            .text_size(context.zoom * 14.0)
+            .into(),
+        Checkbox::new(context.chat.config.enable_web_search)
+            .label("Web Search")
+            .on_toggle_maybe(if context.chat.config.model.supports_web_search() {
+                Some(|s| IcedMessage::ToggleWebSearch(s))
+            } else {
+                None
+            })
+            .size(context.zoom * 14.0)
+            .text_size(context.zoom * 14.0)
+            .into(),
+    ])
+        .spacing(context.zoom * 8.0)
+        .height(context.zoom * 48.0)
+        .align_y(Vertical::Center)
         .into()
 }
 

@@ -9,6 +9,7 @@ use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle}
 use iced::widget::container::{Container, Style};
 use iced::window::Event as WindowEvent;
 
+mod api_key;
 mod browser;
 mod chat;
 mod config;

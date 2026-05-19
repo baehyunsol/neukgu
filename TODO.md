@@ -80,14 +80,6 @@
     - "New Chat" 버튼 옆에 search 버튼 붙이면 됨.
     - 결과 보여주는 popup을 만들면 되고, 거기서 클릭하면 해당 chat으로 바로 연결되게 하면 됨!!
 58. 예쁜 폰트 찾음: https://hbios.quiple.dev
-59. More configuration in GUI
-  - config ui
-    - enable/disable tools/binaries
-      - when the AI calls a disabled tool/binary, it'll reject it with an error message
-      - If we can disable binaries, what's the point of `Error::UnavailableBinaries`?
-  - set api key with GUI
-    - 이게 젤 필요함. 지금 너무 귀찮음 ㅠㅠ
-    - OPENAI_MODEL, OPENAI_BASE_URL -> 이것도 gui에서 고칠 수 있게 하자!!
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
   - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
@@ -231,14 +223,24 @@
       - 롤백 불가능
       - 서버를 올리는게 가능하면 내리는 것도 가능해야함. 이거는 지가 알아서 `<run>`으로 하려나?
   - serve라는 tool을 만들까?
-131. psd-rs를 다시 시도하면서 여러가지 이슈들...
-  - file changes 볼 때 log랑 나머지랑 따로 보여주자!
-  - patch 툴을 썼을 때도 diff 볼 수 있게 하자... 색깔을 보고 싶음
-  - 지금은 diff가 줄단위로만 되는데, 이거 단어단위로도 highlight를 해주자. 그러려면 diff 보여주는 뷰 자체를 함수로 빼야할 듯?
 132. web search tool -> 이거 내가 만들어버리면 안됨??
   - built-in web search가 있으면 그걸 쓰고, 없으면 내가 만든 걸 쓰는 거지
   - 구글에 http로 직접 요청 날린 다음에 결과물 분석하면 됨 -> 이거는 걍 늑구한테 만들어달라고 하면 바로 될 듯?
   - url의 목록을 읽어오는 것까지는 쉽고, 각 url이 유효한지 확인하는 거랑 html 내용을 읽기 쉽게 요약하는게 어려움... ㅠㅠ
+133. OPENAI_BASE_URL, OPENAI_MODEL, OPENAI_API_KEY -> 이거를 GUI에서 고치고 싶음!!
+  - openai-etc1, openai-etc2, openai-etc3 모델로 분화
+  - env var: `OPENAI_ETC1_BASE_URL`, `OPENAI_ETC1_MODEL`, `OPENAI_ETC1_API_KEY`, ...
+  - config.json: `openai_etc1_base_url`, `openai_etc1_model`, ...
+  - config.json과 env var가 겹칠 경우 env var를 우선시
+  - global model store를 구현: 여기에 들어가면 base_url, model, api_key들이 쭉 있음. 복붙해서 쓰면 됨. 그대신 여기 들어가려면 비밀번호 입력해야함.
+  - API_KEY가 필요없는 모델이더라도 `OPENAI_ETC1_API_KEY`라는 env var를 요구하자!!
+  - global하게 API_KEY를 관리하는 파일은 없음. 그대신 API_KEY가 없으면 GUI에서 입력창이 뜸!
+    - 이거 시험하려면 MOCK_API_KEY도 받게 만들어야함
+134. 젬마 찐빠
+  - directory를 만들겠답시고 `<write><path>docs/</path><content></content></write>`를 해버림. 근데 아무 오류도 없이 넘어가버림...
+  - 나중에 `docs/codex.md`에다가 글을 쓰려고 하니 `ToolCallError`가 나야하는데 그냥 error가 나서 backend가 죽어버림...
+  - codex 관련된 걸 분석하라고 하고 web-agent를 꺼 놨음. 분명히 git이 있으니까 git clone해서 보면 되는데 그냥 포기해버리고 지가 알고있는 지식으로만 대답함...
+135. 지금은 gui에 pause/resume 버튼만 있잖아? backend_process가 죽어있으면 respawn이라는 버튼이 되게 하자!
 
 ## mock API
 

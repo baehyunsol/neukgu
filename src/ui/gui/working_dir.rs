@@ -17,6 +17,12 @@ use super::{
     white,
     yellow,
 };
+use super::api_key::{
+    self,
+    IcedContext as GetApiKeysContext,
+    IcedMessage as GetApiKeysMessage,
+    get_api_keys_popup,
+};
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
 use super::popup::{PopupContext, PopupMessage, into_popup};
@@ -29,6 +35,7 @@ use crate::{
     LogEntry,
     LogId,
     Logger,
+    Model,
     SessionSummary,
     ToolCallSuccess,
     Turn,
@@ -168,6 +175,8 @@ It doesn't rollback the configs, though.
 #[derive(Debug)]
 pub struct IcedContext {
     pub be_process: Option<Child>,
+    pub api_keys: HashMap<String, String>,
+    pub get_api_keys_context: GetApiKeysContext,
     pub fe_context: FeContext,
     pub window_size: Size,
     pub turn_view_id: Id,
@@ -222,11 +231,32 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
-    pub fn new(no_backend: bool, working_dir: &str, window_size: Size, zoom: f32) -> Result<IcedContext, Error> {
+    pub fn new(
+        mut no_backend: bool,
+        api_keys: HashMap<String, String>,
+        working_dir: &str,
+        window_size: Size,
+        zoom: f32,
+    ) -> Result<IcedContext, Error> {
         let fe_context = FeContext::load(working_dir)?;
-        let be_process = if no_backend { None } else { Some(spawn_be_process(working_dir)?) };
+        let missing_api_keys = get_missing_api_keys(&api_keys, &fe_context.config);
+        let mut curr_popup = None;
+
+        if !missing_api_keys.is_empty() {
+            curr_popup = Some(Popup::GetApiKeys);
+            no_backend = true;
+        }
+
+        let be_process = if no_backend {
+            None
+        } else {
+            Some(spawn_be_process(&api_keys, working_dir)?)
+        };
+
         Ok(IcedContext {
             be_process,
+            api_keys,
+            get_api_keys_context: GetApiKeysContext::new(missing_api_keys),
             fe_context: fe_context.clone(),
             window_size,
             turn_view_id: Id::unique(),
@@ -244,7 +274,7 @@ impl IcedContext {
             loaded_logs: None,
             loaded_image: None,
             user_response_timeout_counter: Instant::now(),
-            curr_popup: None,
+            curr_popup,
             prev_popup: None,
             copy_buffer: None,
             zoom,
@@ -280,6 +310,7 @@ impl IcedContext {
         self.curr_popup = Some(popup.clone());
 
         match popup {
+            Popup::GetApiKeys => unreachable!(),
             Popup::Turn(index, turn_id) => {
                 let turn = Turn::load(&turn_id, &self.fe_context.working_dir)?;
 
@@ -446,7 +477,7 @@ impl IcedContext {
 
     pub fn spawn_be_process(&mut self) -> Result<(), Error> {
         if self.be_process.is_none() {
-            self.be_process = Some(spawn_be_process(&self.fe_context.working_dir)?);
+            self.be_process = Some(spawn_be_process(&self.api_keys, &self.fe_context.working_dir)?);
         }
 
         Ok(())
@@ -458,7 +489,13 @@ impl IcedContext {
 }
 
 impl PopupContext for IcedContext {
-    fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
+    fn can_close_popup(&self) -> bool {
+        self.llm_request.is_none() && match self.curr_popup {
+            Some(Popup::GetApiKeys) | None => false,
+            _ => true,
+        }
+    }
+
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
@@ -479,6 +516,7 @@ impl ImagePopup for IcedContext {
 pub enum IcedMessage {
     Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
+    GetApiKeys(GetApiKeysMessage),
     TurnViewScrolled(AbsoluteOffset),
     HoverOnTurn(Option<TurnId>),
     ExpandFileChange(String),
@@ -493,6 +531,7 @@ pub enum IcedMessage {
     ToggleTurnVisibility(TurnId),
     PauseNeukgu,
     ResumeNeukgu,
+    RespawnBeProcess,
     InterruptNeukgu,
     ResetNeukgu,
     RollBackNeukgu(TurnId),
@@ -548,6 +587,7 @@ impl ChatMessage for IcedMessage {
 
 #[derive(Clone, Debug)]
 pub enum Popup {
+    GetApiKeys,
     Turn(usize, TurnId),
     Logs,
     Log((String, LogId)),
@@ -650,15 +690,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::Escape), false, false, false) => {
-                // It shouldn't close the llm request popup.
-                if context.llm_request.is_none() {
-                    if !context.can_click_turn_entry() {
-                        return Ok(Task::done(IcedMessage::ClosePopup));
-                    }
+                if context.can_close_popup() {
+                    return Ok(Task::done(IcedMessage::ClosePopup));
+                }
 
-                    else {
-                        return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
-                    }
+                else if context.can_click_turn_entry() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
                 }
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
@@ -823,6 +860,28 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             _ => {},
         },
+        IcedMessage::GetApiKeys(m) => match m {
+            GetApiKeysMessage::Enter => {
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(0) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key1.to_string());
+                }
+
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(1) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key2.to_string());
+                }
+
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(2) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key3.to_string());
+                }
+
+                context.spawn_be_process()?;
+                context.close_popup();
+            },
+            m => {
+                // It doesn't do further tasks.
+                let _ = api_key::update(&mut context.get_api_keys_context, m);
+            },
+        },
         IcedMessage::TurnViewScrolled(o) => {
             context.turn_view_scrolled = o;
         },
@@ -910,6 +969,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::ResumeNeukgu => {
             context.pause = Some(false);
+        },
+        IcedMessage::RespawnBeProcess => {
+            context.spawn_be_process()?;
         },
         IcedMessage::InterruptNeukgu => {
             let question = context.interrupt_text_editor_content.text();
@@ -1049,7 +1111,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     // Without this, interrupt_text_editor will hide the error message
-    turns.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.8).into());
+    turns.push(text!("").width(context.window_size.width).height(context.window_size.height * 0.3).into());
 
     let turns_stretched = Column::from_vec(turns)
         .padding(context.zoom * 8.0)
@@ -1101,7 +1163,18 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let mut full_view_stacked: Element<IcedMessage> = full_view_with_text_input.into();
 
-    if context.llm_request.is_some() {
+    if let Some(Popup::GetApiKeys) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            get_api_keys_popup(
+                &context.get_api_keys_context,
+                context,
+                context.zoom,
+            ).map(|m| IcedMessage::GetApiKeys(m)),
+        ]).into();
+    }
+
+    else if context.llm_request.is_some() {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_ask_to_user_popup(context),
@@ -1162,11 +1235,16 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     else if let Some(Popup::Config) = context.curr_popup {
-        let config_popup = Column::from_vec(vec![
-            text!("Config").size(context.zoom * 18.0).into(),
-            config_ui(&context.tmp_config, context.zoom).map(|m| IcedMessage::SetTmpConfig(m)).into(),
-            button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
-        ]).align_x(Horizontal::Center).width(Length::Fill).spacing(context.zoom * 12.0);
+        let config_popup = Scrollable::new(
+            Column::from_vec(vec![
+                text!("Config").size(context.zoom * 18.0).into(),
+                config_ui(&context.tmp_config, context.zoom).map(|m| IcedMessage::SetTmpConfig(m)).into(),
+                button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
+            ])
+                .align_x(Horizontal::Center)
+                .width(Length::Fill)
+                .spacing(context.zoom * 12.0)
+        ).id(context.popup_scroll_id.clone());
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(config_popup.into(), context).into(),
@@ -1271,7 +1349,9 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 }
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    let mut buttons_row1: Vec<Button<IcedMessage>> = if context.is_paused {
+    let mut buttons_row1: Vec<Button<IcedMessage>> = if context.be_process.is_none() {
+        vec![button("Respawn", IcedMessage::RespawnBeProcess, blue(), context.zoom)]
+    } else if context.is_paused {
         vec![button("Resume", IcedMessage::ResumeNeukgu, blue(), context.zoom)]
     } else {
         vec![button("Pause", IcedMessage::PauseNeukgu, blue(), context.zoom)]
@@ -1287,7 +1367,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 
     buttons_row2.push(button("Prompt", IcedMessage::OpenPopup { curr: Popup::Prompt, prev: None }, yellow(), context.zoom));
     buttons_row2.push(button("Instruction", IcedMessage::OpenPopup { curr: Popup::Instruction, prev: None }, yellow(), context.zoom));
-    buttons_row2.push(button("(C)onfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, yellow(), context.zoom));
+    buttons_row2.push(button("(C)onfig", IcedMessage::OpenPopup { curr: Popup::Config, prev: None }, blue(), context.zoom));
     buttons_row2.push(button("Br(o)wser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom));
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom));
@@ -1730,4 +1810,16 @@ fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedC
                 .spacing(context.zoom * 8.0)
         ).id(context.popup_scroll_id.clone())
     ).padding(context.zoom * 12.0).into()
+}
+
+fn get_missing_api_keys(api_keys: &HashMap<String, String>, config: &Config) -> Vec<String> {
+    let mut missing_api_keys = vec![];
+
+    for env_var in config.agents.iter().filter_map(|model| if model == Model::Disabled { None } else { Some(model.api_key_env_var()) }) {
+        if std::env::var(env_var).is_err() && !api_keys.contains_key(env_var) && !missing_api_keys.contains(&env_var.to_string()) {
+            missing_api_keys.push(env_var.to_string());
+        }
+    }
+
+    missing_api_keys
 }

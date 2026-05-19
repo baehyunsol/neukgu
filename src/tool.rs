@@ -607,7 +607,7 @@ impl ToolCall {
             ToolCall::Ask { id: _, to: AskTo::Web, question } => match config.agents.search {
                 Model::Disabled | Model::Mock => Ok(Err(ToolCallError::WebSearchDisabled)),
                 _ => {
-                    let answer = ask_question_to_web(question, &context.working_dir, &mut context.logger, config.agents.search).await?;
+                    let answer = ask_question_to_web(question, config, &context.working_dir, &mut context.logger).await?;
                     Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
                 },
             },

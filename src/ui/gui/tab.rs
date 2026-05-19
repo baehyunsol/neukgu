@@ -26,15 +26,22 @@ use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
 use ragit_fs::{basename, exists, join};
+use std::collections::HashMap;
 
 pub struct IcedContext {
     pub id: TabId,
     pub cwd: String,
+    pub api_keys: HashMap<String, String>,
     pub local: LocalContext,
 }
 
 impl IcedContext {
-    pub fn new(home_dir: &str, tab: Tab, window_size: Size) -> IcedContext {
+    pub fn new(
+        home_dir: &str,
+        api_keys: HashMap<String, String>,
+        tab: Tab,
+        window_size: Size,
+    ) -> IcedContext {
         match tab {
             Tab::Browser { dir, file } => {
                 let local_context = match BrowserContext::new(home_dir, &dir, &file, window_size) {
@@ -45,11 +52,12 @@ impl IcedContext {
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
                     cwd: dir,
+                    api_keys,
                     local: local_context,
                 }
             },
             Tab::Chat(id) => {
-                let local_context = match ChatContext::new(id, window_size) {
+                let local_context = match ChatContext::new(id, api_keys.clone(), window_size) {
                     Ok(c) => LocalContext::Chat(c),
                     Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
                 };
@@ -57,12 +65,13 @@ impl IcedContext {
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
                     cwd: home_dir.to_string(),
+                    api_keys,
                     local: local_context,
                 }
             },
             Tab::WorkingDir(dir) => {
                 // TODO: make `no_backend` configurable
-                let local_context = match WorkingDirContext::new(false, &dir, window_size, 1.0) {
+                let local_context = match WorkingDirContext::new(false, api_keys.clone(), &dir, window_size, 1.0) {
                     Ok(c) => LocalContext::WorkingDir(c),
                     Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
                 };
@@ -70,6 +79,7 @@ impl IcedContext {
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
                     cwd: dir,
+                    api_keys,
                     local: local_context,
                 }
             },
@@ -227,14 +237,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         (_, IcedMessage::Browser(BrowserMessage::BackgroundJob(job)) | IcedMessage::Chat(ChatMessage::BackgroundJob(job)) | IcedMessage::WorkingDir(WorkingDirMessage::BackgroundJob(job))) => {
             Task::done(IcedMessage::BackgroundJob(job))
         },
-        (context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
+        (local_context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
-            match WorkingDirContext::new(false, &path, context.window_size(), context.zoom()) {
+            match WorkingDirContext::new(false, context.api_keys.clone(), &path, local_context.window_size(), local_context.zoom()) {
                 Ok(c) => {
-                    *context = LocalContext::WorkingDir(c);
+                    *local_context = LocalContext::WorkingDir(c);
                 },
                 Err(e) => {
-                    *context = LocalContext::Error(ErrorContext::new(format!("{e:?}"), context.window_size(), context.zoom()));
+                    *local_context = LocalContext::Error(ErrorContext::new(format!("{e:?}"), local_context.window_size(), local_context.zoom()));
                 },
             }
 

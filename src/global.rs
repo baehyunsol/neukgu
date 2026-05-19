@@ -1,5 +1,5 @@
 use chrono::Local;
-use crate::{Context, ContextJson, Error, NeukguId, init_log_dir, load_json};
+use crate::{Context, ContextJson, Config, Error, NeukguId, init_log_dir, load_json};
 use ragit_fs::{
     WriteMode,
     basename,
@@ -78,6 +78,14 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         create_dir(&join(global_index_dir, "cargo-targets")?)?;
     }
 
+    if !exists(&join(global_index_dir, "config.json")?) {
+        write_string(
+            &join(global_index_dir, "config.json")?,
+            &serde_json::to_string_pretty(&Config::default())?,
+            WriteMode::AlwaysCreate,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -150,6 +158,18 @@ pub fn remove_global_index(global_index_dir: &str, id: NeukguId) -> Result<(), E
     let index_at = join3(global_index_dir, "indexes", &format!("{:016x}", id.0))?;
     remove_file(&index_at)?;
     Ok(())
+}
+
+pub fn get_global_config(global_index_dir: &str) -> Result<Config, Error> {
+    Ok(serde_json::from_str(&read_string(&join(global_index_dir, "config.json")?)?)?)
+}
+
+pub fn save_global_config(config: &Config, global_index_dir: &str) -> Result<(), Error> {
+    Ok(write_string(
+        &join(global_index_dir, "config.json")?,
+        &serde_json::to_string_pretty(config)?,
+        WriteMode::CreateOrTruncate,
+    )?)
 }
 
 // It never fails, because `ui::gui::index` doesn't have a proper error handling method.

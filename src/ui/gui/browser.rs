@@ -318,7 +318,7 @@ impl IcedContext {
 }
 
 impl PopupContext for IcedContext {
-    fn can_close_popup(&self) -> bool { true }
+    fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
@@ -448,7 +448,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
-                return Ok(Task::done(IcedMessage::ClosePopup));
+                if context.can_close_popup() {
+                    return Ok(Task::done(IcedMessage::ClosePopup));
+                }
             },
             (Key::Named(NamedKey::ArrowUp), false, true, false) => {
                 return Ok(Task::done(IcedMessage::ChDir(parent(&context.cwd)?)));

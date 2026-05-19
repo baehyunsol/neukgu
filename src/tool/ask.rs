@@ -1,9 +1,9 @@
 use crate::{
+    Config,
     Error,
     LLMToken,
     Logger,
     LogEntry,
-    Model,
     Request,
     Thinking,
 };
@@ -15,9 +15,9 @@ pub enum AskTo {
     Web,
 }
 
-pub async fn ask_question_to_web(q: &str, working_dir: &str, logger: &Logger, model: Model) -> Result<String, Error> {
+pub async fn ask_question_to_web(q: &str, config: &Config, working_dir: &str, logger: &Logger) -> Result<String, Error> {
     let request = Request {
-        model,
+        model: config.agents.search,
         system_prompt: String::from("Search web and answer the user question."),
         history: vec![],
         query: vec![LLMToken::String(q.to_string())],
@@ -26,7 +26,7 @@ pub async fn ask_question_to_web(q: &str, working_dir: &str, logger: &Logger, mo
     };
 
     logger.log(LogEntry::AskQuestionToWebBegin(q.to_string()))?;
-    let response = request.request(working_dir, logger).await?;
+    let response = request.request(&config.request_config(), working_dir, logger).await?;
     logger.log(LogEntry::AskQuestionToWebEnd)?;
     Ok(response.response.to_string())
 }

@@ -6,7 +6,9 @@ use std::fmt;
 pub enum Model {
     GptMini,
     Gpt,
-    OpenAiComp,
+    OpenaiEtc1,
+    OpenaiEtc2,
+    OpenaiEtc3,
     Haiku,
     Sonnet,
     Opus,
@@ -19,18 +21,20 @@ pub enum Model {
 }
 
 impl Model {
-    pub fn api_name(&self) -> String {
+    pub fn api_name(&self) -> &'static str {
         match self {
-            Model::GptMini => "gpt-5.4-mini".to_string(),
-            Model::Gpt => "gpt-5.5".to_string(),
-            Model::OpenAiComp => std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.5".to_string()),
-            Model::Haiku => "claude-haiku-4-5".to_string(),
-            Model::Sonnet => "claude-sonnet-4-6".to_string(),
-            Model::Opus => "claude-opus-4-7".to_string(),
-            Model::Mock => "mock".to_string(),
-            Model::GeminiPro => "gemini-3.1-pro-preview".to_string(),
-            Model::GeminiFlash => "gemini-3-flash-preview".to_string(),
-            Model::Disabled => "disabled".to_string(),
+            Model::GptMini => "gpt-5.4-mini",
+            Model::Gpt => "gpt-5.5",
+            Model::OpenaiEtc1 => unreachable!(),
+            Model::OpenaiEtc2 => unreachable!(),
+            Model::OpenaiEtc3 => unreachable!(),
+            Model::Haiku => "claude-haiku-4-5",
+            Model::Sonnet => "claude-sonnet-4-6",
+            Model::Opus => "claude-opus-4-7",
+            Model::Mock => "mock",
+            Model::GeminiPro => "gemini-3.1-pro-preview",
+            Model::GeminiFlash => "gemini-3-flash-preview",
+            Model::Disabled => "disabled",
         }
     }
 
@@ -38,7 +42,9 @@ impl Model {
         match self {
             Model::GptMini => "gpt-mini",
             Model::Gpt => "gpt",
-            Model::OpenAiComp => "openai-compatible",
+            Model::OpenaiEtc1 => "openai-etc1",
+            Model::OpenaiEtc2 => "openai-etc2",
+            Model::OpenaiEtc3 => "openai-etc3",
             Model::Haiku => "haiku",
             Model::Sonnet => "sonnet",
             Model::Opus => "opus",
@@ -51,11 +57,30 @@ impl Model {
         }
     }
 
+    pub fn api_key_env_var(&self) -> &'static str {
+        match self {
+            Model::GptMini => "OPENAI_API_KEY",
+            Model::Gpt => "OPENAI_API_KEY",
+            Model::OpenaiEtc1 => "OPENAI_ETC1_API_KEY",
+            Model::OpenaiEtc2 => "OPENAI_ETC2_API_KEY",
+            Model::OpenaiEtc3 => "OPENAI_ETC3_API_KEY",
+            Model::Haiku => "ANTHROPIC_API_KEY",
+            Model::Sonnet => "ANTHROPIC_API_KEY",
+            Model::Opus => "ANTHROPIC_API_KEY",
+            Model::Mock => "MOCK_API_KEY",
+            Model::GeminiPro => "GEMINI_API_KEY",
+            Model::GeminiFlash => "GEMINI_API_KEY",
+            Model::Disabled => "_",
+        }
+    }
+
     pub fn from_short_name(s: &str) -> Result<Model, Error> {
         match s {
             "gpt-mini" => Ok(Model::GptMini),
             "gpt" => Ok(Model::Gpt),
-            "openai-compatible" => Ok(Model::OpenAiComp),
+            "openai-etc1" => Ok(Model::OpenaiEtc1),
+            "openai-etc2" => Ok(Model::OpenaiEtc2),
+            "openai-etc3" => Ok(Model::OpenaiEtc3),
             "haiku" => Ok(Model::Haiku),
             "sonnet" => Ok(Model::Sonnet),
             "opus" => Ok(Model::Opus),
@@ -71,7 +96,9 @@ impl Model {
         match self {
             Model::GptMini => true,  // TODO: I haven't tested yet
             Model::Gpt => true,
-            Model::OpenAiComp => false,
+            Model::OpenaiEtc1 => false,
+            Model::OpenaiEtc2 => false,
+            Model::OpenaiEtc3 => false,
             Model::Haiku => false,  // As of 2026-05-12
             Model::Sonnet => true,
             Model::Opus => true,
@@ -84,9 +111,11 @@ impl Model {
 
     pub fn provider(&self) -> ApiProvider {
         match self {
-            Model::GptMini => ApiProvider::OpenAi,
-            Model::Gpt => ApiProvider::OpenAi,
-            Model::OpenAiComp => ApiProvider::OpenAiComp,
+            Model::GptMini => ApiProvider::Openai,
+            Model::Gpt => ApiProvider::Openai,
+            Model::OpenaiEtc1 => ApiProvider::OpenaiLegacy,
+            Model::OpenaiEtc2 => ApiProvider::OpenaiLegacy,
+            Model::OpenaiEtc3 => ApiProvider::OpenaiLegacy,
             Model::Haiku => ApiProvider::Anthropic,
             Model::Sonnet => ApiProvider::Anthropic,
             Model::Opus => ApiProvider::Anthropic,
@@ -97,11 +126,13 @@ impl Model {
         }
     }
 
-    pub fn all() -> [Model; 10] {
+    pub fn all() -> [Model; 12] {
         [
             Model::GptMini,
             Model::Gpt,
-            Model::OpenAiComp,
+            Model::OpenaiEtc1,
+            Model::OpenaiEtc2,
+            Model::OpenaiEtc3,
             Model::Haiku,
             Model::Sonnet,
             Model::Opus,
@@ -142,6 +173,17 @@ impl Agents {
     }
 }
 
+impl Agents {
+    pub fn any<F>(&self, f: F) -> bool where F: Fn(Model) -> bool {
+        f(self.big) || f(self.small) || f(self.search) || f(self.summary)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=Model> {
+        use std::iter::once;
+        once(self.big).chain(once(self.small)).chain(once(self.search)).chain(once(self.summary))
+    }
+}
+
 impl Default for Agents {
     fn default() -> Agents {
         Agents {
@@ -156,8 +198,8 @@ impl Default for Agents {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ApiProvider {
     Anthropic,
-    OpenAi,
-    OpenAiComp,
+    Openai,
+    OpenaiLegacy,
     Mock,
     Gemini,
 }

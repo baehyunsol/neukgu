@@ -32,6 +32,11 @@ pub struct IcedContext {
     pub window_size: Size,
     pub frame: usize,
 
+    // I want to directly set env vars, but it's unsafe to do so in Rust.
+    // So the api key env vars are stored here. If the same key is set in
+    // the env var and this hash_map, the env var has a precedence.
+    pub api_keys: HashMap<String, String>,
+
     // If it's `None`, the index tab is selected.
     pub selected_tab: Option<usize>,
 
@@ -51,6 +56,7 @@ impl IcedContext {
             home_dir: home_dir.to_string(),
             window_size: Size::new(0.0, 0.0),
             frame: 0,
+            api_keys: HashMap::new(),
             selected_tab: None,
             index: IndexContext::new(&home_dir),
             tabs: vec![],
@@ -293,7 +299,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             }
 
             else {
-                let new_tab = TabContext::new(&context.home_dir, tab, context.window_size);
+                let new_tab = TabContext::new(&context.home_dir, context.api_keys.clone(), tab, context.window_size);
                 let new_tab_index = match context.selected_tab {
                     Some(i) => i + 1,
                     None => 0,
@@ -478,6 +484,7 @@ fn render_tab_title<'t, 'm>(
             .align_y(Vertical::Center)
             .spacing(4.0)
     )
+        .width(Length::Fill)
         .style(|_, _| {
             ButtonStyle {
                 background: None,
@@ -520,7 +527,6 @@ fn render_tab_title<'t, 'm>(
     Container::new(
         Row::from_vec(vec![
             title.into(),
-            Space::new().width(Length::Fill).into(),
             close.into(),
         ])
             .align_y(Vertical::Center)

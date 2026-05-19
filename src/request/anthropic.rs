@@ -1,4 +1,4 @@
-use super::{HttpRequest, LLMToken, Request, Thinking};
+use super::{Config, HttpRequest, LLMToken, Request, Thinking};
 use base64::Engine;
 use crate::Error;
 use ragit_fs::read_bytes;
@@ -17,12 +17,14 @@ pub struct AnthropicRequest {
 }
 
 impl Request {
-    pub fn to_anthropic_request(&self, working_dir: &str) -> Result<HttpRequest, Error> {
+    pub fn to_anthropic_request(&self, config: &Config, working_dir: &str) -> Result<HttpRequest, Error> {
         let mut headers: HashMap<&str, &str> = HashMap::new();
-        let api_key = match std::env::var("ANTHROPIC_API_KEY") {
+        let api_key_env_var = self.model.api_key_env_var();
+        let api_key = match std::env::var(api_key_env_var) {
             Ok(k) => k.to_string(),
-            Err(_) => {
-                return Err(Error::ApiKeyNotFound { env_var: String::from("ANTHROPIC_API_KEY") });
+            Err(_) => match config.fallback_api_keys.get(api_key_env_var) {
+                Some(k) => k.to_string(),
+                None => return Err(Error::ApiKeyNotFound { env_var: String::from(api_key_env_var) }),
             },
         };
 

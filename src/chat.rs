@@ -1,6 +1,6 @@
 use chrono::Local;
 use crate::{ApiLog, Error, Logger, LLMToken, Model, WebSearchResult};
-use crate::request::{self, Request, Thinking};
+use crate::request::{self, Config as RequestConfig, Request, Thinking};
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
 use ragit_fs::{
@@ -15,6 +15,7 @@ use ragit_fs::{
     write_string,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -41,7 +42,7 @@ pub struct Chat {
     pub title: Option<String>,
     pub started_at: i64,
     pub updated_at: i64,
-    pub config: ChatConfig,
+    pub config: Config,
     pub turns: Vec<ChatTurnId>,
 }
 
@@ -54,7 +55,7 @@ impl Chat {
             title,
             started_at: now,
             updated_at: now,
-            config: ChatConfig::new(),
+            config: Config::new(),
             turns: vec![],
         }
     }
@@ -76,7 +77,7 @@ impl Chat {
         Ok(())
     }
 
-    pub async fn add_turn(&mut self, query: Vec<LLMToken>, global_index_dir: &str) -> Result<(), Error> {
+    pub async fn add_turn(&mut self, query: Vec<LLMToken>, fallback_api_keys: HashMap<String, String>, global_index_dir: &str) -> Result<(), Error> {
         let mut turns = Vec::with_capacity(self.turns.len());
         let user_at = Local::now().timestamp_millis();
 
@@ -101,7 +102,7 @@ impl Chat {
             thinking: self.config.thinking,
         };
 
-        let response = request.request(&working_dir, &logger).await?;
+        let response = request.request(&self.config.request_config(fallback_api_keys), &working_dir, &logger).await?;
         let new_turn = ChatTurn {
             chat: self.id,
             id: ChatTurnId::new(),
@@ -161,25 +162,32 @@ impl ChatTurn {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ChatConfig {
+pub struct Config {
     pub model: Model,
     pub thinking: Thinking,
     pub enable_web_search: bool,
 }
 
-impl ChatConfig {
-    pub fn new() -> ChatConfig {
-        ChatConfig {
+impl Config {
+    pub fn new() -> Config {
+        Config {
             model: Model::Gpt,
             thinking: Thinking::Enabled,
             enable_web_search: false,
         }
     }
+
+    pub fn request_config(&self, fallback_api_keys: HashMap<String, String>) -> RequestConfig {
+        RequestConfig {
+            fallback_api_keys,
+            ..RequestConfig::default()  // TODO: models
+        }
+    }
 }
 
-pub async fn add_chat_turn(chat_id: ChatId, query: Vec<LLMToken>, global_index_dir: &str) -> Result<(), Error> {
+pub async fn add_chat_turn(chat_id: ChatId, fallback_api_keys: HashMap<String, String>, query: Vec<LLMToken>, global_index_dir: &str) -> Result<(), Error> {
     let mut chat = Chat::load(chat_id, global_index_dir)?;
-    chat.add_turn(query, global_index_dir).await?;
+    chat.add_turn(query, fallback_api_keys, global_index_dir).await?;
     chat.store(global_index_dir)?;
     Ok(())
 }

@@ -2,7 +2,7 @@ use super::{gray, set_round_bg};
 use crate::{Config, Model, ToolKind};
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{Checkbox, Column, Container, Radio, Row, Slider, text};
+use iced::widget::{Checkbox, Column, Container, Radio, Row, Slider, TextInput, text};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Questionable {
@@ -20,6 +20,12 @@ pub enum SetProjectConfig {
     AgentQuestionable(Questionable),
     ContextSize(u64),
     ToggleTool(ToolKind, bool),
+    OpenaiEtc1BaseUrl(String),
+    OpenaiEtc1Model(String),
+    OpenaiEtc2BaseUrl(String),
+    OpenaiEtc2Model(String),
+    OpenaiEtc3BaseUrl(String),
+    OpenaiEtc3Model(String),
 }
 
 pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
@@ -69,10 +75,52 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
                 |tool| config.activated_tools.contains(tool)
             ).collect();
         },
+        SetProjectConfig::OpenaiEtc1BaseUrl(url) => {
+            if url.is_empty() {
+                config.openai_etc1_base_url = None;
+            } else {
+                config.openai_etc1_base_url = Some(url);
+            }
+        },
+        SetProjectConfig::OpenaiEtc1Model(model) => {
+            if model.is_empty() {
+                config.openai_etc1_model = None;
+            } else {
+                config.openai_etc1_model = Some(model);
+            }
+        },
+        SetProjectConfig::OpenaiEtc2BaseUrl(url) => {
+            if url.is_empty() {
+                config.openai_etc2_base_url = None;
+            } else {
+                config.openai_etc2_base_url = Some(url);
+            }
+        },
+        SetProjectConfig::OpenaiEtc2Model(model) => {
+            if model.is_empty() {
+                config.openai_etc2_model = None;
+            } else {
+                config.openai_etc2_model = Some(model);
+            }
+        },
+        SetProjectConfig::OpenaiEtc3BaseUrl(url) => {
+            if url.is_empty() {
+                config.openai_etc3_base_url = None;
+            } else {
+                config.openai_etc3_base_url = Some(url);
+            }
+        },
+        SetProjectConfig::OpenaiEtc3Model(model) => {
+            if model.is_empty() {
+                config.openai_etc3_model = None;
+            } else {
+                config.openai_etc3_model = Some(model);
+            }
+        },
     }
 }
 
-pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjectConfig> {
+pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectConfig> {
     fn panel_container(panel: Element<SetProjectConfig>, zoom: f32) -> Element<SetProjectConfig> {
         Container::new(panel).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into()
     }
@@ -142,7 +190,7 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
             1..=16,
             config.llm_context_max_len as u32 / 65536,
             |n| SetProjectConfig::ContextSize(n as u64),
-        ).width(zoom * 256.0).into(),
+        ).width(zoom * 384.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
 
     let mut tool_checkboxes = vec![];
@@ -169,6 +217,76 @@ pub fn config_ui<'c, 'm>(config: &'c Config, zoom: f32) -> Element<'m, SetProjec
         text!("Tools").size(zoom * 14.0).into(),
         Column::from_vec(tool_checkboxes).spacing(zoom * 8.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
+
+    fn openai_etc_config<'c, F1: Fn(String) -> SetProjectConfig + 'c, F2: Fn(String) -> SetProjectConfig + 'c>(
+        title: &'static str,
+        config: &'c Config,
+        base_url: &'c Option<String>,
+        model_name: &'c Option<String>,
+        set_base_url: F1,
+        set_model: F2,
+        model: Model,
+        zoom: f32,
+    ) -> Element<'c, SetProjectConfig> {
+        let selected_any = config.agents.any(|m| m == model);
+
+        panel_container(Column::from_vec(vec![
+            text!("{title}").size(zoom * 14.0).into(),
+            Row::from_vec(vec![
+                text!("base url:").size(zoom * 14.0).into(),
+                TextInput::new("", base_url.as_ref().map_or("", |s| s))
+                    .on_input_maybe(if selected_any {
+                        Some(set_base_url)
+                    } else {
+                        None
+                    })
+                    .width(zoom * 256.0)
+                    .into(),
+            ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
+            Row::from_vec(vec![
+                text!("   model:").size(zoom * 14.0).into(),
+                TextInput::new("", model_name.as_ref().map_or("", |s| s))
+                    .on_input_maybe(if selected_any {
+                        Some(set_model)
+                    } else {
+                        None
+                    })
+                    .width(zoom * 256.0)
+                    .into(),
+            ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
+        ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom)
+    }
+
+    panels.push(openai_etc_config(
+        "openai-etc-1",
+        config,
+        &config.openai_etc1_base_url,
+        &config.openai_etc1_model,
+        SetProjectConfig::OpenaiEtc1BaseUrl,
+        SetProjectConfig::OpenaiEtc1Model,
+        Model::OpenaiEtc1,
+        zoom,
+    ));
+    panels.push(openai_etc_config(
+        "openai-etc-2",
+        config,
+        &config.openai_etc2_base_url,
+        &config.openai_etc2_model,
+        SetProjectConfig::OpenaiEtc2BaseUrl,
+        SetProjectConfig::OpenaiEtc2Model,
+        Model::OpenaiEtc2,
+        zoom,
+    ));
+    panels.push(openai_etc_config(
+        "openai-etc-3",
+        config,
+        &config.openai_etc3_base_url,
+        &config.openai_etc3_model,
+        SetProjectConfig::OpenaiEtc3BaseUrl,
+        SetProjectConfig::OpenaiEtc3Model,
+        Model::OpenaiEtc3,
+        zoom,
+    ));
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
 }

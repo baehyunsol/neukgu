@@ -1,4 +1,4 @@
-use super::{ApiLog, HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
+use super::{ApiLog, Config, HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
 use async_std::task::sleep;
 use crate::{Error, Response, load_json};
 use ragit_fs::{WriteMode, exists, join3, remove_file, write_string};
@@ -7,7 +7,20 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 impl Request {
-    pub fn to_mock_request(&self) -> Result<HttpRequest, Error> {
+    pub fn to_mock_request(&self, config: &Config) -> Result<HttpRequest, Error> {
+        let api_key_env_var = self.model.api_key_env_var();
+        let api_key = match std::env::var(api_key_env_var) {
+            Ok(k) => k.to_string(),
+            Err(_) => match config.fallback_api_keys.get(api_key_env_var) {
+                Some(k) => k.to_string(),
+                None => return Err(Error::ApiKeyNotFound { env_var: String::from(api_key_env_var) }),
+            },
+        };
+
+        if api_key != "mock-1234" {
+            return Err(Error::MockApiKeyError);
+        }
+
         Ok(HttpRequest {
             // It doesn't send anything to this url.
             // `url` is set because otherwise `request::Client` will refuse to construct a `RequestBuilder`.

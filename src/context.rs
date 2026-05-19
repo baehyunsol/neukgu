@@ -87,7 +87,7 @@ pub struct ContextJson {
 }
 
 impl Context {
-    pub fn new(config: &Config, working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
+    pub fn new(working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
         let available_binaries = load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
         let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, true, true);
@@ -111,7 +111,7 @@ impl Context {
         })
     }
 
-    pub fn load(config: &Config, working_dir: &str) -> Result<Self, Error> {
+    pub fn load(working_dir: &str) -> Result<Self, Error> {
         let s = read_string(&join3(working_dir, ".neukgu", "context.json")?)?;
         let context_json: ContextJson = serde_json::from_str(&s)?;
 
@@ -128,7 +128,7 @@ impl Context {
             hidden_turns: context_json.hidden_turns.clone(),
             pinned_turns: context_json.pinned_turns.clone(),
             is_in_global_index_dir: context_json.is_in_global_index_dir,
-            ..Context::new(config, working_dir, false)?
+            ..Context::new(working_dir, false)?
         })
     }
 

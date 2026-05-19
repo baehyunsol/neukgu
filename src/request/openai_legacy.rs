@@ -1,6 +1,6 @@
-use super::{HttpRequest, LLMToken, Request, Thinking};
+use super::{Config, HttpRequest, LLMToken, Request, Thinking};
 use base64::Engine;
-use crate::Error;
+use crate::{Error, Model};
 use ragit_fs::read_bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -8,20 +8,28 @@ use std::collections::HashMap;
 
 // chat-completion api
 #[derive(Deserialize, Serialize)]
-pub struct OpenAiCompRequest {
+pub struct OpenaiLegacyRequest {
     model: String,
     messages: Vec<Value>,
     reasoning_effort: String,
 }
 
 impl Request {
-    pub fn to_openai_comp_request(&self, working_dir: &str) -> Result<HttpRequest, Error> {
+    pub fn to_openai_legacy_request(&self, config: &Config, working_dir: &str) -> Result<HttpRequest, Error> {
         let mut headers: HashMap<&str, String> = HashMap::new();
 
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-            headers.insert("Authorization", format!("Bearer {api_key}"));
-        }
+        // It requires an API key even for local models. Users can insert an arbitrary api key for local models.
+        // Raising this error can teach the user which env var is needed for this model.
+        let api_key_env_var = self.model.api_key_env_var();
+        let api_key = match std::env::var(api_key_env_var) {
+            Ok(k) => k.to_string(),
+            Err(_) => match config.fallback_api_keys.get(api_key_env_var) {
+                Some(k) => k.to_string(),
+                None => return Err(Error::ApiKeyNotFound { env_var: String::from(api_key_env_var) }),
+            },
+        };
 
+        headers.insert("Authorization", format!("Bearer {api_key}"));
         let headers: HashMap<String, String> = headers.iter().map(
             |(k, v)| (k.to_string(), v.to_string())
         ).collect();
@@ -56,16 +64,47 @@ impl Request {
             Thinking::Adaptive => "low",
         }.to_string();
 
-        let body = OpenAiCompRequest {
-            model: self.model.api_name().to_string(),
+        let (model_env_var, base_url_env_var) = match self.model {
+            Model::OpenaiEtc1 => ("OPENAI_ETC1_MODEL", "OPENAI_ETC1_BASE_URL"),
+            Model::OpenaiEtc2 => ("OPENAI_ETC2_MODEL", "OPENAI_ETC2_BASE_URL"),
+            Model::OpenaiEtc3 => ("OPENAI_ETC3_MODEL", "OPENAI_ETC3_BASE_URL"),
+            _ => unreachable!(),
+        };
+
+        let model = match self.model {
+            Model::OpenaiEtc1 => config.openai_etc1_model.clone(),
+            Model::OpenaiEtc2 => config.openai_etc2_model.clone(),
+            Model::OpenaiEtc3 => config.openai_etc3_model.clone(),
+            _ => unreachable!(),
+        };
+        let model = match (model, std::env::var(model_env_var)) {
+            (_, Ok(model)) => model,
+            (Some(model), _) => model,
+            _ => {
+                return Err(Error::ApiKeyNotFound { env_var: model_env_var.to_string() });
+            },
+        };
+
+        let body = OpenaiLegacyRequest {
+            model,
             messages,
             reasoning_effort,
         };
 
-        let base_url = std::env::var("OPENAI_BASE_URL")
-            .unwrap_or_else(|_| String::from("https://api.openai.com/v1"))
-            .trim_end_matches('/')
-            .to_string();
+        let base_url = match self.model {
+            Model::OpenaiEtc1 => config.openai_etc1_base_url.clone(),
+            Model::OpenaiEtc2 => config.openai_etc2_base_url.clone(),
+            Model::OpenaiEtc3 => config.openai_etc3_base_url.clone(),
+            _ => unreachable!(),
+        };
+        let base_url = match (base_url, std::env::var(base_url_env_var)) {
+            (_, Ok(base_url)) => base_url,
+            (Some(base_url), _) => base_url,
+            _ => {
+                return Err(Error::ApiKeyNotFound { env_var: base_url_env_var.to_string() });
+            },
+        };
+        let base_url = base_url.trim_end_matches('/').to_string();
 
         Ok(HttpRequest {
             url: format!("{base_url}/chat/completions"),
