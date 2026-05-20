@@ -471,6 +471,11 @@ impl ToolCall {
                 }
 
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir, false /* copy index dir */)?;
+
+                if let Ok(home) = std::env::var("HOME") {
+                    env.push((String::from("HOME"), home));
+                }
+
                 env.push((String::from("PATH"), into_abs_path(&join(&context.working_dir, "bins")?)?));
 
                 if binary == "python3" || binary == "pip" {
