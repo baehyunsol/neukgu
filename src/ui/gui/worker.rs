@@ -125,6 +125,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 let rg_result = subprocess::run(
                     String::from("rg"),
                     &[regex.to_string(), String::from("--json"), String::from("--context=5")],
+                    false,
                     &[],
                     &path,
                     20,  // timeout
@@ -138,6 +139,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 Ok(command) => match subprocess::run(
                     command[0].to_string(),
                     &command[1..],
+                    false,
                     &[],
                     &path,
                     600,  // timeout

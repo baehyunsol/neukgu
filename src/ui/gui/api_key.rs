@@ -10,6 +10,7 @@ pub struct IcedContext {
     pub key1: String,
     pub key2: String,
     pub key3: String,
+    pub key4: String,
 }
 
 impl IcedContext {
@@ -19,6 +20,7 @@ impl IcedContext {
             key1: String::new(),
             key2: String::new(),
             key3: String::new(),
+            key4: String::new(),
         }
     }
 }
@@ -28,6 +30,7 @@ pub enum IcedMessage {
     EditKey1(String),
     EditKey2(String),
     EditKey3(String),
+    EditKey4(String),
     Enter,
 }
 
@@ -48,6 +51,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::EditKey3(key) => {
             context.key3 = key;
+        },
+        IcedMessage::EditKey4(key) => {
+            context.key4 = key;
         },
         IcedMessage::Enter => {},
     }
@@ -87,6 +93,10 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
 
     if let Some(env_var) = api_keys_context.missing_api_keys.get(2) {
         column.push(input(env_var, &api_keys_context.key3, IcedMessage::EditKey3, zoom));
+    }
+
+    if let Some(env_var) = api_keys_context.missing_api_keys.get(3) {
+        column.push(input(env_var, &api_keys_context.key4, IcedMessage::EditKey4, zoom));
     }
 
     column.push(button("Enter", IcedMessage::Enter, green(), zoom).into());

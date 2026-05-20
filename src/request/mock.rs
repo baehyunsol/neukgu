@@ -408,8 +408,8 @@ os.symlink(\"new_crate/Cargo.toml\", \"symlink-correct\")
             None,
         ),
 
-        // An arbitrary library to test python/pip.
-        // I chose this because I don't think it'd ever be on my machine, system-wide.
+        // pip/venv test
+        // I chose `unicorn` because I don't think it'd ever be on my machine, system-wide.
         MockRequest::new(
             "<run>\n<command>python3 -c \"import unicorn\"</command>\n</run>",
             Some("<exit_code>1</exit_code>"),
@@ -426,6 +426,35 @@ os.symlink(\"new_crate/Cargo.toml\", \"symlink-correct\")
             "<write>\n<mode>create</mode>\n<path>logs/summary-python.md</path>\n<content>\nI have tested python and it's working.\n</content>\n</write>",
             None,
         ),
+        // pip/venv test end
+
+        // PATH test
+        // Even if `btm` is in the user's PATH, the sandbox cannot detect this. This test makes sense
+        // only if `btm` is in the user's PATH.
+        MockRequest::new(
+            "<write>\n<mode>create</mode>\n<path>path_test.py</path>\n<content>
+import subprocess
+subprocess.run(\"btm\")
+</content>\n</write>",
+            None,
+        ),
+        MockRequest::new(
+            "<run>\n<command>python3 path_test.py</command>\n</run>",
+            Some("Error"),
+        ),
+        MockRequest::new(
+            "<write>\n<mode>truncate</mode>\n<path>path_test.py</path>\n<content>
+import subprocess
+subprocess.run([\"cargo\", \"--help\"])
+</content>\n</write>",
+            None,
+        ),
+        // The sandbox can detect `cargo`.
+        MockRequest::new(
+            "<run>\n<command>python3 path_test.py</command>\n</run>",
+            Some("build"),
+        ),
+        // PATH test end
 
         // This is suppoed to be an error because there's no summary in `logs/done`
         MockRequest::new(

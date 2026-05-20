@@ -126,6 +126,12 @@ pub enum SetChatConfig {
     Model(Model),
     Thinking(bool),
     WebSearch(bool),
+    OpenaiEtc1BaseUrl(String),
+    OpenaiEtc1Model(String),
+    OpenaiEtc2BaseUrl(String),
+    OpenaiEtc2Model(String),
+    OpenaiEtc3BaseUrl(String),
+    OpenaiEtc3Model(String),
 }
 
 pub fn set_chat_config(config: &mut ChatConfig, set: SetChatConfig) {
@@ -147,13 +153,56 @@ pub fn set_chat_config(config: &mut ChatConfig, set: SetChatConfig) {
         SetChatConfig::WebSearch(w) => {
             config.enable_web_search = w;
         },
+        SetChatConfig::OpenaiEtc1BaseUrl(url) => {
+            if url.is_empty() {
+                config.openai_etc1_base_url = None;
+            } else {
+                config.openai_etc1_base_url = Some(url);
+            }
+        },
+        SetChatConfig::OpenaiEtc1Model(model) => {
+            if model.is_empty() {
+                config.openai_etc1_model = None;
+            } else {
+                config.openai_etc1_model = Some(model);
+            }
+        },
+        SetChatConfig::OpenaiEtc2BaseUrl(url) => {
+            if url.is_empty() {
+                config.openai_etc2_base_url = None;
+            } else {
+                config.openai_etc2_base_url = Some(url);
+            }
+        },
+        SetChatConfig::OpenaiEtc2Model(model) => {
+            if model.is_empty() {
+                config.openai_etc2_model = None;
+            } else {
+                config.openai_etc2_model = Some(model);
+            }
+        },
+        SetChatConfig::OpenaiEtc3BaseUrl(url) => {
+            if url.is_empty() {
+                config.openai_etc3_base_url = None;
+            } else {
+                config.openai_etc3_base_url = Some(url);
+            }
+        },
+        SetChatConfig::OpenaiEtc3Model(model) => {
+            if model.is_empty() {
+                config.openai_etc3_model = None;
+            } else {
+                config.openai_etc3_model = Some(model);
+            }
+        },
     }
 }
 
+pub fn panel_container<'m, Message: 'm>(panel: Element<'m, Message>, zoom: f32) -> Element<'m, Message> {
+    Container::new(panel).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into()
+}
+
 pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectConfig> {
-    fn panel_container(panel: Element<SetProjectConfig>, zoom: f32) -> Element<SetProjectConfig> {
-        Container::new(panel).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into()
-    }
 
     let mut panels = vec![];
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
@@ -248,80 +297,35 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
         Column::from_vec(tool_checkboxes).spacing(zoom * 8.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
 
-    fn openai_etc_config<'c, F1: Fn(String) -> SetProjectConfig + 'c, F2: Fn(String) -> SetProjectConfig + 'c>(
-        title: &'static str,
-        config: &'c Config,
-        base_url: &'c Option<String>,
-        model_name: &'c Option<String>,
-        set_base_url: F1,
-        set_model: F2,
-        model: Model,
-        zoom: f32,
-    ) -> Element<'c, SetProjectConfig> {
-        let selected_any = config.agents.any(|m| m == model);
-
-        panel_container(Column::from_vec(vec![
-            text!("{title}").size(zoom * 14.0).into(),
-            Row::from_vec(vec![
-                text!("base url:").size(zoom * 14.0).into(),
-                TextInput::new("", base_url.as_ref().map_or("", |s| s))
-                    .on_input_maybe(if selected_any {
-                        Some(set_base_url)
-                    } else {
-                        None
-                    })
-                    .width(zoom * 256.0)
-                    .into(),
-            ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
-            Row::from_vec(vec![
-                text!("   model:").size(zoom * 14.0).into(),
-                TextInput::new("", model_name.as_ref().map_or("", |s| s))
-                    .on_input_maybe(if selected_any {
-                        Some(set_model)
-                    } else {
-                        None
-                    })
-                    .width(zoom * 256.0)
-                    .into(),
-            ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
-        ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom)
-    }
-
-    panels.push(openai_etc_config(
+    panels.push(panel_container(openai_etc_config(
         "openai-etc-1",
-        config,
         &config.openai_etc1_base_url,
         &config.openai_etc1_model,
         SetProjectConfig::OpenaiEtc1BaseUrl,
         SetProjectConfig::OpenaiEtc1Model,
-        Model::OpenaiEtc1,
         zoom,
-    ));
-    panels.push(openai_etc_config(
+    ), zoom));
+    panels.push(panel_container(openai_etc_config(
         "openai-etc-2",
-        config,
         &config.openai_etc2_base_url,
         &config.openai_etc2_model,
         SetProjectConfig::OpenaiEtc2BaseUrl,
         SetProjectConfig::OpenaiEtc2Model,
-        Model::OpenaiEtc2,
         zoom,
-    ));
-    panels.push(openai_etc_config(
+    ), zoom));
+    panels.push(panel_container(openai_etc_config(
         "openai-etc-3",
-        config,
         &config.openai_etc3_base_url,
         &config.openai_etc3_model,
         SetProjectConfig::OpenaiEtc3BaseUrl,
         SetProjectConfig::OpenaiEtc3Model,
-        Model::OpenaiEtc3,
         zoom,
-    ));
+    ), zoom));
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
 }
 
-pub fn chat_config_ui<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, SetChatConfig> {
+pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, SetChatConfig> {
     Row::from_vec(vec![
         text!("Model:").size(zoom * 14.0).into(),
         PickList::new(
@@ -355,4 +359,62 @@ pub fn chat_config_ui<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, SetC
         .height(zoom * 48.0)
         .align_y(Vertical::Center)
         .into()
+}
+
+pub fn chat_config_ui2<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, SetChatConfig> {
+    Row::from_vec(vec![
+        panel_container(openai_etc_config(
+            "openai-etc-1",
+            &config.openai_etc1_base_url,
+            &config.openai_etc1_model,
+            SetChatConfig::OpenaiEtc1BaseUrl,
+            SetChatConfig::OpenaiEtc1Model,
+            zoom,
+        ), zoom),
+        panel_container(openai_etc_config(
+            "openai-etc-2",
+            &config.openai_etc2_base_url,
+            &config.openai_etc2_model,
+            SetChatConfig::OpenaiEtc2BaseUrl,
+            SetChatConfig::OpenaiEtc2Model,
+            zoom,
+        ), zoom),
+        panel_container(openai_etc_config(
+            "openai-etc-3",
+            &config.openai_etc3_base_url,
+            &config.openai_etc3_model,
+            SetChatConfig::OpenaiEtc3BaseUrl,
+            SetChatConfig::OpenaiEtc3Model,
+            zoom,
+        ), zoom),
+    ]).spacing(zoom * 8.0).into()
+}
+
+fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2: Fn(String) -> Message + 'c>(
+    title: &'static str,
+    base_url: &'c Option<String>,
+    model_name: &'c Option<String>,
+    set_base_url: F1,
+    set_model: F2,
+    zoom: f32,
+) -> Element<'c, Message> {
+    Column::from_vec(vec![
+        text!("{title}").size(zoom * 14.0).into(),
+        Row::from_vec(vec![
+            text!("base url:").size(zoom * 14.0).into(),
+            TextInput::new("", base_url.as_ref().map_or("", |s| s))
+                .size(zoom * 14.0)
+                .on_input(set_base_url)
+                .width(zoom * 320.0)
+                .into(),
+        ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
+        Row::from_vec(vec![
+            text!("   model:").size(zoom * 14.0).into(),
+            TextInput::new("", model_name.as_ref().map_or("", |s| s))
+                .size(zoom * 14.0)
+                .on_input(set_model)
+                .width(zoom * 320.0)
+                .into(),
+        ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
+    ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
 }

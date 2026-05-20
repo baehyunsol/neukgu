@@ -64,8 +64,8 @@ pub enum Error {
     /// see <https://docs.rs/usvg/0.47.0/usvg/enum.Error.html>
     SvgError(resvg::usvg::Error),
 
-    /// see <https://docs.rs/tera/latest/tera/struct.Error.html>
-    TeraError(tera::Error),
+    /// see <https://docs.rs/which/latest/which/enum.Error.html>
+    WhichError(which::Error),
 }
 
 impl From<ragit_cli::Error> for Error {
@@ -143,9 +143,9 @@ impl From<resvg::usvg::Error> for Error {
     }
 }
 
-impl From<tera::Error> for Error {
-    fn from(e: tera::Error) -> Error {
-        Error::TeraError(e)
+impl From<which::Error> for Error {
+    fn from(e: which::Error) -> Error {
+        Error::WhichError(e)
     }
 }
 

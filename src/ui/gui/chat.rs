@@ -17,7 +17,7 @@ use super::api_key::{
     IcedMessage as GetApiKeysMessage,
     get_api_keys_popup,
 };
-use super::config::{SetChatConfig, chat_config_ui, set_chat_config};
+use super::config::{SetChatConfig, chat_config_ui1, set_chat_config};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::worker::{
     Job,
@@ -63,7 +63,7 @@ use iced::widget::text_editor::{
 use ragit_fs::join4;
 use regex::Regex;
 use std::collections::hash_map::{Entry, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 const HELP_MESSAGE: &str = "(TODO: write help message)";
 
@@ -73,6 +73,8 @@ pub struct IcedContext {
     pub get_api_keys_context: GetApiKeysContext,
     pub chat: Chat,
     pub turns: HashMap<ChatTurnId, ChatTurn>,
+    pub ai_code_blocks: HashMap<ChatTurnId, Vec<(String, Option<String>)>>,
+    pub user_code_blocks: HashMap<ChatTurnId, Vec<(String, Option<String>)>>,
 
     // Whenever `bg_job` is set, this timestamp_millis is also set.
     pub bg_at: Option<i64>,
@@ -111,22 +113,19 @@ impl IcedContext {
         let global_index_dir = get_global_index_dir()?;
         let chat = Chat::load(chat_id, &global_index_dir)?;
         let missing_api_keys = get_missing_api_keys(&api_keys, chat.config.model);
-        let mut turns = HashMap::with_capacity(chat.turns.len());
         let mut curr_popup = None;
 
         if !missing_api_keys.is_empty() {
             curr_popup = Some(Popup::GetApiKeys);
         }
 
-        for turn in chat.turns.iter() {
-            turns.insert(*turn, ChatTurn::load(*turn, &global_index_dir)?);
-        }
-
-        Ok(IcedContext {
+        let mut context = IcedContext {
             api_keys,
             get_api_keys_context: GetApiKeysContext::new(missing_api_keys),
             chat: chat.clone(),
-            turns,
+            turns: HashMap::new(),
+            ai_code_blocks: HashMap::new(),
+            user_code_blocks: HashMap::new(),
             bg_at: None,
             bg_job: None,
             bg_error: None,
@@ -150,7 +149,9 @@ impl IcedContext {
             is_chat_input_focused: false,
             is_chat_button_hovered: false,
             zoom: 1.0,
-        })
+        };
+        context.load_chat_turns()?;
+        Ok(context)
     }
 
     pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
@@ -184,6 +185,11 @@ impl IcedContext {
                 self.popup_title = Some(String::from("Thinking"));
             },
             Popup::WebSearchResults(_) => {},
+            Popup::CodeBlock { code, ext } => {
+                self.copy_buffer = Some(code.to_string());
+                self.set_long_text_editor_content(code.to_string());
+                self.syntax_highlight = ext;
+            },
             _ => todo!(),
         }
 
@@ -212,6 +218,21 @@ impl IcedContext {
 
     pub fn update_find_result(&mut self) {
         // TODO
+    }
+
+    pub fn load_chat_turns(&mut self) -> Result<(), Error> {
+        for turn in self.chat.turns.clone().iter() {
+            if let Entry::Vacant(e) = self.turns.entry(*turn) {
+                let chat_turn = ChatTurn::load(*turn, &self.global_index_dir)?;
+                let ai_code_blocks = extract_code_blocks(&chat_turn.assistant);
+                let user_code_blocks = extract_code_blocks(&stringify_llm_tokens(&chat_turn.user));
+                e.insert(chat_turn);
+                self.ai_code_blocks.insert(*turn, ai_code_blocks);
+                self.user_code_blocks.insert(*turn, user_code_blocks);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -294,6 +315,7 @@ pub enum Popup {
     ChangeTitle,
     Thinking(String),
     WebSearchResults(Vec<WebSearchResult>),
+    CodeBlock { code: String, ext: Option<String> },
     Image(ImageId),
     Find { re: Option<String>, error: Option<String> },
 }
@@ -310,12 +332,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Tick { frame, force_update } => {
             if frame % 4 == 0 || force_update {
                 context.chat = Chat::load(context.chat.id, &context.global_index_dir)?;
-
-                for turn in context.chat.turns.clone().iter() {
-                    if let Entry::Vacant(e) = context.turns.entry(*turn) {
-                        e.insert(ChatTurn::load(*turn, &context.global_index_dir)?);
-                    }
-                }
+                context.load_chat_turns()?;
             }
 
             return Ok(is_focused(context.chat_input_id.clone()).map(|is_focused| IcedMessage::IsChatInputFocused(is_focused)));
@@ -516,6 +533,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             &turn.user,
             &None,
             &[],
+            context.user_code_blocks.get(turn_id),
             turn.api.request_body.clone(),
             Horizontal::Right,
             context,
@@ -526,6 +544,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             &[LLMToken::String(turn.assistant.to_string())],
             &turn.thinking,
             &turn.web_search_results,
+            context.ai_code_blocks.get(turn_id),
             turn.api.response_body.clone(),
             Horizontal::Left,
             context,
@@ -539,6 +558,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             tokens,
             &None,
             &[],
+            None,
             None,
             Horizontal::Right,
             context,
@@ -600,7 +620,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let full_view = Column::from_vec(full_view);
     let chat_config_ui_in_container = Container::new(
-        Column::from_vec(vec![chat_config_ui(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig)])
+        Column::from_vec(vec![chat_config_ui1(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig)])
             .padding(Padding { right: context.zoom * 8.0, ..Padding::ZERO })
             .width(context.window_size.width)
             .align_x(Horizontal::Right)
@@ -647,7 +667,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         todo!()
     }
 
-    else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_)) = &context.curr_popup {
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
@@ -696,6 +716,7 @@ pub fn render_turn<'n, 'cn, 'cx>(
     content: &'cn [LLMToken],
     thinking: &Option<String>,
     web_search_results: &[WebSearchResult],
+    code_blocks: Option<&Vec<(String, Option<String>)>>,
     raw_api: Option<LogId>,
     align_name: Horizontal,
     context: &'cx IcedContext,
@@ -714,6 +735,12 @@ pub fn render_turn<'n, 'cn, 'cx>(
 
     if let Some(raw_api) = raw_api {
         buttons.push(button("Api", IcedMessage::OpenPopup { curr: Popup::Log((String::new(), raw_api)), prev: None }, yellow(), context.zoom));
+    }
+
+    if let Some(code_blocks) = code_blocks {
+        for (i, (code, ext)) in code_blocks.iter().enumerate() {
+            buttons.push(button(&format!("Code Block {}", i + 1), IcedMessage::OpenPopup { curr: Popup::CodeBlock { code: code.to_string(), ext: ext.clone() }, prev: None }, yellow(), context.zoom));
+        }
     }
 
     let buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
@@ -901,4 +928,37 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
         chat_config_ui,
         text_editor.into(),
     ]).into()
+}
+
+static CODE_BLOCK_START_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new("^```([a-zA-Z0-9]*)$").unwrap());
+
+fn extract_code_blocks(turn: &str) -> Vec<(String, Option<String>)> {
+    let mut inside_code_block = false;
+    let mut code_blocks = vec![];
+    let mut curr_block = vec![];
+    let mut curr_ext = None;
+
+    for line in turn.lines() {
+        if !inside_code_block && let Some(cap) = CODE_BLOCK_START_RE.captures(line) {
+            inside_code_block = true;
+            let ext = cap.get(1).unwrap().as_str().to_string();
+
+            if !ext.is_empty() {
+                curr_ext = Some(ext);
+            }
+        }
+
+        else if inside_code_block && line == "```" {
+            code_blocks.push((curr_block.join("\n"), curr_ext));
+            curr_block = vec![];
+            curr_ext = None;
+            inside_code_block = false;
+        }
+
+        else if inside_code_block {
+            curr_block.push(line);
+        }
+    }
+
+    code_blocks
 }

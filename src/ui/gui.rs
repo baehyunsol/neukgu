@@ -15,6 +15,7 @@ mod chat;
 mod config;
 mod error;
 mod index;
+mod model_store;
 mod popup;
 mod tab;
 mod tabs;
@@ -43,11 +44,11 @@ pub fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn button<'s, Message>(name: &'s str, message: Message, bg_color: Color, zoom: f32) -> Button<'s, Message> {
+fn button<'s, 'm, Message>(name: &'s str, message: Message, bg_color: Color, zoom: f32) -> Button<'m, Message> {
     disabled_button(name, bg_color, zoom).on_press(message)
 }
 
-fn disabled_button<'s, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Button<'s, Message> {
+fn disabled_button<'s, 'm, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Button<'m, Message> {
     Button::new(text!("{name}").size(zoom * 14.0))
         .style(move |_, status| {
             let (r, g, b) = (bg_color.r, bg_color.g, bg_color.b);

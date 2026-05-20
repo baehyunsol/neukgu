@@ -1,22 +1,8 @@
-use crate::{Context, Error, subprocess};
-use ragit_fs::{exists, join, join3};
+use crate::{Error, subprocess};
+use ragit_fs::{FileError, exists, into_abs_path, is_symlink, join, join3};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-
-impl Context {
-    // For example, if `bin` is `"git"`, it'll just call `git` and rust's `std::process::Command`
-    // will find `/usr/bin/git` using PATH. If the user provided `eval` in `bins/`, then it'll
-    // execute `bins/eval`.
-    pub fn get_bin_path(&self, sandbox_at: &str, bin: &str) -> Result<String, Error> {
-        let real_bin = join3(sandbox_at, "bins", bin)?;
-
-        if exists(&real_bin) {
-            Ok(real_bin)
-        } else {
-            Ok(bin.to_string())
-        }
-    }
-}
+use std::os::unix::fs::symlink;
 
 pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> {
     let mut available_binaries = vec![];
@@ -24,6 +10,7 @@ pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> 
     let bin_list: Vec<(&str, &[&str], &str)> = vec![
         ("git", &["version"], r".*git.*\d+\.\d+.+"),
         ("cargo", &["version"], r".*cargo.*\d+\.\d+.+"),
+        ("cc", &["--version"], r".+"),
         // ("python3", &[""], ""),
         ("rg", &["--version"], r".*ripgrep.*\d+\.\d+.+"),
     ];
@@ -43,7 +30,7 @@ pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> 
     for (bin, args, checker) in bin_list.iter() {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
 
-        match subprocess::run(bin.to_string(), &args, &[], ".", 1, "", false) {
+        match subprocess::run(bin.to_string(), &args, false, &[], ".", 1, "", false) {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout).to_string();
                 let checker = Regex::new(checker).unwrap();
@@ -64,6 +51,10 @@ pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> 
     }
 
     if unavailable_binaries.is_empty() {
+        try_create_bin_link("git", working_dir)?;
+        try_create_bin_link("cargo", working_dir)?;
+        try_create_bin_link("cc", working_dir)?;
+        try_create_bin_link("rg", working_dir)?;
         Ok(available_binaries)
     }
 
@@ -74,82 +65,43 @@ pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> 
 
 fn try_init_python_venv(working_dir: &str) -> Result<(), Error> {
     let py_venv = join3(working_dir, ".neukgu", "py-venv")?;
-    let python3_link = join3(&py_venv, "bin", "python3")?;
+    let python3_in_venv = into_abs_path(&join3(&py_venv, "bin", "python3")?)?;
+    let pip_in_venv = into_abs_path(&join3(&py_venv, "bin", "pip")?)?;
 
-    if exists(&python3_link) {
-        return Ok(());
+    if !exists(&python3_in_venv) {
+        let output = subprocess::run(
+            String::from("python3"),
+            &[String::from("-m"), String::from("venv"), String::from("py-venv")],
+            false,
+            &[],
+            &join(working_dir, ".neukgu")?,
+            5,
+            working_dir,
+            false,
+        )?;
+
+        if output.timeout || !exists(&python3_in_venv) || !exists(&pip_in_venv) {
+            return Err(Error::FailedToInitPythonVenv);
+        }
     }
 
-    let output = subprocess::run(
-        String::from("python3"),
-        &[String::from("-m"), String::from("venv"), String::from("py-venv")],
-        &[],
-        &join(working_dir, ".neukgu")?,
-        5,
-        working_dir,
-        false,
-    )?;
+    let python3_link = join3(working_dir, "bins", "python3")?;
+    let pip_link = join3(working_dir, "bins", "pip")?;
 
-    if output.timeout || !exists(&python3_link) || !exists(&join3(&py_venv, "bin", "pip")?) {
-        return Err(Error::FailedToInitPythonVenv);
+    if !is_symlink(&python3_link) && !exists(&python3_link) {
+        symlink(&python3_in_venv, &python3_link).map_err(|e| FileError::from_std(e, &python3_link))?;
+        symlink(&pip_in_venv, &pip_link).map_err(|e| FileError::from_std(e, &pip_link))?;
     }
 
     Ok(())
 }
 
-// Python venv doesn't work on some platforms (e.g. python 3.9 on my Mac book).
-// So it checks whether python3 & pip are alive in the sandbox.
-pub fn check_python_venv(
-    env: &[(String, String)],
-    sandbox_at: &str,
-    working_dir: &str,
-) -> Result<(), Error> {
-    let pip_result = subprocess::run(
-        String::from("pip"),
-        &["help"].iter().map(|arg| arg.to_string()).collect::<Vec<_>>(),
-        env,
-        sandbox_at,
-        3,
-        working_dir,
-        true,
-    )?;
+fn try_create_bin_link(bin: &str, working_dir: &str) -> Result<(), Error> {
+    let bin_real = which::which(bin)?;
+    let bin_link = join3(working_dir, "bins", bin)?;
 
-    if !pip_result.stdout.windows(7).any(|w| w == b"install") || !pip_result.stdout.windows(8).any(|w| w == b"download") {
-        eprintln!("---- failed to init python venv ----");
-        eprintln!("<command>");
-        eprintln!("pip help");
-        eprintln!("</command>");
-        eprintln!("<stdout>");
-        eprintln!("{}", String::from_utf8_lossy(&pip_result.stdout));
-        eprintln!("</stdout>");
-        eprintln!("<stderr>");
-        eprintln!("{}", String::from_utf8_lossy(&pip_result.stderr));
-        eprintln!("</stderr>");
-        return Err(Error::FailedToInitPythonVenv);
-    }
-
-    let py_result = subprocess::run(
-        String::from("python3"),
-        &["-c", "print(3162277660168379 * 3162277660168379)"].iter().map(|arg| arg.to_string()).collect::<Vec<_>>(),
-        env,
-        sandbox_at,
-        3,
-        working_dir,
-        true,
-    )?;
-
-    if !py_result.stdout.windows(31).any(|w| w == b"9999999999999997900254631487641") {
-        eprintln!("---- failed to init python venv ----");
-        eprintln!("<command>");
-        eprintln!("python -c \"print(3162277660168379 * 3162277660168379)\"");
-        eprintln!("</command>");
-        eprintln!("<stdout>");
-        eprintln!("{}", String::from_utf8_lossy(&py_result.stdout));
-        eprintln!("</stdout>");
-        eprintln!("<stderr>");
-        eprintln!("{}", String::from_utf8_lossy(&py_result.stderr));
-        eprintln!("</stderr>");
-        return Err(Error::FailedToInitPythonVenv);
+    if !exists(&bin_link) {
+        symlink(&bin_real, &bin_link).map_err(|e| FileError::from_std(e, &bin_link))?;
     }
 
     Ok(())
@@ -168,6 +120,7 @@ fn is_valid_binary_name(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
+
     s.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '\\'))
 }
 

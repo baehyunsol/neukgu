@@ -18,6 +18,7 @@ pub struct Output {
 pub fn run(
     binary: String,
     args: &[String],
+    clear_envs: bool,
     envs: &[(String, String)],
     cwd: &str,
     timeout: u64,  // seconds
@@ -31,6 +32,10 @@ pub fn run(
         .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    if clear_envs {
+        child_process.env_clear();
+    }
 
     for (var, val) in envs.iter() {
         child_process = child_process.env(var, val);

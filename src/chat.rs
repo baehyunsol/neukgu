@@ -166,13 +166,25 @@ pub struct Config {
     pub model: Model,
     pub thinking: Thinking,
     pub enable_web_search: bool,
+    pub openai_etc1_base_url: Option<String>,
+    pub openai_etc1_model: Option<String>,
+    pub openai_etc2_base_url: Option<String>,
+    pub openai_etc2_model: Option<String>,
+    pub openai_etc3_base_url: Option<String>,
+    pub openai_etc3_model: Option<String>,
 }
 
 impl Config {
     pub fn request_config(&self, fallback_api_keys: HashMap<String, String>) -> RequestConfig {
         RequestConfig {
             fallback_api_keys,
-            ..RequestConfig::default()  // TODO: models
+            openai_etc1_base_url: self.openai_etc1_base_url.clone(),
+            openai_etc1_model: self.openai_etc1_model.clone(),
+            openai_etc2_base_url: self.openai_etc2_base_url.clone(),
+            openai_etc2_model: self.openai_etc2_model.clone(),
+            openai_etc3_base_url: self.openai_etc3_base_url.clone(),
+            openai_etc3_model: self.openai_etc3_model.clone(),
+            ..RequestConfig::default()
         }
     }
 }
@@ -183,6 +195,12 @@ impl Default for Config {
             model: Model::Gpt,
             thinking: Thinking::Enabled,
             enable_web_search: false,
+            openai_etc1_base_url: None,
+            openai_etc1_model: None,
+            openai_etc2_base_url: None,
+            openai_etc2_model: None,
+            openai_etc3_base_url: None,
+            openai_etc3_model: None,
         }
     }
 }

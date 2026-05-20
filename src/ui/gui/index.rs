@@ -17,11 +17,13 @@ use super::{
 use super::config::{
     SetChatConfig,
     SetProjectConfig,
-    chat_config_ui,
+    chat_config_ui1,
+    chat_config_ui2,
     config_ui,
     set_chat_config,
     set_project_config,
 };
+use super::model_store::{self, IcedContext as ModelStoreContext, IcedMessage as ModelStoreMessage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
@@ -86,6 +88,7 @@ const HELP_MESSAGE: &str = r#"
 - Ctrl+Plus/Minus: zoom
 - Ctrl+C: new chat
 - Ctrl+H: help message
+- Ctrl+M: open model store
 - Ctrl+P: new project
 - Ctrl+T: new tab
 - Ctrl+W: close tab
@@ -119,6 +122,7 @@ pub struct IcedContext {
 
     pub new_project_config: Config,
     pub new_chat_config: ChatConfig,
+    pub model_store_context: ModelStoreContext,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
 }
@@ -154,6 +158,7 @@ impl IcedContext {
             syntax_highlight: None,
             new_project_config: get_global_config(&global_index_dir).unwrap(),
             new_chat_config: get_global_chat_config(&global_index_dir).unwrap(),
+            model_store_context: ModelStoreContext::new(global_index_dir.to_string()),
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
         }
@@ -171,7 +176,7 @@ impl IcedContext {
         }
     }
 
-    pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
+    pub fn open_popup(&mut self, popup: Popup) -> Result<Task<IcedMessage>, Error> {
         self.close_popup();
         self.curr_popup = Some(popup.clone());
 
@@ -196,6 +201,10 @@ impl IcedContext {
             },
             Popup::AskDeleteProject { .. } => {},
             Popup::AskDeleteChat { .. } => {},
+            Popup::ModelStore => {
+                self.model_store_context.refresh()?;
+                return Ok(model_store::update(&mut self.model_store_context, ModelStoreMessage::Focus)?.map(IcedMessage::UpdateModelStore));
+            },
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
@@ -204,7 +213,7 @@ impl IcedContext {
             Popup::Error(_) => {},
         }
 
-        Ok(())
+        Ok(Task::none())
     }
 
     pub fn close_popup(&mut self) {
@@ -257,6 +266,7 @@ pub enum IcedMessage {
     FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
     SetChatConfig(SetChatConfig),
+    UpdateModelStore(ModelStoreMessage),
     MainViewScrolled(AbsoluteOffset),
     BackgroundJobResult(JobResult),
     Focus,
@@ -285,6 +295,7 @@ pub enum Popup {
         id: ChatId,
         title: Option<String>,
     },
+    ModelStore,
     Help,
     Error(String),
 }
@@ -349,6 +360,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("h"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
+                }
+            },
+            (Key::Character("m"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::ModelStore)));
                 }
             },
             (Key::Character("p"), true, false, false) => {
@@ -435,7 +451,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::OpenPopup(popup) => {
-            context.open_popup(popup)?;
+            return context.open_popup(popup);
         },
         IcedMessage::ClosePopup => {
             context.close_popup();
@@ -457,6 +473,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::SetChatConfig(c) => {
             set_chat_config(&mut context.new_chat_config, c);
+        },
+        IcedMessage::UpdateModelStore(m) => {
+            return Ok(model_store::update(&mut context.model_store_context, m)?.map(IcedMessage::UpdateModelStore));
         },
         IcedMessage::MainViewScrolled(o) => {
             context.main_view_scrolled = o;
@@ -623,7 +642,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(Scrollable::new(
                 Column::from_vec(vec![
-                    chat_config_ui(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
+                    chat_config_ui1(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
+                    chat_config_ui2(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
                     button("Save", IcedMessage::SaveGlobalChatConfig, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
@@ -683,6 +703,20 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::ModelStore) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                model_store::view(
+                    &context.model_store_context,
+                    context.popup_scroll_id.clone(),
+                    context.zoom,
+                ).map(IcedMessage::UpdateModelStore),
+                context,
+            ).into(),
+        ]).into();
+    }
+
     else if let Some(Popup::Instruction { .. } | Popup::Help) = context.curr_popup {
         let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
@@ -700,6 +734,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut buttons = vec![
+        button("(M)odel Store", IcedMessage::OpenPopup(Popup::ModelStore), blue(), context.zoom),
         button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom),
     ];
 
@@ -909,7 +944,8 @@ fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessag
         Scrollable::new(
             Column::from_vec(vec![
                 short_text_editor.into(),
-                chat_config_ui(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig).into(),
+                chat_config_ui1(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig).into(),
+                chat_config_ui2(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig).into(),
                 button("Create", IcedMessage::NewChat, brown(), context.zoom).into(),
             ])
                 .spacing(context.zoom * 20.0)

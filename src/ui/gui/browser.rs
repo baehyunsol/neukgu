@@ -29,6 +29,8 @@ use chrono::Local;
 use crate::{
     Config,
     Error,
+    get_global_config,
+    get_global_index_dir,
     init_working_dir,
     prettify_bytes,
     prettify_time,
@@ -60,6 +62,8 @@ use iced::widget::text_editor::{
     TextEditor,
 };
 use ragit_fs::{
+    FileError,
+    FileErrorKind,
     basename,
     create_dir,
     exists,
@@ -75,6 +79,7 @@ use ragit_fs::{
     remove_dir_all,
     remove_file,
 };
+use ragit_fs::is_symlink;
 use std::sync::Arc;
 
 const HELP_MESSAGE: &str = r#"
@@ -130,6 +135,7 @@ pub struct IcedContext {
     pub syntax_highlight: Option<String>,
     pub long_preview: Option<(String, usize, String)>,
     pub popup_title: Option<String>,
+    pub loaded_symlink: Option<SymlinkInfo>,
     pub zoom: f32,
     pub new_project_config: Config,
     pub short_text_editor_content: String,
@@ -141,6 +147,7 @@ pub struct IcedContext {
 
 impl IcedContext {
     pub fn new(home_dir: &str, cwd: &str, file: &Option<String>, window_size: Size) -> Result<IcedContext, Error> {
+        let global_index_dir = get_global_index_dir()?;
         let file = match file {
             Some(file) => Some(basename(file)?),
             None => None,
@@ -166,8 +173,9 @@ impl IcedContext {
             syntax_highlight: None,
             long_preview: None,
             popup_title: None,
+            loaded_symlink: None,
             zoom: 1.0,
-            new_project_config: Config::default(),
+            new_project_config: get_global_config(&global_index_dir)?,
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
             command_editor_content: TextEditorContent::new(),
@@ -176,7 +184,7 @@ impl IcedContext {
         };
 
         if let Some(file) = &file {
-            context.open_popup(Popup::Preview { path: join(cwd, file)? })?;
+            context.open_popup(Popup::PreviewFile { path: join(cwd, file)? })?;
         }
 
         Ok(context)
@@ -185,7 +193,7 @@ impl IcedContext {
     pub fn get_open_dir_and_file(&self) -> Result<(String, Option<String>), Error> {
         Ok((
             self.cwd.to_string(),
-            if let Some(Popup::Preview { path }) = &self.curr_popup {
+            if let Some(Popup::PreviewFile { path }) = &self.curr_popup {
                 Some(basename(path)?)
             } else {
                 None
@@ -218,7 +226,7 @@ impl IcedContext {
                 self.set_text_editor_content(e.to_string());
                 self.syntax_highlight = None;
             },
-            Popup::Preview { path } => {
+            Popup::PreviewFile { path } => {
                 let mut is_binary = false;
                 let file_size = file_size(&path)? as usize;
                 let content: Option<String> = if file_size > 33554432 {
@@ -285,6 +293,9 @@ impl IcedContext {
                     self.set_text_editor_content(preview);
                 }
             },
+            Popup::PreviewSymlink { path } => {
+                self.loaded_symlink = Some(SymlinkInfo::new(&path));
+            },
             Popup::AskDelete { .. } => {},
             Popup::Find { .. } => {},
             Popup::FindResult { .. } => {},
@@ -306,6 +317,7 @@ impl IcedContext {
         self.image_buffer = vec![];
         self.long_preview = None;
         self.popup_title = None;
+        self.loaded_symlink = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
     }
@@ -391,6 +403,7 @@ pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    pub symlink: Option<String>,
     pub has_neukgu_index: bool,
     pub size: Option<u64>,
 
@@ -399,11 +412,45 @@ pub struct FileEntry {
 }
 
 #[derive(Clone, Debug)]
+pub struct SymlinkInfo {
+    pub pointer: String,
+    pub pointee: String,
+    pub is_dir: bool,
+    pub error: Option<String>,
+}
+
+impl SymlinkInfo {
+    pub fn new(pointer: &str) -> SymlinkInfo {
+        match SymlinkInfo::try_new(pointer) {
+            Ok(s) => s,
+            Err(e) => SymlinkInfo {
+                pointer: pointer.to_string(),
+                pointee: String::new(),
+                is_dir: false,
+                error: Some(format!("{e:?}")),
+            },
+        }
+    }
+
+    pub fn try_new(pointer: &str) -> Result<SymlinkInfo, Error> {
+        let pointee = std::fs::read_link(pointer).map_err(|err| FileError::from_std(err, pointer))?;
+        let pointee = pointee.into_os_string().into_string().map_err(|err| FileError { kind: FileErrorKind::OsStrErr(err), given_path: None })?;
+        Ok(SymlinkInfo {
+            pointer: pointer.to_string(),
+            is_dir: is_dir(&pointee),
+            pointee,
+            error: None,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Popup {
     Create { path: String },
     Init { path: String },
     EntryError(String),
-    Preview { path: String },
+    PreviewFile { path: String },
+    PreviewSymlink { path: String },
     AskDelete { is_dir: bool, path: String },
     Find {
         error: Option<String>,
@@ -482,7 +529,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                             return Ok(Task::done(IcedMessage::ChDir(entry.path.to_string())));
                         },
                         Some(entry) => {
-                            return Ok(Task::done(IcedMessage::OpenPopup(Popup::Preview { path: entry.path.to_string() })));
+                            return Ok(Task::done(IcedMessage::OpenPopup(Popup::PreviewFile { path: entry.path.to_string() })));
                         },
                         None => {},
                     }
@@ -829,7 +876,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(render_run_result(*started_at, command, output, error, context), context),
         ]).into();
-    } else if let Some(Popup::EntryError(_) | Popup::Preview { .. } | Popup::Help) = &context.curr_popup {
+    } else if let Some(Popup::EntryError(_) | Popup::PreviewFile { .. } | Popup::Help) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
 
         if let Some((pre, trunc, post)) = &context.long_preview {
@@ -886,10 +933,32 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
             ]).into();
         }
+    } else if let Some(Popup::PreviewSymlink { .. }) = &context.curr_popup {
+        let popup = match &context.loaded_symlink {
+            Some(SymlinkInfo { pointer, error: Some(error), .. }) => Column::from_vec(vec![
+                text!("{pointer}").size(context.zoom * 18.0).width(context.window_size.width).into(),
+                text!("{error}").size(context.zoom * 14.0).color(red()).into(),
+            ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center),
+            Some(SymlinkInfo { pointee, is_dir, .. }) => Column::from_vec(vec![
+                text!("link to {pointee}").size(context.zoom * 14.0).width(context.window_size.width).into(),
+                if *is_dir {
+                    button("Jump", IcedMessage::ChDir(pointee.to_string()), skyblue(), context.zoom).into()
+                } else {
+                    // TODO: what if it's a link to another link?
+                    button("Open", IcedMessage::OpenPopup(Popup::PreviewFile { path: pointee.to_string() }), skyblue(), context.zoom).into()
+                },
+            ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center),
+            None => unreachable!(),
+        };
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(popup.into(), context),
+        ]).into();
     } else if let Some(Popup::EntryError(e)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(text!("{e}").size(context.zoom * 14.0).into(), context).into(),
+            into_popup(text!("{e}").size(context.zoom * 14.0).into(), context),
         ]).into();
     } else if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
         let ask = if *is_dir {
@@ -906,7 +975,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(ask.into(), context).into(),
+            into_popup(ask.into(), context),
         ]).into();
     } else if let Some(Popup::Help) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
@@ -993,7 +1062,13 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
             let s = prettify_bytes(s);
             format!("{s}{}", " ".repeat(14 - s.len()))
         },
-        None => " ".repeat(14),
+        None => {
+            if entry.symlink.is_some() {
+                String::from("symlink      ")
+            } else {
+                " ".repeat(14)
+            }
+        },
     };
 
     let mut truncated_name = text!("{truncated_name} {size}").size(context.zoom * 14.0);
@@ -1024,8 +1099,10 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
             .on_exit(IcedMessage::HoverOnEntry(None))
             .on_press(if entry.is_dir {
                 IcedMessage::ChDir(entry.path.to_string())
+            } else if entry.symlink.is_some() {
+                IcedMessage::OpenPopup(Popup::PreviewSymlink { path: entry.path.to_string() })
             } else {
-                IcedMessage::OpenPopup(Popup::Preview { path: entry.path.to_string() })
+                IcedMessage::OpenPopup(Popup::PreviewFile { path: entry.path.to_string() })
             })
             .into()
     } else {
@@ -1123,6 +1200,39 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
                 name: basename(&e)?,
                 path: e.to_string(),
                 is_dir: true,
+                symlink: None,
+                has_neukgu_index,
+                size: None,
+                error,
+            });
+        }
+
+        else if is_symlink(&e) {
+            let symlink = match std::fs::read_link(&e) {
+                Ok(pointee) => match pointee.into_os_string().into_string() {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        if error.is_none() {
+                            error = Some(format!("Failed to convert {e:?} to a string."));
+                        }
+
+                        None
+                    },
+                },
+                Err(e) => {
+                    if error.is_none() {
+                        error = Some(format!("{e:?}"));
+                    }
+
+                    None
+                },
+            };
+
+            dirs.push(FileEntry {
+                name: basename(&e)?,
+                path: e.to_string(),
+                is_dir: false,
+                symlink,
                 has_neukgu_index,
                 size: None,
                 error,
@@ -1145,6 +1255,7 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
                 name: basename(&e)?,
                 path: e.to_string(),
                 is_dir: false,
+                symlink: None,
                 has_neukgu_index,
                 size,
                 error,

@@ -62,7 +62,7 @@ pub use read::{
     check_read_permission,
     read_file,
 };
-pub use run::{ParseCommandError, check_python_venv, load_available_binaries, parse_command};
+pub use run::{ParseCommandError, load_available_binaries, parse_command};
 pub use write::{DumpOrRedirect, WriteMode, check_write_permission};
 
 type Path = Vec<String>;
@@ -438,7 +438,8 @@ impl ToolCall {
                 }
 
                 // If `command` is empty, that's a parse error.
-                let binary = command[0].to_string();
+                let mut command = command.to_vec();
+                let mut binary = command[0].to_string();
                 let mut available_binaries = vec![];
 
                 for bin in read_dir(&join(&context.working_dir, "bins")?, false)?.iter() {
@@ -470,18 +471,21 @@ impl ToolCall {
                 }
 
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir, false /* copy index dir */)?;
-                let bin_path = context.get_bin_path(&sandbox_at, &binary)?;
+                env.push((String::from("PATH"), into_abs_path(&join(&context.working_dir, "bins")?)?));
 
-                if bin_path == "python3" || bin_path == "pip" {
-                    let venv_dir = join3(&context.working_dir, ".neukgu", "py-venv")?;
-                    let venv_bin = join(&venv_dir, "bin")?;
-                    env.push((String::from("PATH"), into_abs_path(&venv_bin)?));
-                    env.push((String::from("VIRTUAL_ENV"), venv_dir));
+                if binary == "python3" || binary == "pip" {
+                    if binary == "pip" {
+                        command.insert(1, String::from("pip"));
+                        command.insert(1, String::from("-m"));
+                    }
 
-                    check_python_venv(&env, &sandbox_at, &context.working_dir)?;
+                    binary = into_abs_path(&join(
+                        &join(&context.working_dir, ".neukgu")?,
+                        &join3("py-venv", "bin", "python3")?,
+                    )?)?;
                 }
 
-                if bin_path == "cargo" {
+                if binary == "cargo" {
                     env.push((
                         String::from("CARGO_TARGET_DIR"),
 
@@ -497,8 +501,9 @@ impl ToolCall {
 
                 let started_at = Instant::now();
                 let result = subprocess::run(
-                    bin_path,
+                    binary,
                     if command.len() > 1 { &command[1..] } else { &command[0..0] },
+                    true,
                     &env,
                     &sandbox_at,
                     timeout,

@@ -207,7 +207,7 @@ Your working directory looks like this:
 
 1. `neukgu-instruction.md`: This is the user's instruction.
 2. `logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
-3. `bins/`: You can execute binaries in this directory. By default, you have `cargo`, `python3`, `pip`, `rg` (ripgrep) and `git`.
+3. `bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
 
 The user might provide more files/directories. You can freely create files/directories to achieve the goal.
 

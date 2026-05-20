@@ -90,7 +90,7 @@ impl IcedContext {
         match &self.local {
             LocalContext::Browser(c) => {
                 let title = match &c.curr_popup {
-                    Some(browser::Popup::Preview { path }) => format!("Reading {}", if full_path { path.to_string() } else { basename(path).unwrap() }),
+                    Some(browser::Popup::PreviewFile { path } | browser::Popup::PreviewSymlink { path }) => format!("Reading {}", if full_path { path.to_string() } else { basename(path).unwrap() }),
                     _ => format!("Browse {}/", if full_path { c.cwd.to_string() } else { basename(&c.cwd).unwrap() }),
                 };
                 (title, skyblue())
