@@ -278,7 +278,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
         let tools: Vec<ToolKind> = tools.to_vec();
         tool_checkboxes.push(Row::from_vec(tools.into_iter().map(
             move |tool| Checkbox::new(config.activated_tools.contains(&tool))
-                .label(format!("{tool:?}").to_ascii_lowercase())
+                .label(tool.tag_name())
                 .on_toggle_maybe(
                     if tool.optional() {
                         Some(move |t| SetProjectConfig::ToggleTool(tool, t))

@@ -1,6 +1,5 @@
 use super::{Config, HttpRequest, LLMToken, Request, Thinking};
-use base64::Engine;
-use crate::Error;
+use crate::{Error, encode_base64};
 use ragit_fs::read_bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -130,8 +129,4 @@ fn contents_to_json(contents: &[LLMToken], working_dir: &str) -> Result<Value, E
     }
 
     Ok(result.into())
-}
-
-fn encode_base64(bytes: &[u8]) -> String {
-    base64::prelude::BASE64_STANDARD.encode(bytes)
 }

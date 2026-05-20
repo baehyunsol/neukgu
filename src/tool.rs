@@ -13,10 +13,12 @@ use crate::{
     TurnSummary,
     UserResponse,
     clean_sandbox,
+    decode_base64,
     export_to_sandbox,
     from_browser_error,
     image,
     import_from_sandbox,
+    normalize_and_get_id,
     prettify_bytes,
     prettify_time,
     subprocess,
@@ -47,6 +49,7 @@ use std::time::{Duration, Instant};
 
 mod ask;
 mod chrome;
+mod image_edit;
 mod patch;
 mod read;
 mod run;
@@ -54,6 +57,7 @@ mod write;
 
 pub use ask::{AskTo, ask_question_to_web};
 pub use chrome::WebOrFile;
+pub use image_edit::{ImageModel, ImageRequest};
 pub use patch::{DiffKind, LineDiff, PatchError, parse_line_diff, patch_diff, patch_file};
 pub use read::{
     FileEntry,
@@ -105,8 +109,15 @@ pub enum ToolCall {
         output: Path,
         script: Option<String>,
     },
+    ImageEdit {
+        input: Path,
+        prompt: String,
+        size: Option<(u64, u64)>,
+        output: Path,
+    },
 }
 
+// TODO: read/write permission checks are redundant. Can we factor them?
 impl ToolCall {
     pub async fn run(&self, context: &mut Context, config: &Config) -> Result<Result<ToolCallSuccess, ToolCallError>, Error> {
         context.logger.log(LogEntry::ToolCallStart(self.clone()))?;
@@ -301,8 +312,8 @@ impl ToolCall {
                 }
 
                 match (*mode, exists(&real_path)) {
-                    (mode @ (WriteMode::Truncate | WriteMode::Append), _) if is_dir(&real_path) => {
-                        return Ok(Err(ToolCallError::IsDir { path: joined_path, mode }));
+                    (WriteMode::Truncate | WriteMode::Append, _) if is_dir(&real_path) => {
+                        return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_path, exists: exists(&real_path) }));
                     },
                     (WriteMode::Create, false) |
                     (WriteMode::Truncate, true) |
@@ -324,6 +335,10 @@ impl ToolCall {
 
                 if !check_write_permission(path) {
                     return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
+                }
+
+                if joined_path == "." || joined_path.ends_with("/") || is_dir(&real_path) {
+                    return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_path, exists: exists(&real_path) }));
                 }
 
                 let prev_content = if *mode == WriteMode::Create {
@@ -633,6 +648,10 @@ impl ToolCall {
                 let real_output_path = join(&context.working_dir, &joined_output)?;
                 let real_input_path = join(&context.working_dir, &joined_input)?;
 
+                if joined_output == "." || joined_output.ends_with("/") || is_dir(&real_output_path) {
+                    return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_output, exists: exists(&real_output_path) }));
+                }
+
                 let url = {
                     let path = WebOrFile::from(input);
 
@@ -694,6 +713,73 @@ impl ToolCall {
                 write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
                 Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
             },
+            ToolCall::ImageEdit { input, prompt, size, output } => {
+                let joined_input = match normalize_path(input) {
+                    Some(path) if path.is_empty() => String::from("."),
+                    Some(path) => path.join("/"),
+                    None => input.join("/"),
+                };
+                let joined_output = match normalize_path(output) {
+                    Some(path) if path.is_empty() => String::from("."),
+                    Some(path) => path.join("/"),
+                    None => output.join("/"),
+                };
+                let real_output_path = join(&context.working_dir, &joined_output).unwrap_or(joined_output.clone());
+                let real_input_path = join(&context.working_dir, &joined_input).unwrap_or(joined_input.clone());
+                let parent_path = parent(&real_output_path)?;
+
+                if !exists(&parent_path) {
+                    create_dir_all(&parent_path)?;
+                }
+
+                if !check_read_permission(input) {
+                    return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_input }));
+                }
+
+                if !exists(&real_input_path) {
+                    return Ok(Err(ToolCallError::NoSuchFile { path: joined_input }));
+                }
+
+                if !check_write_permission(output) {
+                    return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_output }));
+                }
+
+                if joined_output == "." || joined_output.ends_with("/") || is_dir(&real_output_path) {
+                    return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_output, exists: exists(&real_output_path) }));
+                }
+
+                let input_image_id = match read_bytes(&real_input_path) {
+                    Ok(bytes) => match normalize_and_get_id(&bytes, &context.working_dir) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            return Ok(Err(ToolCallError::NotAnImage { path: joined_input }));
+                        },
+                    },
+                    Err(_) => {
+                        return Ok(Err(ToolCallError::NotAnImage { path: joined_input }));
+                    },
+                };
+
+                let request = ImageRequest {
+                    model: ImageModel::GptImage,  // TODO: make it configurable
+                    prompt: prompt.to_string(),
+                    images: vec![input_image_id],
+                    size: *size,
+                };
+
+                // TODO: convert Err to ToolCallError
+                let response = request.request(&context.working_dir).await?;
+                let generated_image_bytes = decode_base64(&response.data[0]).unwrap();  // TODO: no-unwrap
+                let generated_image = normalize_and_get_id(&generated_image_bytes, &context.working_dir)?;
+                Ok(Ok(ToolCallSuccess::ImageEdit {
+                    input: joined_input,
+                    prompt: prompt.to_string(),
+                    output_path: joined_output,
+                    output_image: generated_image,
+                    requested_size: *size,
+                    generated_size: todo!(),
+                }))
+            },
         }
     }
 
@@ -743,29 +829,34 @@ impl ToolCall {
             ToolCall::Ask { to, question, .. } => format!(
                 "Ask to {} {:?}",
                 format!("{to:?}").to_ascii_lowercase(),
-                if question.chars().count() < 42 {
-                    question.to_string()
-                } else {
-                    format!("{}...", question.chars().take(39).collect::<String>())
-                },
+                truncate_chars(question, 42),
             ),
             ToolCall::Chrome { script, input, output } => format!(
                 "Open chrome and render `{}` to `{}`{}",
                 input.join("/"),
                 output.join("/"),
                 if let Some(script) = script {
-                    let script = if script.chars().count() < 42 {
-                        script.to_string()
-                    } else {
-                        format!("{}...", script.chars().take(39).collect::<String>())
-                    };
-
-                    format!(" (script: {script})")
+                    format!(" (script: {})", truncate_chars(script, 42))
                 } else {
                     String::new()
                 },
             ),
+            ToolCall::ImageEdit { input, prompt, .. } => format!(
+                "Editing `{}`{}",
+                input.join("/"),
+                truncate_chars(prompt, 42),
+            ),
         }
+    }
+}
+
+fn truncate_chars(s: &str, count: usize) -> String {
+    assert!(count > 3);
+
+    if s.chars().count() < count {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(count - 3).collect::<String>())
     }
 }
 
@@ -833,6 +924,14 @@ pub enum ToolCallSuccess {
         output_path: String,
         output_image: ImageId,
         script_output: Option<String>,
+    },
+    ImageEdit {
+        input: String,
+        prompt: String,
+        output_path: String,
+        output_image: ImageId,
+        requested_size: Option<(u64, u64)>,
+        generated_size: (u64, u64),
     },
 }
 
@@ -940,6 +1039,10 @@ impl ToolCallSuccess {
                 )),
                 LLMToken::Image(*output_image),
             ],
+            ToolCallSuccess::ImageEdit { input, output_path, output_image, .. } => vec![
+                LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
+                LLMToken::Image(*output_image),
+            ],
         }
     }
 
@@ -1012,9 +1115,10 @@ pub enum ToolCallError {
     NoPermissionToWrite {
         path: String,
     },
-    IsDir {
+    // If the given path is `docs/`, that's a directory whether or not that already exists.
+    CannotWriteToDirectory {
         path: String,
-        mode: WriteMode,
+        exists: bool,
     },
     WriteModeError {
         path: String,
@@ -1061,6 +1165,11 @@ pub enum ToolCallError {
     UserRejectedToRespond,
     WebSearchDisabled,
 
+    // image-edit errors
+    NotAnImage {
+        path: String,
+    },
+
     // etc
     SupposedToWriteSummary { write_path: Option<String> },
     UserInterrupt,
@@ -1088,7 +1197,14 @@ impl ToolCallError {
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
             ToolCallError::NoPermissionToWrite { path } => format!("You don't have a permission to write to: `{path}`."),
-            ToolCallError::IsDir { path, .. } => format!("You can't write to `{path}` because it already exists and is a directory."),
+            ToolCallError::CannotWriteToDirectory { path, exists } => format!(
+                "You can't write to `{path}` because it {}is a directory.",
+                if *exists {
+                    "already exists and "
+                } else {
+                    ""
+                },
+            ),
             ToolCallError::WriteModeError { path, mode, exists } => match (mode, exists) {
                 (WriteMode::Create, true) => format!("You can't create `{path}` because it already exists. Try with \"truncate\" or \"append\"."),
                 (WriteMode::Truncate, false) => format!("You can't truncate `{path}` because it does not exist. Try with \"create\"."),
@@ -1188,6 +1304,7 @@ pub enum ToolKind {
     Run,
     Ask,
     Chrome,
+    ImageEdit,
 }
 
 impl ToolKind {
@@ -1199,6 +1316,7 @@ impl ToolKind {
             ToolKind::Run,
             ToolKind::Ask,
             ToolKind::Chrome,
+            ToolKind::ImageEdit,
         ]
     }
 
@@ -1210,7 +1328,20 @@ impl ToolKind {
             b"run" => Some(ToolKind::Run),
             b"ask" => Some(ToolKind::Ask),
             b"chrome" => Some(ToolKind::Chrome),
+            b"image-edit" => Some(ToolKind::ImageEdit),
             _ => None,
+        }
+    }
+
+    pub fn tag_name(&self) -> &'static str {
+        match self {
+            ToolKind::Read => "read",
+            ToolKind::Write => "write",
+            ToolKind::Patch => "patch",
+            ToolKind::Run => "run",
+            ToolKind::Ask => "ask",
+            ToolKind::Chrome => "chrome",
+            ToolKind::ImageEdit => "image-edit",
         }
     }
 
@@ -1226,6 +1357,7 @@ impl ToolKind {
             ToolKind::Run => vec!["timeout", "command", "env", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
+            ToolKind::ImageEdit => vec!["input", "prompt", "size", "output"],
         }.iter().map(|arg| arg.to_string()).collect()
     }
 
@@ -1237,6 +1369,7 @@ impl ToolKind {
             ToolKind::Run => false,
             ToolKind::Ask => false,
             ToolKind::Chrome => true,
+            ToolKind::ImageEdit => true,
         }
     }
 }

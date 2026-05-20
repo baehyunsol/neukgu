@@ -182,6 +182,27 @@ It's very useful! For example, if you want to scroll 500 pixels down before taki
 <output>doc-500.png</output>
 </chrome>
 "#),
+            ToolKind::ImageEdit => format!(r#"
+{index}. Image-Edit
+
+You might want to edit an existing image and save it to another file.
+<image-edit> tool will use image-edit AI model to edit image. You can provide an image file and prompt to edit an image.
+
+<image-edit>
+<input>input.png</input>
+<prompt>Make this car red.</prompt>
+<output>output.png</output>
+</image-edit>
+
+You can optionally set the size of the edited image. You can use `<size>` tag with `WxH` format.
+
+<image-edit>
+<input>input.png</input>
+<size>1440x720</size>
+<prompt>Stretch the image to 1440x720. Rearrange the components accordingly.</prompt>
+<output>output.png</output>
+</image-edit>
+"#),
         }
     }
 }
@@ -195,7 +216,7 @@ pub fn system_prompt(config: &Config) -> String {
 
     let tool_count = config.activated_tools.len();
     let tool_concat = config.activated_tools.iter().map(
-        |tool| format!("{tool:?}").to_ascii_lowercase()
+        |tool| format!("{}", tool.tag_name())
     ).collect::<Vec<_>>().join(", ");
     let tool_descriptions = tool_descriptions.join("\n\n");
 

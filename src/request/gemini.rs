@@ -1,6 +1,5 @@
 use super::{Config, HttpRequest, LLMToken, Request, Thinking};
-use base64::Engine;
-use crate::Error;
+use crate::{Error, encode_base64};
 use ragit_fs::read_bytes;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -105,8 +104,4 @@ fn tokens_to_parts(tokens: &[LLMToken], working_dir: &str) -> Result<Vec<Value>,
     }
 
     Ok(parts)
-}
-
-fn encode_base64(bytes: &[u8]) -> String {
-    base64::prelude::BASE64_STANDARD.encode(bytes)
 }

@@ -250,6 +250,13 @@
   - It does better at implementing `voxel.md` than the 397B one. The 397B one keeps failing with the patch tool, but it doesn't. It does fail a few times, but succeeds in the end.
   - Deepinfra rejects API request if it has more than 4 images...
 139. some config_ui uses `Config::default` instead of `get_global_config`
+140. image-edit
+  - 리사이즈애드 에이전트 만들기??
+  - built-in tool로 넣기 vs custom-tool 공간 만들기
+  - 지금 request/response가 엄청 분량이 많잖아? 근데 거의 그만큼 새로 만들어야함...
+  - custom-tool 공간 만드는 것도 빡세긴 함...
+    - 하면 걍 Python으로 붙이면 금방 만듦
+    - 언어 상관없이 executable 붙일 수 있게할까? stdin으로 arg 주고, stdout에 결과물 출력하게 하면 되지! 걍 읽어서 json으로 parse하면 됨
 
 ## mock API
 

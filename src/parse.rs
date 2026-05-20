@@ -68,6 +68,7 @@ pub enum ParseError {
     NotBash,
     InvalidEnv(String),
     InvalidAskTo(String),
+    InvalidImageSize(String),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -85,7 +86,7 @@ Please call a tool.
             ParseError::InvalidTool(tool) => format!(
                 "`<{tool}>` is not a valid tool. Available tools are {}.",
                 config.activated_tools.iter().map(
-                    |tool| format!("<{tool:?}>").to_ascii_lowercase()
+                    |tool| format!("<{}>", tool.tag_name())
                 ).collect::<Vec<_>>().join(", "),
             ),
             ParseError::InvalidArg { tool, arg, valid_args } => format!(
@@ -169,6 +170,9 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
             ),
             ParseError::InvalidAskTo(to) => format!(
                 "You can't ask to `{to}`. You can ask to either user or web.",
+            ),
+            ParseError::InvalidImageSize(size) => format!(
+                "{size:?} is an invalid format for an image size. It has to be like \"720x720\" or \"1080x1440\"",
             ),
         };
 
@@ -523,6 +527,41 @@ impl ToolCall {
                 };
                 Ok(ToolCall::Chrome { script, input, output })
             },
+            ToolKind::ImageEdit => {
+                let input = match parse_path_arg(args, "input") {
+                    Some(input) => input,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("image-edit"),
+                            arg: String::from("input"),
+                        });
+                    },
+                };
+                let prompt = match parse_string_arg(args, "prompt") {
+                    Some(prompt) => prompt,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("image-edit"),
+                            arg: String::from("prompt"),
+                        });
+                    },
+                };
+                let size = match parse_image_size_arg(args, "size") {
+                    Some(Ok(size)) => Some(size),
+                    Some(Err(e)) => return Err(e),
+                    None => None,
+                };
+                let output = match parse_path_arg(args, "output") {
+                    Some(output) => output,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("image-edit"),
+                            arg: String::from("output"),
+                        });
+                    },
+                };
+                Ok(ToolCall::ImageEdit { input, prompt, size, output })
+            },
         }
     }
 }
@@ -606,6 +645,21 @@ fn parse_diff_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<
     let lines = args.get(arg.as_bytes())?;
     let lines = String::from_utf8_lossy(lines);
     Some(parse_line_diff(&lines))
+}
+
+static SIZE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*(\d+)x(\d+)\s*").unwrap());
+
+fn parse_image_size_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<(u64, u64), ParseError>> {
+    let size = args.get(arg.as_bytes())?;
+    let size = String::from_utf8_lossy(size);
+
+    match SIZE_REGEX.captures(&size) {
+        Some(cap) => Some(Ok((
+            cap.get(1).unwrap().as_str().parse::<u64>().unwrap(),
+            cap.get(2).unwrap().as_str().parse::<u64>().unwrap(),
+        ))),
+        None => Some(Err(ParseError::InvalidImageSize(size.to_string()))),
+    }
 }
 
 fn check_tag_name(input: &[u8]) -> Option<&[u8]> {

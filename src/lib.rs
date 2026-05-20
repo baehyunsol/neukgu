@@ -545,6 +545,7 @@ pub fn get_neukgu_id(working_dir: &str) -> Result<NeukguId, Error> {
     Ok(context.neukgu_id)
 }
 
+// TODO: maybe add a module for utils?
 fn hash_bytes(s: &[u8]) -> u128 {
     let mut r = 0;
 
@@ -556,4 +557,13 @@ fn hash_bytes(s: &[u8]) -> u128 {
     }
 
     r
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::prelude::BASE64_STANDARD.encode(bytes)
+}
+
+fn decode_base64(s: &str) -> Result<Vec<u8>, Error> {
+    todo!()
 }
