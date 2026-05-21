@@ -179,7 +179,7 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
     }
 }
 
-pub fn check_read_path(path: &Path, working_dir: &str) -> Result<(String, String), ToolCallError> {
+pub fn check_read_path(path: &Path, working_dir: &str) -> Result<Result<(String, String), ToolCallError>, Error> {
     let joined_path = match normalize_path(path) {
         Some(path) if path.is_empty() => String::from("."),
         Some(path) => path.join("/"),
@@ -188,18 +188,17 @@ pub fn check_read_path(path: &Path, working_dir: &str) -> Result<(String, String
 
     // If the AI tries to read `../../Documents/`, that's a permission error whether or not the path exists.
     if !check_read_permission(path) {
-        return Err(ToolCallError::NoPermissionToRead { path: joined_path });
+        return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_path }));
     }
 
-    // If `join` fails, `check_read_permission` should have caught that!
-    let real_path = join(working_dir, &joined_path).unwrap();
+    let real_path = join(working_dir, &joined_path)?;
 
     // If the file is a symlink, `exists` checks the existence of the pointee, not the pointer
     if !exists(&real_path) && !is_symlink(&real_path) {
-        return Err(ToolCallError::NoSuchFile { path: joined_path });
+        return Ok(Err(ToolCallError::NoSuchFile { path: joined_path }));
     }
 
-    Ok((joined_path, real_path))
+    Ok(Ok((joined_path, real_path)))
 }
 
 pub(crate) fn check_read_permission(path: &Path) -> bool {

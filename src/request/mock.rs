@@ -241,7 +241,42 @@ This is not line 3.
 This is line 4.",
             ),
         ),
+        MockRequest::new(
+            "",
+            Some("can't find"),
+        ),
         // patch test end
+
+        // some common tool-call-errors test
+        MockRequest::new(
+            r#"
+<write>
+<path>new-dir/</path>
+<mode>create</mode>
+<content></content>
+</write>
+"#,
+            Some("can't create a directory"),
+        ),
+        MockRequest::new(
+            r#"
+<write>
+<path>whatever.md/invalid.md</path>
+<mode>create</mode>
+<content></content>
+</write>
+"#,
+            Some("already exists and is not a directory"),
+        ),
+        MockRequest::new(
+            r#"
+<read>
+<path>new-dir/</path>
+</read>
+"#,
+            Some("no such file"),
+        ),
+        // some common tool-call-errors test end
 
         // env var test
         MockRequest::new(

@@ -27,7 +27,6 @@ use headless_chrome::browser::LaunchOptions as BrowserLaunchOptions;
 use headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption;
 use ragit_fs::{
     basename,
-    create_dir_all,
     exists,
     into_abs_path,
     is_dir,
@@ -118,7 +117,6 @@ pub enum ToolCall {
     },
 }
 
-// TODO: read/write permission checks are redundant. Can we factor them?
 impl ToolCall {
     pub async fn run(&self, context: &mut Context, config: &Config) -> Result<Result<ToolCallSuccess, ToolCallError>, Error> {
         context.logger.log(LogEntry::ToolCallStart(self.clone()))?;
@@ -129,7 +127,7 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::TooManyReadWithoutSummary));
                 }
 
-                let joined_path = match check_read_path(path, &context.working_dir) {
+                let joined_path = match check_read_path(path, &context.working_dir)? {
                     Ok((joined_path, _)) => joined_path,
                     Err(e) => {
                         return Ok(Err(e));
@@ -283,7 +281,7 @@ impl ToolCall {
                 }
             },
             ToolCall::Write { path, mode, content } => {
-                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, Some(*mode)) {
+                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, Some(*mode))? {
                     Ok((joined_path, real_path)) => (joined_path, real_path),
                     Err(e) => {
                         return Ok(Err(e));
@@ -296,12 +294,6 @@ impl ToolCall {
                         length: content.len() as u64,
                         limit: config.text_file_max_len,
                     }));
-                }
-
-                let parent_path = parent(&real_path)?;
-
-                if *mode == WriteMode::Create && !exists(&parent_path) {
-                    create_dir_all(&parent_path)?;
                 }
 
                 let prev_content = if *mode == WriteMode::Create {
@@ -362,7 +354,7 @@ impl ToolCall {
                 }))
             },
             ToolCall::Patch { path, diff } => {
-                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, None) {
+                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, None)? {
                     Ok((joined_path, real_path)) => (joined_path, real_path),
                     Err(e) => {
                         return Ok(Err(e));
@@ -401,7 +393,7 @@ impl ToolCall {
                 let (mut stdout_real_path, mut stderr_real_path) = (None, None);
 
                 if let Some(stdout) = stdout {
-                    match check_write_path(stdout, &context.working_dir, None) {
+                    match check_write_path(stdout, &context.working_dir, None)? {
                         Ok((_, real_path)) => {
                             stdout_real_path = Some(real_path);
                         },
@@ -412,7 +404,7 @@ impl ToolCall {
                 }
 
                 if let Some(stderr) = stderr {
-                    match check_write_path(stderr, &context.working_dir, None) {
+                    match check_write_path(stderr, &context.working_dir, None)? {
                         Ok((_, real_path)) => {
                             stderr_real_path = Some(real_path);
                         },
@@ -607,7 +599,7 @@ impl ToolCall {
             // TODO: error if `script` is set and `input` is not an html
             ToolCall::Chrome { script, input, output } => {
                 let mut joined_input = input.join("/");
-                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None) {
+                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None)? {
                     Ok((joined_path, real_path)) => (joined_path, real_path),
                     Err(e) => {
                         return Ok(Err(e));
@@ -618,7 +610,7 @@ impl ToolCall {
                     let path = WebOrFile::from(input);
 
                     if let WebOrFile::File(path) = &path {
-                        let (joined_input_, real_input_path) = match check_read_path(path, &context.working_dir) {
+                        let (joined_input_, real_input_path) = match check_read_path(path, &context.working_dir)? {
                             Ok((joined_path, real_path)) => (joined_path, real_path),
                             Err(e) => {
                                 return Ok(Err(e));
@@ -681,23 +673,18 @@ impl ToolCall {
                 Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
             },
             ToolCall::ImageEdit { input, prompt, size, output } => {
-                let (joined_input, real_input_path) = match check_read_path(input, &context.working_dir) {
+                let (joined_input, real_input_path) = match check_read_path(input, &context.working_dir)? {
                     Ok((joined_path, real_path)) => (joined_path, real_path),
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
-                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None) {
+                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None)? {
                     Ok((joined_path, real_path)) => (joined_path, real_path),
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
-                let parent_path = parent(&real_output_path)?;
-
-                if !exists(&parent_path) {
-                    create_dir_all(&parent_path)?;
-                }
 
                 let input_image_id = match read_bytes(&real_input_path) {
                     Ok(bytes) => match normalize_and_get_id(&bytes, &context.working_dir) {
@@ -1091,6 +1078,10 @@ pub enum ToolCallError {
         path: String,
         exists: bool,
     },
+    CannotCreateParentDirectory {
+        parent: String,
+        file: String,
+    },
     WriteModeError {
         path: String,
         mode: WriteMode,
@@ -1172,13 +1163,19 @@ impl ToolCallError {
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
             ToolCallError::NoPermissionToWrite { path } => format!("You don't have a permission to write to: `{path}`."),
-            ToolCallError::CannotWriteToDirectory { path, exists } => format!(
-                "You can't write to `{path}` because it {}is a directory.",
-                if *exists {
-                    "already exists and "
-                } else {
-                    ""
-                },
+            ToolCallError::CannotWriteToDirectory { path, exists } => if *exists {
+                format!("You can't write to `{path}` because it already exists and is a directory.")
+            } else {
+                let mut path = path.to_string();
+
+                if !path.ends_with("/") {
+                    path = format!("{path}/");
+                }
+
+                format!("You can't create a directory with that tool. If you want to create a directory `{path}`, just create a file inside the directory. Then all the intermediate directories will be created.")
+            },
+            ToolCallError::CannotCreateParentDirectory { parent, file } => format!(
+                "Tried to create parent directory of `{file}`, but it failed. `{parent}` already exists and is not a directory",
             ),
             ToolCallError::WriteModeError { path, mode, exists } => match (mode, exists) {
                 (WriteMode::Create, true) => format!("You can't create `{path}` because it already exists. Try with \"truncate\" or \"append\"."),

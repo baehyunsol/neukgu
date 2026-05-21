@@ -1,8 +1,5 @@
 이제 전체적인 구조를 좀 짜야함...
 
-8. 추가 bin 주기
-  - cc
-  - ls
 10. thinking tokens... -> 이것도 좀 이것저것 시도 ㄱㄱ
   - issue가 많음
   - A. 지 혼자 꼬리에 꼬리를 물고 생각을 하다가 max_tokens 꽉 채워버리고 죽어버림
@@ -33,11 +30,6 @@
   - 내 추측으로는, fe가 저 파일을 쓰는 사이에 be가 `.neukgu/`를 통째로 날려버린 거임!
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
   - 이거 생각할수록 이상함. fe에서 문제가 터졌으면 에러가 GUI에 보여야하거든? 근데 저 에러는 터미널에 보임. 즉, be에서 문제가 터진 거임. 근데 저 파일은 `WriteMode::Atomic`일 때만 생기는데 be에서 저 위치에 write를 할 일이 없음...
-26. symlink가 있을 경우, import/export sandbox가 먹통이 됨 ㅠㅠ
-  - dst를 그대로 살릴 수도 있고, dst에 적당한 보정을 할 수도 있음
-  - dst가 working-dir의 내부일 수도 있고, 외부일 수도 있음
-  - 조금 더 읽어보니, `copy_file`에다가 symlink 집어넣어도 잘 작동해야함!
-    - 내 추측에는, sandbox를 만들고 삭제하는 과정에서 symlink의 pointee가 사라질텐데, 그래서 파일이 없다고 오류가 나는 듯?
 34. reset session
   - reset session은 구현했고, 과거의 session을 어딘가에 기록해두고 싶음 (`neukgu-instruction.md` + `context.json`). -> 제목을 지을 수 있으면 더 좋은데... 늑구한테 제목 지으라고 할까? ㅋㅋㅋ
     - 과거의 session을 보는 view도 만들어야하긴 한데, working-dir-view를 재활용하기에는 다른게 너무 많고 from-scratch로 만들기에는 working-dir-view을 재활용하고 싶고...
@@ -141,8 +133,6 @@
   - 그럼 interrupt turn이 생기고 user request로 "I want you to run git push origin main"이 들어가고 그 다음 turn에 자동으로 `<run>`이 추가되는 거임. AI는 지가 했다고 생각하겠지!
   - AI한테 보이게 할 수도 있고, 안 보이게 할 수도 있음
     - 안 보이는 버전이면 아무 바이너리나 다 쓸 수 있게 해줘도 되지 않음?
-92. global config
-  - 모델같은 거는 정해놓으면 좋지!
 93. alternative python
   - 지금 mac처럼 python에 문제가 있는 애들은 어떤 python으로 init할 지 정할 수 있게 하고싶음...
 94. visualize agent
@@ -160,6 +150,24 @@
 97. Custom tools
   - 일단은 기본 툴 중에서 2개 (patch, chrome)을 configurable하게 바꿨고, 관련된 코드도 다 수정했음 (아직 실제 LLM으로 테스트는 안 해봄)
   - 지금 생각은 "어차피 나 혼자 쓸 건데 필요할 때마다 tool을 만들어서 neukgu에 built-in으로 추가하면 되는 거 아님?"이긴 한데, 그때그때 임시로 필요한 tool이 생길 확률이 높으니 script-able tool이 필요하기는 함!!
+  - 포토샵으로 이것저것하려면 custom tool이 압도적으로 편리!!
+  - harness와 tool은 json으로 소통
+    - LLM이 만든 arg를 json으로 넘겨줌
+    - output json: `{ error: bool, output: ??? }` -> 이미지를 어떻게 전달하지?
+  - 형태
+    - python script
+      - requirements.txt 주기 쉬움
+      - 대부분의 경우, rust나 executable보다 이게 더 간편
+    - rust code
+      - 그냥 rust가 좋음
+    - executable
+      - 흠... schema를 잘 맞추려나 ㅠㅠ
+    - custom format
+      - input schema, description, 온갖 metadata, code를 전부 한 파일에 때려박을 수 있음
+      - 어차피 나혼자 쓸 프로그램인데, 이렇게 할 바에는 걍 built-in tool 만드는게 낫지 않음?
+      - "어차피 나혼자 쓸 프로그램"이라는 측면에서는 custom format이 제일 나을 수도 있음.
+        - 매번 built-in으로 넣기에는 시간이 너무 오래 걸리고,
+        - 아무나 쓸 수 있게 general format으로 만들면 확장성이 너무 떨어짐
 103. 인덱스 탭에서도 summaries 볼 수 있게 하자!
   - working_dir에서 쓴 함수들 그대로 재활용할 수 있을 듯?
 104. Init with files
@@ -223,24 +231,12 @@
       - 롤백 불가능
       - 서버를 올리는게 가능하면 내리는 것도 가능해야함. 이거는 지가 알아서 `<run>`으로 하려나?
   - serve라는 tool을 만들까?
+  - 아니면, 이런 건 ㅇㄸ? 서버 프로세스를 띄우고, 특정 url (아마 localhost겠지)로 request를 날리고, response를 기억한 다음에, 서버 프로세스를 죽이고 response만 반환 -> 이렇게를 통째로 tool로 묶는 거임!!
+    - "서버 프로세스"라는 건 어떻게 표현?? binary를 만들어야 하나? 지금은 binary를 만드는 능력이 너무 떨어짐 ㅠㅠ
 132. web search tool -> 이거 내가 만들어버리면 안됨??
   - built-in web search가 있으면 그걸 쓰고, 없으면 내가 만든 걸 쓰는 거지
   - 구글에 http로 직접 요청 날린 다음에 결과물 분석하면 됨 -> 이거는 걍 늑구한테 만들어달라고 하면 바로 될 듯?
   - url의 목록을 읽어오는 것까지는 쉽고, 각 url이 유효한지 확인하는 거랑 html 내용을 읽기 쉽게 요약하는게 어려움... ㅠㅠ
-133. OPENAI_BASE_URL, OPENAI_MODEL, OPENAI_API_KEY -> 이거를 GUI에서 고치고 싶음!!
-  - openai-etc1, openai-etc2, openai-etc3 모델로 분화
-  - env var: `OPENAI_ETC1_BASE_URL`, `OPENAI_ETC1_MODEL`, `OPENAI_ETC1_API_KEY`, ...
-  - config.json: `openai_etc1_base_url`, `openai_etc1_model`, ...
-  - config.json과 env var가 겹칠 경우 env var를 우선시
-  - global model store를 구현: 여기에 들어가면 base_url, model, api_key들이 쭉 있음. 복붙해서 쓰면 됨. 그대신 여기 들어가려면 비밀번호 입력해야함.
-  - API_KEY가 필요없는 모델이더라도 `OPENAI_ETC1_API_KEY`라는 env var를 요구하자!!
-  - global하게 API_KEY를 관리하는 파일은 없음. 그대신 API_KEY가 없으면 GUI에서 입력창이 뜸!
-    - 이거 시험하려면 MOCK_API_KEY도 받게 만들어야함
-134. 젬마 찐빠
-  - directory를 만들겠답시고 `<write><path>docs/</path><content></content></write>`를 해버림. 근데 아무 오류도 없이 넘어가버림...
-  - 나중에 `docs/codex.md`에다가 글을 쓰려고 하니 `ToolCallError`가 나야하는데 그냥 error가 나서 backend가 죽어버림...
-  - codex 관련된 걸 분석하라고 하고 web-agent를 꺼 놨음. 분명히 git이 있으니까 git clone해서 보면 되는데 그냥 포기해버리고 지가 알고있는 지식으로만 대답함...
-  - 또다시 찐빠(는 아니고 사실 내 잘못): cargo에 bash command 붙이는게 안되니까 python 안에서 subprocess로 cargo 부르려고 함. 근데 python에는 PATH가 전달이 안되니까 cargo가 없음...이걸 전달을 해줘야겠는데?
 135. 지금은 gui에 pause/resume 버튼만 있잖아? backend_process가 죽어있으면 respawn이라는 버튼이 되게 하자!
   - 일단 구현은 했는데 아직 별 의미가 없음. backend가 갑자기 죽더라도 frontend는 그 사실을 모르기 때문에 (확인을 안함) respawn 버튼이 안 뜸. 이걸 자주 확인하기는 너무 비쌀 거 같은데...
 136. "Favorites" button to the browser tab
@@ -250,14 +246,14 @@
   - It does better at implementing `voxel.md` than the 397B one. The 397B one keeps failing with the patch tool, but it doesn't. It does fail a few times, but succeeds in the end.
   - Deepinfra rejects API request if it has more than 4 images...
 139. some config_ui uses `Config::default` instead of `get_global_config`
-140. image-edit
-  - 리사이즈애드 에이전트 만들기??
-  - built-in tool로 넣기 vs custom-tool 공간 만들기
-  - 지금 request/response가 엄청 분량이 많잖아? 근데 거의 그만큼 새로 만들어야함...
-  - custom-tool 공간 만드는 것도 빡세긴 함...
-    - 하면 걍 Python으로 붙이면 금방 만듦
-    - 언어 상관없이 executable 붙일 수 있게할까? stdin으로 arg 주고, stdout에 결과물 출력하게 하면 되지! 걍 읽어서 json으로 parse하면 됨
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
+142. 채팅방마다 dir을 따로 만들고, index를 따로 관리하자
+  - `<global-index-dir>/chats/<id>/context.json`
+  - `<global-index-dir>/chats/<id>/.neukgu/`
+  - 이래야 쓰레기가 안 남지...
+  - 이래야 로그 보는 거랑 token usage 보는게 편해짐
+  - 모든 채팅의 token usage를 한번에 묶어서 보고싶을 때도 있음... 그럴 땐 how?
+143. token usage 보면서 비용도 보고싶음... how?
 
 ## mock API
 

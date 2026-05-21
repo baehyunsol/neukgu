@@ -94,7 +94,7 @@ impl Model {
 
     pub fn supports_web_search(&self) -> bool {
         match self {
-            Model::GptMini => true,  // TODO: I haven't tested yet
+            Model::GptMini => true,
             Model::Gpt => true,
             Model::OpenaiEtc1 => false,
             Model::OpenaiEtc2 => false,

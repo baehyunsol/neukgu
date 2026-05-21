@@ -50,7 +50,7 @@ use crate::{
 use iced::{Color, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, text};
+use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -93,12 +93,14 @@ pub struct IcedContext {
     pub chat_view_id: Id,
     pub popup_scroll_id: Id,
     pub chat_input_id: Id,
+    pub short_text_editor_id: Id,
     pub chat_view_scrolled: AbsoluteOffset,
     pub find_pattern: Option<(String, Regex)>,
     pub find_result: HashMap<ChatTurnId, usize>,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
+    pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
     pub chat_input_content: TextEditorContent,
     pub syntax_highlight: Option<String>,
@@ -136,12 +138,14 @@ impl IcedContext {
             chat_view_id: Id::unique(),
             popup_scroll_id: Id::unique(),
             chat_input_id: Id::unique(),
+            short_text_editor_id: Id::unique(),
             chat_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             find_pattern: None,
             find_result: HashMap::new(),
             curr_popup,
             prev_popup: None,
             copy_buffer: None,
+            short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
             chat_input_content: TextEditorContent::new(),
             syntax_highlight: None,
@@ -178,7 +182,9 @@ impl IcedContext {
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
                 self.syntax_highlight = Some(String::from("md"));
             },
-            Popup::ChangeTitle => {},
+            Popup::ChangeTitle => {
+                self.short_text_editor_content = self.chat.title.clone().unwrap_or(String::new());
+            },
             Popup::Thinking(thinking) => {
                 self.copy_buffer = Some(thinking.to_string());
                 self.set_long_text_editor_content(thinking.to_string());
@@ -265,7 +271,9 @@ pub enum IcedMessage {
     ClosePopup,
     CopyPopupContent,
     CopyString(String),
+    ChangeTitle,
     SetChatConfig(SetChatConfig),
+    EditShortText(String),
     EditChatInput(TextEditorAction),
     IsChatInputFocused(bool),
     HoverChatButton,
@@ -318,6 +326,15 @@ pub enum Popup {
     CodeBlock { code: String, ext: Option<String> },
     Image(ImageId),
     Find { re: Option<String>, error: Option<String> },
+}
+
+impl Popup {
+    pub fn has_short_text_input(&self) -> bool {
+        match self {
+            Popup::ChangeTitle | Popup::Find { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -423,9 +440,21 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.chat_view_scrolled = o;
         },
         IcedMessage::OpenPopup { curr, prev } => {
+            let mut tasks: Vec<Task<IcedMessage>> = vec![
+                scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled),
+            ];
+
+            // if curr.has_long_text_input() {
+            //     tasks.push(focus(context.long_text_editor_id.clone()));
+            // }
+
+            if curr.has_short_text_input() {
+                tasks.push(focus(context.short_text_editor_id.clone()));
+            }
+
             context.open_popup(curr)?;
             context.prev_popup = prev;
-            return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::BackPopup => {
             if let Some(prev_popup) = &context.prev_popup {
@@ -449,9 +478,27 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::CopyString(s) => {
             return Ok(iced::clipboard::write(s));
         },
+        IcedMessage::ChangeTitle => {
+            let new_title = context.short_text_editor_content.to_string();
+            let old_title = context.chat.title.clone();
+
+            if !new_title.is_empty() {
+                context.chat.title = Some(new_title);
+            }
+
+            if context.chat.title != old_title {
+                context.chat.store(&context.global_index_dir)?;
+            }
+
+            context.close_popup();
+            return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
+        },
         IcedMessage::SetChatConfig(c) => {
             set_chat_config(&mut context.chat.config, c);
             context.chat.store(&context.global_index_dir)?;
+        },
+        IcedMessage::EditShortText(s) => {
+            context.short_text_editor_content = s;
         },
         IcedMessage::EditChatInput(a) => {
             context.chat_input_content.perform(a);
@@ -667,7 +714,21 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     else if let Some(Popup::ChangeTitle) = context.curr_popup {
-        todo!()
+        let change_title = Row::from_vec(vec![
+            TextInput::new("", &context.short_text_editor_content)
+                .id(context.short_text_editor_id.clone())
+                .size(context.zoom * 14.0)
+                .width(context.zoom * 512.0)
+                .on_input(IcedMessage::EditShortText)
+                .on_submit(IcedMessage::ChangeTitle)
+                .into(),
+            button("Change", IcedMessage::ChangeTitle, blue(), context.zoom).into(),
+        ]).spacing(context.zoom * 8.0);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(change_title.into(), context),
+        ]).into();
     }
 
     else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
