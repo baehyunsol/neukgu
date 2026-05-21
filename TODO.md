@@ -254,6 +254,11 @@
   - 이래야 로그 보는 거랑 token usage 보는게 편해짐
   - 모든 채팅의 token usage를 한번에 묶어서 보고싶을 때도 있음... 그럴 땐 how?
 143. token usage 보면서 비용도 보고싶음... how?
+144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음.
+  - 구현은 쉬움. 생기자마자 바로 hidden_turns에 넣어버리면 됨!
+  - 근데 agent가 사람한테 대답할 방법이 없음...
+145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
+  - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
 
 ## mock API
 
