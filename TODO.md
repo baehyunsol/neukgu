@@ -259,6 +259,7 @@
   - 근데 agent가 사람한테 대답할 방법이 없음...
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
+146. add `<path>` parameter to `<run>`
 
 ## mock API
 
