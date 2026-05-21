@@ -27,6 +27,7 @@ pub enum Error {
     UserInterrupt,
 
     HttpError { status_code: u16 },
+    ImageRequestError { status_code: u16, message: String },
     CliError {
         message: String,
         span: Option<ragit_cli::RenderedSpan>,
@@ -34,6 +35,9 @@ pub enum Error {
 
     IoError(std::io::Error),
     FromUtf8Error(std::string::FromUtf8Error),
+
+    /// see <https://docs.rs/base64/latest/base64/enum.DecodeError.html>
+    Base64DecodeError(base64::DecodeError),
 
     /// I don't know how to handle `anyhow::Error`, so I just convert it to string.
     BrowserError(String),
@@ -66,6 +70,12 @@ pub enum Error {
 
     /// see <https://docs.rs/which/latest/which/enum.Error.html>
     WhichError(which::Error),
+}
+
+impl From<base64::DecodeError> for Error {
+    fn from(e: base64::DecodeError) -> Error {
+        Error::Base64DecodeError(e)
+    }
 }
 
 impl From<ragit_cli::Error> for Error {

@@ -674,7 +674,7 @@ fn check_tag_name(input: &[u8]) -> Option<&[u8]> {
 
     loop {
         match input.get(i) {
-            Some(b'a'..=b'z' | b'/') => {
+            Some(b'a'..=b'z' | b'-' | b'/') => {
                 i += 1;
             },
             Some(b'>') => {

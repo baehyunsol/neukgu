@@ -565,5 +565,6 @@ fn encode_base64(bytes: &[u8]) -> String {
 }
 
 fn decode_base64(s: &str) -> Result<Vec<u8>, Error> {
-    todo!()
+    use base64::Engine;
+    Ok(base64::prelude::BASE64_STANDARD.decode(s)?)
 }

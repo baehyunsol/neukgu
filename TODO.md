@@ -257,6 +257,7 @@
   - custom-tool 공간 만드는 것도 빡세긴 함...
     - 하면 걍 Python으로 붙이면 금방 만듦
     - 언어 상관없이 executable 붙일 수 있게할까? stdin으로 arg 주고, stdout에 결과물 출력하게 하면 되지! 걍 읽어서 json으로 parse하면 됨
+141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
 
 ## mock API
 

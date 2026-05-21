@@ -13,7 +13,6 @@ use crate::{
     TurnSummary,
     UserResponse,
     clean_sandbox,
-    decode_base64,
     export_to_sandbox,
     from_browser_error,
     image,
@@ -719,10 +718,25 @@ impl ToolCall {
                     size: *size,
                 };
 
-                // TODO: convert Err to ToolCallError
-                let response = request.request(&context.working_dir).await?;
-                let generated_image_bytes = decode_base64(&response.data[0])?;
+                let response = match request.request(&context.working_dir).await {
+                    Ok(response) => response,
+                    Err(Error::ImageRequestError { status_code, message }) => {
+                        return Ok(Err(ToolCallError::ImageRequestError { status_code, message }));
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+
+                let generated_image_bytes = response.data[0].decode_base64()?;
                 let generated_image = ::image::load_from_memory(&generated_image_bytes)?;
+
+                write_bytes(
+                    &real_output_path,
+                    &generated_image_bytes,
+                    ragit_fs::WriteMode::CreateOrTruncate,
+                )?;
+
                 let generated_image_id = normalize_and_get_id(&generated_image_bytes, &context.working_dir)?;
                 Ok(Ok(ToolCallSuccess::ImageEdit {
                     input: joined_input,
@@ -1126,6 +1140,10 @@ pub enum ToolCallError {
     NotAnImage {
         path: String,
     },
+    ImageRequestError {
+        status_code: u16,
+        message: String,
+    },
 
     // etc
     SupposedToWriteSummary { write_path: Option<String> },
@@ -1226,6 +1244,9 @@ Command timeout! The process didn't terminate for {timeout} seconds.
             ToolCallError::UserNotResponding => String::from("User is not responding."),
             ToolCallError::UserRejectedToRespond => String::from("User doesn't want to answer your question."),
             ToolCallError::WebSearchDisabled => String::from("The web search agent is not available now."),
+            ToolCallError::ImageRequestError { status_code, message } => format!(
+                "The API request returned status code {status_code}:\n\n{message}",
+            ),
             ToolCallError::SupposedToWriteSummary { write_path } => match write_path {
                 Some(path) => format!("`{path}` is not a correct path for a summary file. You have to write summary at `logs/`. The summary file name must start with \"summary\", and has extension \".md\". For example, `logs/summary-refactor.md` or `logs/summary-test.md`"),
                 None => String::from("You're supposed to summarize what you're doing and what you've discovered so far and write the summary at `logs/summary-XXX.md`."),

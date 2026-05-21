@@ -1,6 +1,6 @@
 // TODO: fancy stuffs in `src/request.rs` (e.g. api key fallback, api retry, logging...) are not implemented here
 
-use crate::{Error, ImageId, encode_base64};
+use crate::{Error, ImageId, decode_base64, encode_base64};
 use ragit_fs::read_bytes;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -66,16 +66,38 @@ impl ImageRequest {
             .json(&body)
             .timeout(Duration::from_millis(600_000));
 
-        let response = request.send().await?.text().await?;
+        let response = request.send().await?;
+        let response = match (response.status().as_u16(), response.text().await?) {
+            (200..=299, response) => response,
+            (status_code @ 400.., response) => {
+                return Err(Error::ImageRequestError {
+                    status_code,
+                    message: response,
+                });
+            },
+            (status_code, _) => {
+                return Err(Error::HttpError { status_code });
+            },
+        };
         let response: ImageResponse = serde_json::from_str(&response)?;
-        eprintln!("{response:?}");
-        todo!()
+        Ok(response)
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ImageResponse {
-    pub data: Vec<String>,
+    pub data: Vec<ImageResponseData>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ImageResponseData {
+    pub b64_json: String,
+}
+
+impl ImageResponseData {
+    pub fn decode_base64(&self) -> Result<Vec<u8>, Error> {
+        decode_base64(&self.b64_json)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
