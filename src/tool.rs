@@ -45,6 +45,7 @@ use ragit_fs::{
 use serde::{Deserialize, Serialize};
 use similar::Algorithm as DiffAlgorithm;
 use similar::udiff::unified_diff;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod ask;
@@ -63,11 +64,12 @@ pub use read::{
     FileEntry,
     RangeType,
     TypedFile,
-    check_read_permission,
+    check_read_path,
     read_file,
 };
 pub use run::{ParseCommandError, load_available_binaries, parse_command};
-pub use write::{DumpOrRedirect, WriteMode, check_write_permission};
+use read::check_read_permission;
+pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 
 type Path = Vec<String>;
 
@@ -128,24 +130,12 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::TooManyReadWithoutSummary));
                 }
 
-                let joined_path = match normalize_path(path) {
-                    Some(path) if path.is_empty() => String::from("."),
-                    Some(path) => path.join("/"),
-                    None => path.join("/"),
+                let joined_path = match check_read_path(path, &context.working_dir) {
+                    Ok((joined_path, _)) => joined_path,
+                    Err(e) => {
+                        return Ok(Err(e));
+                    },
                 };
-
-                // If `join` fails, `check_read_permission` will catch this!
-                let real_path = join(&context.working_dir, &joined_path).unwrap_or(joined_path.clone());
-
-                // If the AI tries to read `../../Documents/`, that's a permission error whether or not the path exists.
-                if !check_read_permission(path) {
-                    return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_path }));
-                }
-
-                // If the file is a symlink, `exists` checks the existence of the pointee, not the pointer
-                if !exists(&real_path) && !is_symlink(&real_path) {
-                    return Ok(Err(ToolCallError::NoSuchFile { path: joined_path }));
-                }
 
                 let start_i = (*start).unwrap_or(0);
                 let end_i = (*end).unwrap_or(u64::MAX - 1);
@@ -237,7 +227,7 @@ impl ToolCall {
                         }
                     },
                     TypedFile::BrokenPdf { error } => Ok(Err(ToolCallError::BrokenFile { path: joined_path, kind: String::from("pdf"), error })),
-                    TypedFile::Image(id) => Ok(Ok(ToolCallSuccess::ReadImage { path: joined_path, id })),
+                    TypedFile::Image(id, size) => Ok(Ok(ToolCallSuccess::ReadImage { path: joined_path, id, size })),
                     TypedFile::BrokenImage { error } => Ok(Err(ToolCallError::BrokenFile { path: joined_path, kind: String::from("image"), error })),
                     TypedFile::Dir(entries) => {
                         if entries.len() as u64 > config.dir_max_entries && (start.is_none() || start_i < 2) && end.is_none() {
@@ -294,14 +284,12 @@ impl ToolCall {
                 }
             },
             ToolCall::Write { path, mode, content } => {
-                let joined_path = match normalize_path(path) {
-                    Some(path) if path.is_empty() => String::from("."),
-                    Some(path) => path.join("/"),
-                    None => path.join("/"),
+                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, Some(*mode)) {
+                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                    Err(e) => {
+                        return Ok(Err(e));
+                    },
                 };
-
-                // If `join` fails, `check_write_permission` will catch this!
-                let real_path = join(&context.working_dir, &joined_path).unwrap_or(joined_path.clone());
 
                 if content.len() as u64 > config.text_file_max_len {
                     return Ok(Err(ToolCallError::TextTooLongToWrite {
@@ -311,34 +299,10 @@ impl ToolCall {
                     }));
                 }
 
-                match (*mode, exists(&real_path)) {
-                    (WriteMode::Truncate | WriteMode::Append, _) if is_dir(&real_path) => {
-                        return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_path, exists: exists(&real_path) }));
-                    },
-                    (WriteMode::Create, false) |
-                    (WriteMode::Truncate, true) |
-                    (WriteMode::Append, true) => {},
-                    (mode, exists) => {
-                        return Ok(Err(ToolCallError::WriteModeError {
-                            path: joined_path,
-                            mode,
-                            exists,
-                        }));
-                    },
-                }
-
                 let parent_path = parent(&real_path)?;
 
                 if *mode == WriteMode::Create && !exists(&parent_path) {
                     create_dir_all(&parent_path)?;
-                }
-
-                if !check_write_permission(path) {
-                    return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
-                }
-
-                if joined_path == "." || joined_path.ends_with("/") || is_dir(&real_path) {
-                    return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_path, exists: exists(&real_path) }));
                 }
 
                 let prev_content = if *mode == WriteMode::Create {
@@ -399,14 +363,12 @@ impl ToolCall {
                 }))
             },
             ToolCall::Patch { path, diff } => {
-                let joined_path = match normalize_path(path) {
-                    Some(path) if path.is_empty() => String::from("."),
-                    Some(path) => path.join("/"),
-                    None => path.join("/"),
+                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, None) {
+                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                    Err(e) => {
+                        return Ok(Err(e));
+                    },
                 };
-
-                // If `join` fails, `check_write_permission` will catch this!
-                let real_path = join(&context.working_dir, &joined_path).unwrap_or(joined_path.clone());
 
                 match (exists(&real_path), is_symlink(&real_path), is_dir(&real_path), read_string(&real_path)) {
                     (_, true, _, _) => {
@@ -424,10 +386,6 @@ impl ToolCall {
                     _ => {},
                 }
 
-                if !check_write_permission(path) {
-                    return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
-                }
-
                 let mut result = patch_file(&real_path, diff);
 
                 if let Ok(ToolCallSuccess::Patch { new_content, path, .. }) = &mut result {
@@ -439,17 +397,30 @@ impl ToolCall {
             },
             ToolCall::Run { timeout, command, env, stdout, stderr } => {
                 let mut env = env.to_vec();
+                let stdout_path = stdout.clone();
+                let stderr_path = stderr.clone();
+                let (mut stdout_real_path, mut stderr_real_path) = (None, None);
 
-                if let Some(stdout) = stdout && !check_write_permission(stdout) {
-                    return Ok(Err(ToolCallError::NoPermissionToWrite {
-                        path: stdout.join("/"),
-                    }));
+                if let Some(stdout) = stdout {
+                    match check_write_path(stdout, &context.working_dir, None) {
+                        Ok((_, real_path)) => {
+                            stdout_real_path = Some(real_path);
+                        },
+                        Err(e) => {
+                            return Ok(Err(e));
+                        },
+                    }
                 }
 
-                if let Some(stderr) = stderr && !check_write_permission(stderr) {
-                    return Ok(Err(ToolCallError::NoPermissionToWrite {
-                        path: stderr.join("/"),
-                    }));
+                if let Some(stderr) = stderr {
+                    match check_write_path(stderr, &context.working_dir, None) {
+                        Ok((_, real_path)) => {
+                            stderr_real_path = Some(real_path);
+                        },
+                        Err(e) => {
+                            return Ok(Err(e));
+                        },
+                    }
                 }
 
                 // If `command` is empty, that's a parse error.
@@ -535,33 +506,31 @@ impl ToolCall {
                 clean_sandbox(&config.sandbox_root, &sandbox_at, &context.working_dir)?;
 
                 let timeout_value = timeout;
-                let stdout_dst = stdout;
-                let stderr_dst = stderr;
                 let subprocess::Output { status, stdout, stderr, elapsed_ms: _, timeout } = result;
 
-                let stdout = match stdout_dst {
+                let stdout = match &stdout_real_path {
                     Some(path) => {
                         write_bytes(
-                            &join(&context.working_dir, &path.join("/"))?,
+                            path,
                             &stdout,
                             ragit_fs::WriteMode::CreateOrTruncate,
                         )?;
-                        DumpOrRedirect::Redirect(path.to_vec())
+                        DumpOrRedirect::Redirect(stdout_path.unwrap())
                     },
                     None => DumpOrRedirect::Dump(String::from_utf8_lossy(&stdout).to_string()),
                 };
-                let stderr = match stderr_dst {
+                let stderr = match &stderr_real_path {
                     Some(path) => {
                         write_bytes(
-                            &join(&context.working_dir, &path.join("/"))?,
+                            path,
                             &stderr,
-                            if stdout_dst == stderr_dst {
+                            if stdout_real_path == stderr_real_path {
                                 ragit_fs::WriteMode::AlwaysAppend
                             } else {
                                 ragit_fs::WriteMode::CreateOrTruncate
                             },
                         )?;
-                        DumpOrRedirect::Redirect(path.to_vec())
+                        DumpOrRedirect::Redirect(stderr_path.unwrap())
                     },
                     None => DumpOrRedirect::Dump(String::from_utf8_lossy(&stderr).to_string()),
                 };
@@ -638,37 +607,37 @@ impl ToolCall {
             },
             // TODO: error if `script` is set and `input` is not an html
             ToolCall::Chrome { script, input, output } => {
-                let joined_output = output.join("/");
-                let joined_input = input.join("/");
-
-                if !check_write_permission(output) {
-                    return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_output }));
-                }
-
-                let real_output_path = join(&context.working_dir, &joined_output)?;
-                let real_input_path = join(&context.working_dir, &joined_input)?;
-
-                if joined_output == "." || joined_output.ends_with("/") || is_dir(&real_output_path) {
-                    return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_output, exists: exists(&real_output_path) }));
-                }
+                let mut joined_input = input.join("/");
+                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None) {
+                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                    Err(e) => {
+                        return Ok(Err(e));
+                    },
+                };
 
                 let url = {
                     let path = WebOrFile::from(input);
 
                     if let WebOrFile::File(path) = &path {
-                        if !check_read_permission(path) {
-                            return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_input }));
-                        }
-
-                        if !exists(&real_input_path) {
-                            return Ok(Err(ToolCallError::NoSuchFile { path: joined_input }));
-                        }
+                        let (joined_input_, real_input_path) = match check_read_path(path, &context.working_dir) {
+                            Ok((joined_path, real_path)) => (joined_path, real_path),
+                            Err(e) => {
+                                return Ok(Err(e));
+                            },
+                        };
+                        joined_input = joined_input_;
 
                         if joined_input.to_ascii_lowercase().ends_with(".svg") {
                             let svg_data = read_string(&real_input_path)?;
 
                             // VIBE NOTE: gemini 3.1 wrote this code (svg to png)
-                            let opt = resvg::usvg::Options::default();
+                            let mut opt = resvg::usvg::Options::default();
+
+                            if let Some(db) = Arc::get_mut(&mut opt.fontdb) {
+                                db.load_system_fonts();
+                                db.load_font_data(include_bytes!("../resources/SpaceMono-Regular.ttf").to_vec());
+                            }
+
                             let rtree = resvg::usvg::Tree::from_str(&svg_data, &opt)?;
                             let pixmap_size = rtree.size().to_int_size();
                             let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
@@ -707,45 +676,28 @@ impl ToolCall {
                 // Some pages take time to load.
                 sleep(Duration::from_millis(2_000)).await;
 
-                // TODO: maybe we have to wait a few seconds until it loads?
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
                 let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
                 write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
                 Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
             },
             ToolCall::ImageEdit { input, prompt, size, output } => {
-                let joined_input = match normalize_path(input) {
-                    Some(path) if path.is_empty() => String::from("."),
-                    Some(path) => path.join("/"),
-                    None => input.join("/"),
+                let (joined_input, real_input_path) = match check_read_path(input, &context.working_dir) {
+                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                    Err(e) => {
+                        return Ok(Err(e));
+                    },
                 };
-                let joined_output = match normalize_path(output) {
-                    Some(path) if path.is_empty() => String::from("."),
-                    Some(path) => path.join("/"),
-                    None => output.join("/"),
+                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None) {
+                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                    Err(e) => {
+                        return Ok(Err(e));
+                    },
                 };
-                let real_output_path = join(&context.working_dir, &joined_output).unwrap_or(joined_output.clone());
-                let real_input_path = join(&context.working_dir, &joined_input).unwrap_or(joined_input.clone());
                 let parent_path = parent(&real_output_path)?;
 
                 if !exists(&parent_path) {
                     create_dir_all(&parent_path)?;
-                }
-
-                if !check_read_permission(input) {
-                    return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_input }));
-                }
-
-                if !exists(&real_input_path) {
-                    return Ok(Err(ToolCallError::NoSuchFile { path: joined_input }));
-                }
-
-                if !check_write_permission(output) {
-                    return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_output }));
-                }
-
-                if joined_output == "." || joined_output.ends_with("/") || is_dir(&real_output_path) {
-                    return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_output, exists: exists(&real_output_path) }));
                 }
 
                 let input_image_id = match read_bytes(&real_input_path) {
@@ -769,15 +721,16 @@ impl ToolCall {
 
                 // TODO: convert Err to ToolCallError
                 let response = request.request(&context.working_dir).await?;
-                let generated_image_bytes = decode_base64(&response.data[0]).unwrap();  // TODO: no-unwrap
-                let generated_image = normalize_and_get_id(&generated_image_bytes, &context.working_dir)?;
+                let generated_image_bytes = decode_base64(&response.data[0])?;
+                let generated_image = ::image::load_from_memory(&generated_image_bytes)?;
+                let generated_image_id = normalize_and_get_id(&generated_image_bytes, &context.working_dir)?;
                 Ok(Ok(ToolCallSuccess::ImageEdit {
                     input: joined_input,
                     prompt: prompt.to_string(),
                     output_path: joined_output,
-                    output_image: generated_image,
+                    output_image: generated_image_id,
                     requested_size: *size,
-                    generated_size: todo!(),
+                    generated_size: (generated_image.width() as u64, generated_image.height() as u64),
                 }))
             },
         }
@@ -877,6 +830,7 @@ pub enum ToolCallSuccess {
     ReadImage {
         path: String,
         id: ImageId,
+        size: (u64, u64),
     },
     ReadDir {
         path: String,
@@ -951,7 +905,10 @@ impl ToolCallSuccess {
             ToolCallSuccess::ReadPdf { pages, .. } => pages.iter().map(
                 |id| LLMToken::Image(*id)
             ).collect(),
-            ToolCallSuccess::ReadImage { id, .. } => vec![LLMToken::Image(*id)],
+            ToolCallSuccess::ReadImage { id, size: (w, h), path } => vec![
+                LLMToken::String(format!("path: {path}\nsize: {w}x{h}")),
+                LLMToken::Image(*id),
+            ],
             ToolCallSuccess::ReadDir { path, entries, total_entries, range } => {
                 let entries_count = match range {
                     (None, None) => format!("{total_entries} entries"),

@@ -203,3 +203,26 @@ pub enum ApiProvider {
     Mock,
     Gemini,
 }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct EtcModels {
+    pub openai_etc1_base_url: Option<String>,
+    pub openai_etc1_model: Option<String>,
+    pub openai_etc2_base_url: Option<String>,
+    pub openai_etc2_model: Option<String>,
+    pub openai_etc3_base_url: Option<String>,
+    pub openai_etc3_model: Option<String>,
+}
+
+impl Default for EtcModels {
+    fn default() -> EtcModels {
+        EtcModels {
+            openai_etc1_base_url: None,
+            openai_etc1_model: None,
+            openai_etc2_base_url: None,
+            openai_etc2_model: None,
+            openai_etc3_base_url: None,
+            openai_etc3_model: None,
+        }
+    }
+}

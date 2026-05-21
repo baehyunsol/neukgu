@@ -71,9 +71,9 @@ impl Request {
         };
 
         let model = match self.model {
-            Model::OpenaiEtc1 => config.openai_etc1_model.clone(),
-            Model::OpenaiEtc2 => config.openai_etc2_model.clone(),
-            Model::OpenaiEtc3 => config.openai_etc3_model.clone(),
+            Model::OpenaiEtc1 => config.etc_models.openai_etc1_model.clone(),
+            Model::OpenaiEtc2 => config.etc_models.openai_etc2_model.clone(),
+            Model::OpenaiEtc3 => config.etc_models.openai_etc3_model.clone(),
             _ => unreachable!(),
         };
         let model = match (model, std::env::var(model_env_var)) {
@@ -91,9 +91,9 @@ impl Request {
         };
 
         let base_url = match self.model {
-            Model::OpenaiEtc1 => config.openai_etc1_base_url.clone(),
-            Model::OpenaiEtc2 => config.openai_etc2_base_url.clone(),
-            Model::OpenaiEtc3 => config.openai_etc3_base_url.clone(),
+            Model::OpenaiEtc1 => config.etc_models.openai_etc1_base_url.clone(),
+            Model::OpenaiEtc2 => config.etc_models.openai_etc2_base_url.clone(),
+            Model::OpenaiEtc3 => config.etc_models.openai_etc3_base_url.clone(),
             _ => unreachable!(),
         };
         let base_url = match (base_url, std::env::var(base_url_env_var)) {

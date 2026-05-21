@@ -397,6 +397,33 @@ os.symlink(\"new_crate/Cargo.toml\", \"symlink-correct\")
         ),
         // browser test end
 
+        // svg test (it's not automated, you have to check it manually... I want to see if it can render korean text)
+        MockRequest::new(
+            r##"<write>
+<mode>create</mode>
+<path>korean.svg</path>
+<content>
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <rect width="480" height="480" fill="#40b040"/>
+  <text x="240" y="240"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        font-size="32"
+        fill="white">
+    Hi, my name is 배현솔
+  </text>
+</svg>
+
+</content>
+</write>"##,
+            None,
+        ),
+        MockRequest::new(
+            "<chrome><input>korean.svg</input><output>korean.png</output></chrome>",
+            None,
+        ),
+        // svg test end
+
         MockRequest::new(
             "<run>\n<command>python3 -c \"print(3162277660168379331998 * 3162277660168379331998)\"</command>\n</run>",
             Some("9999999999999999999994348728804092706672004"),

@@ -874,12 +874,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key3.to_string());
                 }
 
+                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(3) {
+                    context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key4.to_string());
+                }
+
                 context.spawn_be_process()?;
                 context.close_popup();
             },
             m => {
-                // It doesn't do further tasks.
-                let _ = api_key::update(&mut context.get_api_keys_context, m);
+                return Ok(api_key::update(&mut context.get_api_keys_context, m).map(IcedMessage::GetApiKeys));
             },
         },
         IcedMessage::TurnViewScrolled(o) => {
@@ -1591,8 +1594,8 @@ pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clon
             LLMToken::String(s) => text!("{s}").size(zoom * 14.0).width(Length::Fill).into(),
             LLMToken::Image(id) => MouseArea::new(
                 Image::new(ImageHandle::from_path(id.path(working_dir).unwrap()))
-                    .width(Length::Fixed(zoom * 300.0))
-                    .height(Length::Fixed(zoom * 300.0))
+                    .width(Length::Fixed(zoom * 480.0))
+                    .height(Length::Fixed(zoom * 480.0))
                     .content_fit(ContentFit::Contain),
             ).on_press(context.open_image_popup(*id)).into(),
         }

@@ -73,7 +73,7 @@ pub use global::{
 pub use image::{ImageId, normalize_and_get_id};
 use interrupt::{check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
-pub use model::{Agents, ApiProvider, Model};
+pub use model::{Agents, ApiProvider, EtcModels, Model};
 pub use parse::{ParseError, ParsedSegment};
 use pdf::{PdfId, render_and_get_id, render_first_10_pages};
 use prettify::{

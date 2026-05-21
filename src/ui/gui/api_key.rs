@@ -2,11 +2,13 @@ use super::{button, green};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use iced::{Element, Length, Task};
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{Column, Row, TextInput, text};
+use iced::widget::{Column, Id, Row, TextInput, text};
+use iced::widget::operation::focus;
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
     pub missing_api_keys: Vec<String>,
+    pub text_input_ids: Vec<Id>,
     pub key1: String,
     pub key2: String,
     pub key3: String,
@@ -17,6 +19,7 @@ impl IcedContext {
     pub fn new(missing_api_keys: Vec<String>) -> IcedContext {
         IcedContext {
             missing_api_keys,
+            text_input_ids: (0..4).map(|_| Id::unique()).collect(),
             key1: String::new(),
             key2: String::new(),
             key3: String::new(),
@@ -32,6 +35,7 @@ pub enum IcedMessage {
     EditKey3(String),
     EditKey4(String),
     Enter,
+    Focus(Id),
 }
 
 // You can't close/back/copy this popup.
@@ -56,6 +60,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.key4 = key;
         },
         IcedMessage::Enter => {},
+        IcedMessage::Focus(id) => {
+            return focus(id);
+        },
     }
 
     Task::none()
@@ -68,8 +75,10 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
 ) -> Element<'ac, IcedMessage> {
     fn input<'e, 'm, F: Fn(String) -> IcedMessage + 'm>(
         env_var: &'e str,
+        id: Id,
         value: &'m str,
         on_input: F,
+        on_submit: IcedMessage,
         zoom: f32,
     ) -> Element<'m, IcedMessage> {
         let s = format!("{}{env_var}:", " ".repeat(32 - env_var.len()));
@@ -77,26 +86,68 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
         Row::from_vec(vec![
             text!("{s}").size(zoom * 14.0).into(),
             TextInput::new("", value)
+                .id(id)
                 .size(zoom * 14.0)
                 .width(zoom * 256.0)
                 .on_input(on_input)
+                .on_submit(on_submit)
                 .into(),
         ]).align_y(Vertical::Center).spacing(zoom * 8.0).into()
     }
 
     let mut column: Vec<Element<IcedMessage>> = vec![text!("Enter API Keys").size(zoom * 18.0).into()];
-    column.push(input(&api_keys_context.missing_api_keys[0], &api_keys_context.key1, IcedMessage::EditKey1, zoom));
+    column.push(input(
+        &api_keys_context.missing_api_keys[0],
+        api_keys_context.text_input_ids[0].clone(),
+        &api_keys_context.key1,
+        IcedMessage::EditKey1,
+        if api_keys_context.missing_api_keys.len() == 1 {
+            IcedMessage::Enter
+        } else {
+            IcedMessage::Focus(api_keys_context.text_input_ids[1].clone())
+        },
+        zoom,
+    ));
 
     if let Some(env_var) = api_keys_context.missing_api_keys.get(1) {
-        column.push(input(env_var, &api_keys_context.key2, IcedMessage::EditKey2, zoom));
+        column.push(input(
+            env_var,
+            api_keys_context.text_input_ids[1].clone(),
+            &api_keys_context.key2,
+            IcedMessage::EditKey2,
+            if api_keys_context.missing_api_keys.len() == 2 {
+                IcedMessage::Enter
+            } else {
+                IcedMessage::Focus(api_keys_context.text_input_ids[2].clone())
+            },
+            zoom,
+        ));
     }
 
     if let Some(env_var) = api_keys_context.missing_api_keys.get(2) {
-        column.push(input(env_var, &api_keys_context.key3, IcedMessage::EditKey3, zoom));
+        column.push(input(
+            env_var,
+            api_keys_context.text_input_ids[2].clone(),
+            &api_keys_context.key3,
+            IcedMessage::EditKey3,
+            if api_keys_context.missing_api_keys.len() == 3 {
+                IcedMessage::Enter
+            } else {
+                IcedMessage::Focus(api_keys_context.text_input_ids[3].clone())
+            },
+            zoom,
+        ));
     }
 
     if let Some(env_var) = api_keys_context.missing_api_keys.get(3) {
-        column.push(input(env_var, &api_keys_context.key4, IcedMessage::EditKey4, zoom));
+        column.push(input(
+            env_var,
+            api_keys_context.text_input_ids[3].clone(),
+            &api_keys_context.key4,
+            IcedMessage::EditKey4,
+            IcedMessage::Enter,
+            zoom,
+        ));
     }
 
     column.push(button("Enter", IcedMessage::Enter, green(), zoom).into());

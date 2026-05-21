@@ -5,7 +5,9 @@ use crate::{
     AskTo,
     Config,
     Error,
+    EtcModels,
     LLMToken,
+    Model,
     ParseError,
     ParsedSegment,
     SessionSummary,
@@ -108,6 +110,7 @@ pub struct Turn {
     pub tool_elapsed_ms: u64,
     pub timestamp_millis: i64,  // when the turn's finished
     pub agents: Agents,
+    pub etc_models: EtcModels,
     pub kind: TurnKind,
     pub api_log: ApiLog,
 }
@@ -132,6 +135,7 @@ impl Turn {
             tool_elapsed_ms,
             timestamp_millis: Local::now().timestamp_millis(),
             agents: config.agents,
+            etc_models: config.etc_models.clone(),
             kind,
             api_log,
         };
@@ -241,19 +245,28 @@ impl Turn {
     }
 
     pub fn introduce_agents(&self) -> String {
+        fn introduce_agent(model: Model, etc_models: &EtcModels) -> String {
+            match model {
+                Model::OpenaiEtc1 => format!("{} ({})", model.short_name(), etc_models.openai_etc1_model.as_ref().unwrap_or(&String::from("????"))),
+                Model::OpenaiEtc2 => format!("{} ({})", model.short_name(), etc_models.openai_etc2_model.as_ref().unwrap_or(&String::from("????"))),
+                Model::OpenaiEtc3 => format!("{} ({})", model.short_name(), etc_models.openai_etc3_model.as_ref().unwrap_or(&String::from("????"))),
+                _ => model.short_name().to_string(),
+            }
+        }
+
         match self.kind {
             TurnKind::Agent => {
                 if let TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::Web, .. }) = &self.turn_result {
                     if self.agents.search != self.agents.big {
                         return format!(
                             "Agent: {}\nSearch Agent: {}",
-                            self.agents.big.short_name(),
-                            self.agents.search.short_name(),
+                            introduce_agent(self.agents.big, &self.etc_models),
+                            introduce_agent(self.agents.search, &self.etc_models),
                         );
                     }
                 }
 
-                format!("Agent: {}", self.agents.big.short_name())
+                introduce_agent(self.agents.big, &self.etc_models)
             },
             TurnKind::SessionStart => String::from("Auto-generated"),
             TurnKind::UserQuestion => String::from("User question"),

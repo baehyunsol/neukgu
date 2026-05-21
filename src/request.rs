@@ -2,6 +2,7 @@ use async_std::task::sleep;
 use crate::{
     ApiProvider,
     Error,
+    EtcModels,
     ImageId,
     Logger,
     LogEntry,
@@ -54,31 +55,21 @@ pub struct Turn {
 }
 
 pub struct Config {
-    pub openai_etc1_base_url: Option<String>,
-    pub openai_etc1_model: Option<String>,
-    pub openai_etc2_base_url: Option<String>,
-    pub openai_etc2_model: Option<String>,
-    pub openai_etc3_base_url: Option<String>,
-    pub openai_etc3_model: Option<String>,
     pub request_timeout: u64,  // millis
     pub sleep_between_retry: u64,  // millis
     pub max_retry: usize,
     pub fallback_api_keys: HashMap<String, String>,
+    pub etc_models: EtcModels,
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
-            openai_etc1_base_url: None,
-            openai_etc1_model: None,
-            openai_etc2_base_url: None,
-            openai_etc2_model: None,
-            openai_etc3_base_url: None,
-            openai_etc3_model: None,
             request_timeout: 600_000,
             sleep_between_retry: 300_000,
             max_retry: 4,
             fallback_api_keys: HashMap::new(),
+            etc_models: EtcModels::default(),
         }
     }
 }

@@ -78,44 +78,44 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
         },
         SetProjectConfig::OpenaiEtc1BaseUrl(url) => {
             if url.is_empty() {
-                config.openai_etc1_base_url = None;
+                config.etc_models.openai_etc1_base_url = None;
             } else {
-                config.openai_etc1_base_url = Some(url);
+                config.etc_models.openai_etc1_base_url = Some(url);
             }
         },
         SetProjectConfig::OpenaiEtc1Model(model) => {
             if model.is_empty() {
-                config.openai_etc1_model = None;
+                config.etc_models.openai_etc1_model = None;
             } else {
-                config.openai_etc1_model = Some(model);
+                config.etc_models.openai_etc1_model = Some(model);
             }
         },
         SetProjectConfig::OpenaiEtc2BaseUrl(url) => {
             if url.is_empty() {
-                config.openai_etc2_base_url = None;
+                config.etc_models.openai_etc2_base_url = None;
             } else {
-                config.openai_etc2_base_url = Some(url);
+                config.etc_models.openai_etc2_base_url = Some(url);
             }
         },
         SetProjectConfig::OpenaiEtc2Model(model) => {
             if model.is_empty() {
-                config.openai_etc2_model = None;
+                config.etc_models.openai_etc2_model = None;
             } else {
-                config.openai_etc2_model = Some(model);
+                config.etc_models.openai_etc2_model = Some(model);
             }
         },
         SetProjectConfig::OpenaiEtc3BaseUrl(url) => {
             if url.is_empty() {
-                config.openai_etc3_base_url = None;
+                config.etc_models.openai_etc3_base_url = None;
             } else {
-                config.openai_etc3_base_url = Some(url);
+                config.etc_models.openai_etc3_base_url = Some(url);
             }
         },
         SetProjectConfig::OpenaiEtc3Model(model) => {
             if model.is_empty() {
-                config.openai_etc3_model = None;
+                config.etc_models.openai_etc3_model = None;
             } else {
-                config.openai_etc3_model = Some(model);
+                config.etc_models.openai_etc3_model = Some(model);
             }
         },
     }
@@ -155,44 +155,44 @@ pub fn set_chat_config(config: &mut ChatConfig, set: SetChatConfig) {
         },
         SetChatConfig::OpenaiEtc1BaseUrl(url) => {
             if url.is_empty() {
-                config.openai_etc1_base_url = None;
+                config.etc_models.openai_etc1_base_url = None;
             } else {
-                config.openai_etc1_base_url = Some(url);
+                config.etc_models.openai_etc1_base_url = Some(url);
             }
         },
         SetChatConfig::OpenaiEtc1Model(model) => {
             if model.is_empty() {
-                config.openai_etc1_model = None;
+                config.etc_models.openai_etc1_model = None;
             } else {
-                config.openai_etc1_model = Some(model);
+                config.etc_models.openai_etc1_model = Some(model);
             }
         },
         SetChatConfig::OpenaiEtc2BaseUrl(url) => {
             if url.is_empty() {
-                config.openai_etc2_base_url = None;
+                config.etc_models.openai_etc2_base_url = None;
             } else {
-                config.openai_etc2_base_url = Some(url);
+                config.etc_models.openai_etc2_base_url = Some(url);
             }
         },
         SetChatConfig::OpenaiEtc2Model(model) => {
             if model.is_empty() {
-                config.openai_etc2_model = None;
+                config.etc_models.openai_etc2_model = None;
             } else {
-                config.openai_etc2_model = Some(model);
+                config.etc_models.openai_etc2_model = Some(model);
             }
         },
         SetChatConfig::OpenaiEtc3BaseUrl(url) => {
             if url.is_empty() {
-                config.openai_etc3_base_url = None;
+                config.etc_models.openai_etc3_base_url = None;
             } else {
-                config.openai_etc3_base_url = Some(url);
+                config.etc_models.openai_etc3_base_url = Some(url);
             }
         },
         SetChatConfig::OpenaiEtc3Model(model) => {
             if model.is_empty() {
-                config.openai_etc3_model = None;
+                config.etc_models.openai_etc3_model = None;
             } else {
-                config.openai_etc3_model = Some(model);
+                config.etc_models.openai_etc3_model = Some(model);
             }
         },
     }
@@ -299,24 +299,24 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
 
     panels.push(panel_container(openai_etc_config(
         "openai-etc-1",
-        &config.openai_etc1_base_url,
-        &config.openai_etc1_model,
+        &config.etc_models.openai_etc1_base_url,
+        &config.etc_models.openai_etc1_model,
         SetProjectConfig::OpenaiEtc1BaseUrl,
         SetProjectConfig::OpenaiEtc1Model,
         zoom,
     ), zoom));
     panels.push(panel_container(openai_etc_config(
         "openai-etc-2",
-        &config.openai_etc2_base_url,
-        &config.openai_etc2_model,
+        &config.etc_models.openai_etc2_base_url,
+        &config.etc_models.openai_etc2_model,
         SetProjectConfig::OpenaiEtc2BaseUrl,
         SetProjectConfig::OpenaiEtc2Model,
         zoom,
     ), zoom));
     panels.push(panel_container(openai_etc_config(
         "openai-etc-3",
-        &config.openai_etc3_base_url,
-        &config.openai_etc3_model,
+        &config.etc_models.openai_etc3_base_url,
+        &config.etc_models.openai_etc3_model,
         SetProjectConfig::OpenaiEtc3BaseUrl,
         SetProjectConfig::OpenaiEtc3Model,
         zoom,
@@ -365,24 +365,24 @@ pub fn chat_config_ui2<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
     Row::from_vec(vec![
         panel_container(openai_etc_config(
             "openai-etc-1",
-            &config.openai_etc1_base_url,
-            &config.openai_etc1_model,
+            &config.etc_models.openai_etc1_base_url,
+            &config.etc_models.openai_etc1_model,
             SetChatConfig::OpenaiEtc1BaseUrl,
             SetChatConfig::OpenaiEtc1Model,
             zoom,
         ), zoom),
         panel_container(openai_etc_config(
             "openai-etc-2",
-            &config.openai_etc2_base_url,
-            &config.openai_etc2_model,
+            &config.etc_models.openai_etc2_base_url,
+            &config.etc_models.openai_etc2_model,
             SetChatConfig::OpenaiEtc2BaseUrl,
             SetChatConfig::OpenaiEtc2Model,
             zoom,
         ), zoom),
         panel_container(openai_etc_config(
             "openai-etc-3",
-            &config.openai_etc3_base_url,
-            &config.openai_etc3_model,
+            &config.etc_models.openai_etc3_base_url,
+            &config.etc_models.openai_etc3_model,
             SetChatConfig::OpenaiEtc3BaseUrl,
             SetChatConfig::OpenaiEtc3Model,
             zoom,

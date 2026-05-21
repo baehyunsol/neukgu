@@ -1,4 +1,4 @@
-use super::{Path, ToolCallSuccess, normalize_path};
+use super::{Path, ToolCallError, ToolCallSuccess, normalize_path};
 use crate::{
     Config,
     Context,
@@ -14,6 +14,7 @@ use hayro::hayro_syntax::Pdf;
 use ragit_fs::{
     FileError,
     basename,
+    exists,
     extension,
     is_dir,
     is_symlink,
@@ -33,7 +34,7 @@ pub enum RangeType {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum TypedFile {
     Text(String),
-    Image(ImageId),
+    Image(ImageId, (u64, u64)),
     BrokenImage { error: String },
     Dir(Vec<FileEntry>),
     Symlink { pointee: String },
@@ -164,7 +165,10 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
                 Err(e) => Ok(TypedFile::BrokenPdf { error: format!("{e:?}") }),
             },
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "tiff" | "bmp" => match normalize_and_get_id(&bytes, &context.working_dir) {
-                Ok(id) => Ok(TypedFile::Image(id)),
+                Ok(id) => {
+                    let image_buffer = image::load_from_memory(&bytes)?;
+                    Ok(TypedFile::Image(id, (image_buffer.width() as u64, image_buffer.height() as u64)))
+                },
                 Err(e) => Ok(TypedFile::BrokenImage { error: format!("{e:?}") }),
             },
             _ => match String::from_utf8(bytes) {
@@ -175,7 +179,30 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
     }
 }
 
-pub fn check_read_permission(path: &Path) -> bool {
+pub fn check_read_path(path: &Path, working_dir: &str) -> Result<(String, String), ToolCallError> {
+    let joined_path = match normalize_path(path) {
+        Some(path) if path.is_empty() => String::from("."),
+        Some(path) => path.join("/"),
+        None => path.join("/"),
+    };
+
+    // If the AI tries to read `../../Documents/`, that's a permission error whether or not the path exists.
+    if !check_read_permission(path) {
+        return Err(ToolCallError::NoPermissionToRead { path: joined_path });
+    }
+
+    // If `join` fails, `check_read_permission` should have caught that!
+    let real_path = join(working_dir, &joined_path).unwrap();
+
+    // If the file is a symlink, `exists` checks the existence of the pointee, not the pointer
+    if !exists(&real_path) && !is_symlink(&real_path) {
+        return Err(ToolCallError::NoSuchFile { path: joined_path });
+    }
+
+    Ok((joined_path, real_path))
+}
+
+pub(crate) fn check_read_permission(path: &Path) -> bool {
     match normalize_path(path) {
         Some(path) => match path.get(0).map(|s| s.as_str()) {
             Some(".neukgu") => false,

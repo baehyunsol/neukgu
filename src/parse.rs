@@ -136,7 +136,8 @@ KEY2=VALUE2
                 "`{mode}` is not a valid <mode>. Available modes are create, truncate and append.",
             ),
             ParseError::InvalidPatchPrefix { line, prefix } => format!(
-                "There's a syntax error in line {line:?}. A line must start with either ' ', '+' or '-', but it starts with {prefix:?}.",
+                "There's a syntax error in line {line:?}. A line must start with either ' ', '+' or '-', but it starts with {prefix:?}.{}",
+                if *prefix == '@' { " If you want to apply multiple patches, you have to call this tool multiple times. Each time with 1 hunk." } else { "" },
             ),
             ParseError::InvalidCommand(ParseCommandError::EmptyInput) => String::from("<command> is empty. Please tell me what command you want to run."),
             ParseError::InvalidCommand(ParseCommandError::UnclosedQuote) => String::from("<command> has an unclosed quote."),
