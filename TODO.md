@@ -274,10 +274,6 @@
     - 그냥 등록된 skill이 있냐없냐로 판단하면 될 듯??
     - skill 등록하는 ui를 만들어야겠네...
       - 이것도 config ui 안에다가 넣으면 됨!!
-150. browser gui -> entry는 적은데 화면이 클 경우, text_input이 씹힘..
-  - working_dir이랑 chat은 Space 넣어서 해결하고 있었네.
-  - 여기도 Space 넣고, 모든 Space를 rgb(0, 0, 0)으로 통일하자. 지금은 중간에 검은색/회색이 섞이니까 너무 못생김
-151. browser에서 프로세스 돌리는 중일 때, index tab에서 프로세스 돌리고 있다는 사실 보여주기!!
 152. browser에서 파일 미리보기 할 때, 방향키로 browse 가능케 하기!!
 
 ## mock API

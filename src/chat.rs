@@ -105,7 +105,10 @@ impl Chat {
             thinking: self.config.thinking,
         };
 
-        let response = request.request(&self.config.request_config(fallback_api_keys), &working_dir, &logger).await?;
+        let mut request_config = self.config.request_config(fallback_api_keys);
+        request_config.max_retry = 0;
+
+        let response = request.request(&request_config, &working_dir, &logger).await?;
         let new_turn = ChatTurn {
             chat: self.id,
             id: ChatTurnId::new(),

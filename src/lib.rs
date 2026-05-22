@@ -559,6 +559,16 @@ fn hash_bytes(s: &[u8]) -> u128 {
     r
 }
 
+fn truncate_chars(s: &str, count: usize) -> String {
+    assert!(count > 3);
+
+    if s.chars().count() < count {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(count - 3).collect::<String>())
+    }
+}
+
 fn encode_base64(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::prelude::BASE64_STANDARD.encode(bytes)

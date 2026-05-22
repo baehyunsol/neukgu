@@ -21,7 +21,7 @@ use super::working_dir::{
     IcedContext as WorkingDirContext,
     IcedMessage as WorkingDirMessage,
 };
-use crate::NeukguId;
+use crate::{NeukguId, prettify_timestamp, truncate_chars};
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
@@ -126,6 +126,17 @@ impl IcedContext {
         let mut neukgu_id = None;
         let (title, flag) = self.get_title_and_flag(true);
         let (status, error) = match &self.local {
+            LocalContext::Browser(c) => match &c.curr_popup {
+                Some(browser::Popup::RunResult { command, started_at, output: None, error, .. }) => (
+                    Some(format!(
+                        "Running `{}`... ({})",
+                        truncate_chars(command, 42),
+                        prettify_timestamp(*started_at),
+                    )),
+                    error.clone(),
+                ),
+                _ => (None, None),
+            },
             LocalContext::Chat(c) => {
                 let status = if c.bg_job.is_some() {
                     Some(String::from("Processing..."))
@@ -150,7 +161,7 @@ impl IcedContext {
                     )
                 }
             },
-            LocalContext::Browser(_) | LocalContext::Error(_) => (None, None),
+            LocalContext::Error(_) => (None, None),
         };
 
         TabPreview {

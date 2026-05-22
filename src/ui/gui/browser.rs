@@ -798,11 +798,19 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     let entries_colored = Container::new(entries_scrollable).style(|_| set_bg(black()));
-    let full_view = Column::from_vec(vec![
+    let mut full_view = vec![
         Container::new(text!("{}", context.cwd).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
         render_buttons(context),
         entries_colored.into(),
-    ]);
+    ];
+
+    // Without this, command_editor won't be seen if there are too small turns
+    full_view.push(Container::new(
+        Space::new().width(context.window_size.width).height(context.window_size.height)
+    ).style(|_| set_bg(black())).into());
+
+    let full_view = Column::from_vec(full_view);
+
     let full_view_with_text_input = Stack::from_vec(vec![
         full_view.into(),
         chat_ui(

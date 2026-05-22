@@ -1149,7 +1149,9 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     full_view.push(turns_colored.into());
 
     // Without this, interrupt_text_editor won't be seen if there are too small turns
-    full_view.push(Space::new().width(context.window_size.width).height(context.window_size.height).into());
+    full_view.push(Container::new(
+        Space::new().width(context.window_size.width).height(context.window_size.height)
+    ).style(|_| set_bg(black())).into());
 
     let full_view = Column::from_vec(full_view);
     let full_view_with_text_input = Stack::from_vec(vec![

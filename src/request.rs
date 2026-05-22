@@ -114,7 +114,11 @@ impl Request {
         let client = reqwest::Client::new();
         let mut error = None;
 
-        for _ in 0..(config.max_retry + 1) {
+        for i in 0..(config.max_retry + 1) {
+            if i != 0 {
+                sleep(Duration::from_millis(config.sleep_between_retry)).await;
+            }
+
             let http_request = match self.model.provider() {
                 ApiProvider::Anthropic => self.to_anthropic_request(config, working_dir)?,
                 ApiProvider::Openai => self.to_openai_request(config, working_dir)?,
@@ -174,30 +178,25 @@ impl Request {
                                 429 => {
                                     logger.log(LogEntry::TooManyRequests)?;
                                     error = Some(Error::HttpError { status_code });
-                                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                                 },
                                 500..600 => {
                                     logger.log(LogEntry::LLMServerBusy)?;
                                     error = Some(Error::HttpError { status_code });
-                                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                                 },
                                 _ => {
                                     error = Some(Error::HttpError { status_code });
-                                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                                 },
                             }
                         },
                         Err(e) => {
                             logger.log(LogEntry::ReqwestError(format!("{e:?}")))?;
                             error = Some(Error::ReqwestError(e));
-                            sleep(Duration::from_millis(config.sleep_between_retry)).await;
                         },
                     }
                 },
                 Err(e) => {
                     logger.log(LogEntry::ReqwestError(format!("{e:?}")))?;
                     error = Some(Error::ReqwestError(e));
-                    sleep(Duration::from_millis(config.sleep_between_retry)).await;
                 },
             }
         }

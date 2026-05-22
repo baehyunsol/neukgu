@@ -81,6 +81,7 @@ pub struct Workers {
 
 impl Workers {
     pub fn push(&mut self, tab_id: Option<TabId>, job: Job) -> Result<(), mpsc::SendError<Job>> {
+        self.round_robin += 1;
         self.tab_id_by_job_id.insert(job.id, tab_id);
         self.workers[self.round_robin % self.workers.len()].send(job)
     }

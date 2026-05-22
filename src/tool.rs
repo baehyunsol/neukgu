@@ -21,6 +21,7 @@ use crate::{
     prettify_bytes,
     prettify_time,
     subprocess,
+    truncate_chars,
 };
 use headless_chrome::Browser;
 use headless_chrome::browser::LaunchOptions as BrowserLaunchOptions;
@@ -825,16 +826,6 @@ impl ToolCall {
                 truncate_chars(prompt, 42),
             ),
         }
-    }
-}
-
-fn truncate_chars(s: &str, count: usize) -> String {
-    assert!(count > 3);
-
-    if s.chars().count() < count {
-        s.to_string()
-    } else {
-        format!("{}...", s.chars().take(count - 3).collect::<String>())
     }
 }
 

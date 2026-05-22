@@ -707,8 +707,10 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     full_view.push(turns_colored.into());
 
-    // Without this, interrupt_text_editor won't be seen if there are too small turns
-    full_view.push(Space::new().width(context.window_size.width).height(context.window_size.height).into());
+    // Without this, chat_input won't be seen if there are too small turns
+    full_view.push(Container::new(
+        Space::new().width(context.window_size.width).height(context.window_size.height)
+    ).style(|_| set_bg(black())).into());
 
     let full_view = Column::from_vec(full_view);
     let chat_config_ui_in_container = Container::new(
