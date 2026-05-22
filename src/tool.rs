@@ -56,7 +56,7 @@ mod write;
 
 pub use ask::{AskTo, ask_question_to_web};
 pub use chrome::WebOrFile;
-pub use image_edit::{ImageModel, ImageRequest};
+pub use image_edit::ImageRequest;
 pub use patch::{DiffKind, LineDiff, PatchError, parse_line_diff, patch_diff, patch_file};
 pub use read::{
     FileEntry,
@@ -92,6 +92,7 @@ pub enum ToolCall {
     Run {
         timeout: Option<u64>,
         command: Vec<String>,
+        path: Option<Path>,
         env: Vec<(String, String)>,
         stdout: Option<Path>,
         stderr: Option<Path>,
@@ -386,11 +387,23 @@ impl ToolCall {
 
                 Ok(result)
             },
-            ToolCall::Run { timeout, command, env, stdout, stderr } => {
+            ToolCall::Run { timeout, command, path, env, stdout, stderr } => {
                 let mut env = env.to_vec();
                 let stdout_path = stdout.clone();
                 let stderr_path = stderr.clone();
+                let mut env_joined_path = None;
                 let (mut stdout_real_path, mut stderr_real_path) = (None, None);
+
+                if let Some(path) = path {
+                    match check_read_path(path, &context.working_dir)? {
+                        Ok((joined_path, _)) => {
+                            env_joined_path = Some(joined_path);
+                        },
+                        Err(e) => {
+                            return Ok(Err(e));
+                        },
+                    }
+                }
 
                 if let Some(stdout) = stdout {
                     match check_write_path(stdout, &context.working_dir, None)? {
@@ -448,6 +461,11 @@ impl ToolCall {
                 }
 
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir, false /* copy index dir */)?;
+                let mut env_path = sandbox_at.clone();
+
+                if let Some(path) = &env_joined_path {
+                    env_path = join(&env_path, path)?;
+                }
 
                 if let Ok(home) = std::env::var("HOME") {
                     env.push((String::from("HOME"), home));
@@ -487,7 +505,7 @@ impl ToolCall {
                     if command.len() > 1 { &command[1..] } else { &command[0..0] },
                     true,
                     &env,
-                    &sandbox_at,
+                    &env_path,
                     timeout,
                     &context.working_dir,
                     true,
@@ -528,6 +546,7 @@ impl ToolCall {
 
                 if timeout {
                     Ok(Err(ToolCallError::Timeout {
+                        path: env_joined_path,
                         command: command.to_vec(),
                         timeout: timeout_value,
                         stdout,
@@ -537,6 +556,7 @@ impl ToolCall {
 
                 else {
                     Ok(Ok(ToolCallSuccess::Run {
+                        path: env_joined_path,
                         command: command.to_vec(),
                         elapsed_ms,
                         exit_code: status,
@@ -673,6 +693,10 @@ impl ToolCall {
                 Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
             },
             ToolCall::ImageEdit { input, prompt, size, output } => {
+                if let Model::Disabled | Model::Mock = config.agents.image_edit {
+                    return Ok(Err(ToolCallError::ImageEditDisabled));
+                }
+
                 let (joined_input, real_input_path) = match check_read_path(input, &context.working_dir)? {
                     Ok((joined_path, real_path)) => (joined_path, real_path),
                     Err(e) => {
@@ -699,13 +723,13 @@ impl ToolCall {
                 };
 
                 let request = ImageRequest {
-                    model: ImageModel::GptImage,  // TODO: make it configurable
+                    model: config.agents.image_edit,
                     prompt: prompt.to_string(),
                     images: vec![input_image_id],
                     size: *size,
                 };
 
-                let response = match request.request(&context.working_dir).await {
+                let response = match request.request(&context.working_dir, &context.logger).await {
                     Ok(response) => response,
                     Err(Error::ImageRequestError { status_code, message }) => {
                         return Ok(Err(ToolCallError::ImageRequestError { status_code, message }));
@@ -864,6 +888,7 @@ pub enum ToolCallSuccess {
         new_content: String,
     },
     Run {
+        path: Option<String>,
         command: Vec<String>,
         elapsed_ms: u64,
         exit_code: i32,
@@ -948,7 +973,12 @@ impl ToolCallSuccess {
                 let s = format!("Successfully updated `{path}`.");
                 vec![LLMToken::String(s)]
             },
-            ToolCallSuccess::Run { command, elapsed_ms, exit_code, stdout, stderr } => {
+            ToolCallSuccess::Run { path, command, elapsed_ms, exit_code, stdout, stderr } => {
+                let path = if let Some(path) = path {
+                    format!("\n<path>{path}</path>")
+                } else {
+                    String::new()
+                };
                 let (stdout, stdout_truncated) = match stdout {
                     DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
                     DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.join("/")), None),
@@ -970,7 +1000,7 @@ impl ToolCallSuccess {
 
                 let s = format!(
 "{stdout_truncated}{stderr_truncated}
-<run_result>
+<run_result>{path}
 <command>{}</command>
 <elapsed>{}</elapsed>
 <exit_code>{exit_code}</exit_code>
@@ -1116,6 +1146,7 @@ pub enum ToolCallError {
         available_binaries: Vec<String>,
     },
     Timeout {
+        path: Option<String>,
         command: Vec<String>,
         timeout: u64,
         stdout: DumpOrRedirect,
@@ -1135,6 +1166,7 @@ pub enum ToolCallError {
         status_code: u16,
         message: String,
     },
+    ImageEditDisabled,
 
     // etc
     SupposedToWriteSummary { write_path: Option<String> },
@@ -1193,15 +1225,32 @@ impl ToolCallError {
             ToolCallError::CannotApplyPatch(PatchError::NoMatch) => String::from("I can't apply the patch because no matches are found."),
             ToolCallError::CannotApplyPatch(PatchError::MultipleMatch) => String::from("I found multiple matches in the file that can apply your patch. Please give me more contexts so that I can decide where to patch."),
             ToolCallError::NoSuchBinary { binary, available_binaries } => format!(
-                "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}",
+                "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}{}",
                 available_binaries.join(", "),
                 if binary.contains("/") {
                     "\nDon't call the binary with its path. Run it with just the name."
                 } else {
                     ""
                 },
+                if binary == "cd" {
+                    "
+
+If you want to run the binary in another directory, use `<path>` parameter, like this:
+
+<run>
+<path>path-to-run-binary/</path>
+<command>your-command</command>
+</run>"
+                } else {
+                    ""
+                },
             ),
-            ToolCallError::Timeout { command, timeout, stdout, stderr } => {
+            ToolCallError::Timeout { path, command, timeout, stdout, stderr } => {
+                let path = if let Some(path) = path {
+                    format!("\n<path>{path}</path>")
+                } else {
+                    String::new()
+                };
                 let (stdout, stdout_truncated) = match stdout {
                     DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
                     DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.join("/")), None),
@@ -1225,7 +1274,7 @@ impl ToolCallError {
 "
 Command timeout! The process didn't terminate for {timeout} seconds.
 {stdout_truncated}{stderr_truncated}
-<run_result>
+<run_result>{path}
 <command>{}</command>
 <stdout>
 {stdout}
@@ -1244,6 +1293,7 @@ Command timeout! The process didn't terminate for {timeout} seconds.
             ToolCallError::ImageRequestError { status_code, message } => format!(
                 "The API request returned status code {status_code}:\n\n{message}",
             ),
+            ToolCallError::ImageEditDisabled => String::from("The image-edit agent is not available now."),
             ToolCallError::SupposedToWriteSummary { write_path } => match write_path {
                 Some(path) => format!("`{path}` is not a correct path for a summary file. You have to write summary at `logs/`. The summary file name must start with \"summary\", and has extension \".md\". For example, `logs/summary-refactor.md` or `logs/summary-test.md`"),
                 None => String::from("You're supposed to summarize what you're doing and what you've discovered so far and write the summary at `logs/summary-XXX.md`."),
@@ -1329,7 +1379,7 @@ impl ToolKind {
             ToolKind::Read => vec!["path", "start", "end"],
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Patch => vec!["path", "diff"],
-            ToolKind::Run => vec!["timeout", "command", "env", "stdout", "stderr"],
+            ToolKind::Run => vec!["timeout", "command", "path", "env", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
             ToolKind::ImageEdit => vec!["input", "prompt", "size", "output"],

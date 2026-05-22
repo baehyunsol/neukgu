@@ -502,7 +502,7 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
         RagitFsWriteMode::CreateOrTruncate,
     )?;
 
-    let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, true, true);
+    let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, None, true, true);
     logger.log(LogEntry::RollBack(id.clone()))?;
 
     drop(lock_file);

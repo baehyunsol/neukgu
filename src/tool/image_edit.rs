@@ -1,13 +1,11 @@
-// TODO: fancy stuffs in `src/request.rs` (e.g. api key fallback, api retry, logging...) are not implemented here
-
-use crate::{Error, ImageId, decode_base64, encode_base64};
+use crate::{Error, ImageId, Logger, LogEntry, Model, decode_base64, encode_base64};
 use ragit_fs::read_bytes;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ImageRequest {
-    pub model: ImageModel,
+    pub model: Model,
     pub prompt: String,
     pub images: Vec<ImageId>,
     pub size: Option<(u64, u64)>,
@@ -53,10 +51,14 @@ pub struct RawImage {
 }
 
 impl ImageRequest {
-    pub async fn request(&self, working_dir: &str) -> Result<ImageResponse, Error> {
-        let api_key = match std::env::var("OPENAI_API_KEY") {
+    // It doesn't have fancy features (e.g. auto-retry) like `src/request.rs`.
+    // My assumption is that, if there's an api error, neukgu will read the
+    // error message and decide how to solve (or avoid) it.
+    pub async fn request(&self, working_dir: &str, logger: &Logger) -> Result<ImageResponse, Error> {
+        let api_key = match std::env::var(self.model.api_key_env_var()) {
             Ok(k) => k.to_string(),
-            Err(_) => return Err(Error::ApiKeyNotFound { env_var: String::from("OPENAI_API_KEY") }),
+            // TODO: fallback_api_keys
+            Err(_) => return Err(Error::ApiKeyNotFound { env_var: String::from(self.model.api_key_env_var()) }),
         };
         let body = self.request_body(working_dir)?;
         let url = "https://api.openai.com/v1/images/edits";
@@ -66,8 +68,19 @@ impl ImageRequest {
             .json(&body)
             .timeout(Duration::from_millis(600_000));
 
+        logger.log(LogEntry::SendRequest(request.try_clone().unwrap()))?;
+        logger.log(LogEntry::RequestBody(serde_json::to_value(&body)?))?;
+
         let response = request.send().await?;
-        let response = match (response.status().as_u16(), response.text().await?) {
+        let response_status = response.status().as_u16();
+        logger.log(LogEntry::GotImageResponse(response_status))?;
+        logger.log(LogEntry::ResponseHeader(response.headers().iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string())).collect()))?;
+
+        let response_text = response.text().await?;
+        logger.log(LogEntry::ResponseText(response_text.to_string()))?;
+        logger.log_image_edit_token_usage(/* TODO */)?;
+
+        let response = match (response_status, response_text) {
             (200..=299, response) => response,
             (status_code @ 400.., response) => {
                 return Err(Error::ImageRequestError {
@@ -97,18 +110,5 @@ pub struct ImageResponseData {
 impl ImageResponseData {
     pub fn decode_base64(&self) -> Result<Vec<u8>, Error> {
         decode_base64(&self.b64_json)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum ImageModel {
-    GptImage,
-}
-
-impl ImageModel {
-    pub fn api_name(&self) -> &'static str {
-        match self {
-            ImageModel::GptImage => "gpt-image-2",
-        }
     }
 }

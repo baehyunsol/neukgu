@@ -7,6 +7,7 @@ use crate::{
     ToolCallSuccess,
     TurnId,
     load_json,
+    prettify_tokens,
 };
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -42,6 +43,9 @@ pub struct Logger {
     // `<working_dir>/.neukgu/logs/`
     pub log_dir: String,
 
+    // If set, it logs the token usage globally.
+    pub global_log_dir: Option<String>,
+
     pub compress: bool,
     pub enabled: bool,
 }
@@ -53,6 +57,7 @@ pub enum LogEntry {
     RequestBody(Value),
     ReqwestError(String),
     GotResponse(u16),
+    GotImageResponse(u16),
     ResponseHeader(HashMap<String, String>),
     ResponseText(String),
     TooManyRequests,
@@ -69,8 +74,13 @@ pub enum LogEntry {
 }
 
 impl Logger {
-    pub fn new(log_dir: String, compress: bool, enabled: bool) -> Self {
-        let result = Logger { log_dir, compress, enabled };
+    pub fn new(
+        log_dir: String,
+        global_log_dir: Option<String>,
+        compress: bool,
+        enabled: bool,
+    ) -> Self {
+        let result = Logger { log_dir, global_log_dir, compress, enabled };
         result.log(LogEntry::InitLogger).unwrap();
         result
     }
@@ -90,6 +100,7 @@ impl Logger {
             LogEntry::RequestBody(b) => (format!("request_body({})", log_id.0), Some(serde_json::to_string_pretty(&b)?), "json"),
             LogEntry::ReqwestError(e) => (format!("reqwest_error({})", log_id.0), Some(e), "rs"),
             LogEntry::GotResponse(c) => (format!("got_response({c})"), None, ""),
+            LogEntry::GotImageResponse(c) => (format!("got_image_response({c})"), None, ""),
             LogEntry::ResponseHeader(h) => (format!("response_header({})", log_id.0), Some(serde_json::to_string_pretty(&h)?), "json"),
             LogEntry::ResponseText(t) => (format!("response_text({})", log_id.0), Some(serde_json::to_string_pretty(&serde_json::from_str::<Value>(&t)?)?), "json"),
             LogEntry::TooManyRequests => (String::from("too_many_requests"), None, ""),
@@ -145,9 +156,10 @@ impl Logger {
         }
     }
 
-    pub fn log_api_usage(&self, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {
+    pub fn log_token_usage(&self, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {
         if !self.enabled { return Ok(()); }
 
+        // TODO: update the global token usage
         let usage_at = join(&self.log_dir, "tokens.json")?;
         let now = Local::now().timestamp().max(0) as u64 / 3600;
         let mut usage: TokenUsage = load_json(&usage_at)?;
@@ -171,6 +183,11 @@ impl Logger {
         )?;
         Ok(())
     }
+
+    pub fn log_image_edit_token_usage(&self) -> Result<(), Error> {
+        // TODO
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -187,6 +204,20 @@ impl TokenUsage {
         recent_6.map(
             |k| self.0.get(&k).cloned().unwrap_or((0, 0, 0))
         ).fold((0, 0, 0), |(ci, i, o), (cii, ii, oo)| (ci + cii, i + ii, o + oo))
+    }
+
+    pub fn render(&self) -> String {
+        let (total_cached_input, total_input, total_output) = self.total();
+        let (recent_cached_input, recent_input, recent_output) = self.recent();
+        format!(
+            "total cached input: {}\nrecent 6 hours cached input: {}\ntotal non-cached input: {}\nrecent 6 hours non-cached input: {}\ntotal output: {}\nrecent 6 hours output: {}\n",
+            prettify_tokens(total_cached_input),
+            prettify_tokens(recent_cached_input),
+            prettify_tokens(total_input),
+            prettify_tokens(recent_input),
+            prettify_tokens(total_output),
+            prettify_tokens(recent_output),
+        )
     }
 }
 

@@ -55,6 +55,12 @@ pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> 
         try_create_bin_link("cargo", working_dir)?;
         try_create_bin_link("cc", working_dir)?;
         try_create_bin_link("rg", working_dir)?;
+
+        // This is necessary for cargo to run on MacOS, but I don't think the agent would need this directly.
+        if cfg!(target_os = "macos") && let Err(e) = try_create_bin_link("xcrun", working_dir) {
+            eprintln!("Failed to init xcrun: {e:?}");
+        }
+
         Ok(available_binaries)
     }
 

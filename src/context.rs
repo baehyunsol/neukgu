@@ -28,6 +28,7 @@ use ragit_fs::{
     exists,
     into_abs_path,
     join3,
+    join4,
     normalize,
     read_string,
     remove_file,
@@ -90,7 +91,12 @@ impl Context {
     pub fn new(working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
         let available_binaries = load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
-        let logger = Logger::new(join3(working_dir, ".neukgu", "logs")?, true, true);
+        let logger = Logger::new(
+            join3(working_dir, ".neukgu", "logs")?,
+            Some(join4(&global_index_dir, "project-logger", ".neukgu", "logs")?),
+            true,
+            true,
+        );
 
         Ok(Context {
             neukgu_id: NeukguId(rand::random::<u64>()),

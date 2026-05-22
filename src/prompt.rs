@@ -142,6 +142,14 @@ KEY2=VALUE2
 </env>
 <command>cargo run -- ai-request --model=gpt --prompt="What's 1+1?"</command>
 </run>
+
+By default, the program runs in the working directory (where `neukgu-instruction.md` is at). You might want to run the program in another path.
+For example, you have lots of crates in your directory and you want to build one of them. Then, you can do it like:
+
+<run>
+<path>crates/api/</path>
+<command>cargo test</command>
+</run>
 "#),
             ToolKind::Ask => format!(r#"
 {index}. Ask

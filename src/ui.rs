@@ -27,7 +27,6 @@ use crate::{
     patch_diff,
     prettify_bytes,
     prettify_time,
-    prettify_tokens,
     system_prompt,
 };
 use ragit_fs::{
@@ -454,17 +453,7 @@ impl FeContext {
 
     pub fn get_token_usage(&self) -> Result<String, Error> {
         let token_usage: TokenUsage = load_json(&join4(&self.working_dir, ".neukgu", "logs", "tokens.json")?)?;
-        let (total_cached_input, total_input, total_output) = token_usage.total();
-        let (recent_cached_input, recent_input, recent_output) = token_usage.recent();
-        Ok(format!(
-            "total cached input: {}\nrecent 6 hours cached input: {}\ntotal non-cached input: {}\nrecent 6 hours non-cached input: {}\ntotal output: {}\nrecent 6 hours output: {}\n",
-            prettify_tokens(total_cached_input),
-            prettify_tokens(recent_cached_input),
-            prettify_tokens(total_input),
-            prettify_tokens(recent_input),
-            prettify_tokens(total_output),
-            prettify_tokens(recent_output),
-        ))
+        Ok(token_usage.render())
     }
 
     // Push `curr_status` and `curr_error` at the end of turns.

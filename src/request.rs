@@ -77,8 +77,8 @@ impl Default for Config {
 impl Request {
     pub async fn bare_request(&self, config: &Config, log_dir: Option<String>) -> Result<Response, Error> {
         let logger = match log_dir {
-            Some(log_dir) => Logger::new(log_dir, false, true),
-            None => Logger::new(String::new(), false, false),
+            Some(log_dir) => Logger::new(log_dir, None, false, true),
+            None => Logger::new(String::new(), None, false, false),
         };
 
         self.request_inner(config, "", &logger).await
@@ -119,6 +119,7 @@ impl Request {
                 ApiProvider::Anthropic => self.to_anthropic_request(config, working_dir)?,
                 ApiProvider::Openai => self.to_openai_request(config, working_dir)?,
                 ApiProvider::OpenaiLegacy => self.to_openai_legacy_request(config, working_dir)?,
+                ApiProvider::OpenaiImageEdit => unreachable!(),
                 ApiProvider::Mock => self.to_mock_request(config)?,
                 ApiProvider::Gemini => self.to_gemini_request(config, working_dir)?,
             };
@@ -141,7 +142,7 @@ impl Request {
                 logger.log(LogEntry::GotResponse(200))?;
                 api_log.response_header = logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
                 api_log.response_body = logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;
-                logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
+                logger.log_token_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                 response.log = api_log;
                 return Ok(response);
             }
@@ -162,10 +163,11 @@ impl Request {
                                         ApiProvider::Anthropic => Response::from_anthropic(&s)?,
                                         ApiProvider::Openai => Response::from_openai(&s)?,
                                         ApiProvider::OpenaiLegacy => Response::from_openai_legacy(&s)?,
+                                        ApiProvider::OpenaiImageEdit => unreachable!(),
                                         ApiProvider::Mock => unreachable!(),
                                         ApiProvider::Gemini => Response::from_gemini(&s)?,
                                     };
-                                    logger.log_api_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
+                                    logger.log_token_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                                     response.log = api_log;
                                     return Ok(response);
                                 },

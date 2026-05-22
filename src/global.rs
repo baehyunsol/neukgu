@@ -71,10 +71,6 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         init_log_dir(&join3(&chats, ".neukgu", "logs")?)?;
     }
 
-    if !exists(&join(global_index_dir, "chat-turns")?) {
-        create_dir(&join(global_index_dir, "chat-turns")?)?;
-    }
-
     if !exists(&join(global_index_dir, "cargo-targets")?) {
         create_dir(&join(global_index_dir, "cargo-targets")?)?;
     }

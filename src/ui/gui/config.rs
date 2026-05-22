@@ -18,6 +18,7 @@ pub enum SetProjectConfig {
     SmallAgent(Model),
     SearchAgent(Model),
     SummaryAgent(Model),
+    ImageEditAgent(Model),
     AgentQuestionable(Questionable),
     ContextSize(u64),
     ToggleTool(ToolKind, bool),
@@ -42,6 +43,15 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
         },
         SetProjectConfig::SummaryAgent(m) => {
             config.agents.summary = m;
+        },
+        SetProjectConfig::ImageEditAgent(m) => {
+            config.agents.image_edit = m;
+
+            if m == Model::Disabled {
+                set_project_config(config, SetProjectConfig::ToggleTool(ToolKind::ImageEdit, false));
+            } else {
+                set_project_config(config, SetProjectConfig::ToggleTool(ToolKind::ImageEdit, true));
+            }
         },
         SetProjectConfig::AgentQuestionable(q) => {
             let timeout = match q {
@@ -203,13 +213,13 @@ pub fn panel_container<'m, Message: 'm>(panel: Element<'m, Message>, zoom: f32) 
 }
 
 pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectConfig> {
-
     let mut panels = vec![];
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
-        ("    Big Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.big, SetProjectConfig::BigAgent),
-        ("  Small Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.small, SetProjectConfig::SmallAgent),
-        (" Search Agent: ", |m| m.supports_web_search(), config.agents.search, SetProjectConfig::SearchAgent),
-        ("Summary Agent: ", |m| *m != Model::Mock && *m != Model::Disabled, config.agents.summary, SetProjectConfig::SummaryAgent),
+        ("Big Agent: ", |m| m.is_real() && m.is_llm(), config.agents.big, SetProjectConfig::BigAgent),
+        ("Small Agent: ", |m| m.is_real() && m.is_llm(), config.agents.small, SetProjectConfig::SmallAgent),
+        ("Search Agent: ", |m| m.supports_web_search() || *m == Model::Disabled, config.agents.search, SetProjectConfig::SearchAgent),
+        ("Summary Agent: ", |m| m.is_real() && m.is_llm(), config.agents.summary, SetProjectConfig::SummaryAgent),
+        ("Image Edit Agent: ", |m| m.is_image_edit() || *m == Model::Disabled, config.agents.image_edit, SetProjectConfig::ImageEditAgent),
     ];
 
     for (title, filter, state, message) in agent_panels.into_iter() {

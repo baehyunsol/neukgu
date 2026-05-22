@@ -65,7 +65,7 @@ pub enum ParseError {
         prefix: char,
     },
     InvalidCommand(ParseCommandError),
-    NotBash,
+    NotBash { tried_cd: bool },
     InvalidEnv(String),
     InvalidAskTo(String),
     InvalidImageSize(String),
@@ -143,7 +143,7 @@ KEY2=VALUE2
             ParseError::InvalidCommand(ParseCommandError::UnclosedQuote) => String::from("<command> has an unclosed quote."),
             ParseError::InvalidCommand(ParseCommandError::TrailingBackslash) => String::from("<command> has a trailing backslash."),
             ParseError::InvalidCommand(ParseCommandError::InvalidBinaryName(bin)) => format!("`{bin}` is not a valid name of a binary."),
-            ParseError::NotBash => String::from("
+            ParseError::NotBash { tried_cd } => format!("
 Failed to run the command.
 
 You're not using bash. You're directly executing the binary with the arguments.
@@ -164,8 +164,20 @@ If you want to do more complex stuff (e.g. end-to-end test), I recommend you wri
 
 <run>
 <command>python3 tests/your_e2e_test.py</command>
-</run>
-"),
+</run>{}",
+                if *tried_cd {
+                    "
+
+If you want to run the binary in another directory, use `<path>` parameter, like this:
+
+<run>
+<path>path-to-run-binary/</path>
+<command>your-command</command>
+</run>"
+                } else {
+                    ""
+                },
+            ),
             ParseError::InvalidEnv(line) => format!(
                 "{line:?} is an invalid format for env var. It has to look like <env>KEY=VALUE</env>",
             ),
@@ -453,7 +465,7 @@ impl ToolCall {
                 let command = match parse_command_arg(args, "command") {
                     Some(Ok(command)) => {
                         if command.iter().any(|arg| arg == "|" || arg == ">" || arg == "<" || arg.starts_with("2>") || arg.starts_with("&")) {
-                            return Err(ParseError::NotBash);
+                            return Err(ParseError::NotBash { tried_cd: !command.is_empty() && command[0] == "cd" });
                         }
 
                         else {
@@ -470,6 +482,7 @@ impl ToolCall {
                         });
                     },
                 };
+                let path = parse_path_arg(args, "path");
                 let env = match parse_env_arg(args, "env") {
                     Some(Ok(env)) => env,
                     Some(Err(e)) => return Err(e),
@@ -477,7 +490,7 @@ impl ToolCall {
                 };
                 let stdout = parse_path_arg(args, "stdout");
                 let stderr = parse_path_arg(args, "stderr");
-                Ok(ToolCall::Run { timeout, command, env, stdout, stderr })
+                Ok(ToolCall::Run { timeout, command, path, env, stdout, stderr })
             },
             ToolKind::Ask => {
                 let to = match parse_string_arg(args, "to") {

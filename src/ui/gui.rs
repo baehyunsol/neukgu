@@ -15,6 +15,7 @@ mod chat;
 mod config;
 mod error;
 mod index;
+mod logs;
 mod model_store;
 mod popup;
 mod tab;

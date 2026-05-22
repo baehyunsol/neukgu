@@ -114,7 +114,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             };
 
             if let Some(model) = model {
-                config.agents = Agents::single(model);
+                config.agents = Agents::single(model, Model::default_image_edit());
             }
 
             validate_project_name(&project_name)?;
@@ -138,7 +138,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             };
 
             if let Some(model) = model {
-                config.agents = Agents::single(model);
+                config.agents = Agents::single(model, Model::default_image_edit());
             }
 
             init_working_dir(instruction, ".", config, false)?;

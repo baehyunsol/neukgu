@@ -18,6 +18,7 @@ use super::api_key::{
     get_api_keys_popup,
 };
 use super::config::{SetChatConfig, chat_config_ui1, set_chat_config};
+use super::logs::{LogsContext, render_logs};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::worker::{
     Job,
@@ -41,9 +42,12 @@ use crate::{
     LogId,
     LLMToken,
     Model,
+    TokenUsage,
     WebSearchResult,
     get_global_index_dir,
+    load_json,
     load_log,
+    load_logs_tail,
     prettify_timestamp,
     stringify_llm_tokens,
 };
@@ -60,7 +64,7 @@ use iced::widget::text_editor::{
     KeyPress,
     TextEditor,
 };
-use ragit_fs::join4;
+use ragit_fs::{join, join3};
 use regex::Regex;
 use std::collections::hash_map::{Entry, HashMap};
 use std::sync::{Arc, LazyLock};
@@ -97,6 +101,7 @@ pub struct IcedContext {
     pub chat_view_scrolled: AbsoluteOffset,
     pub find_pattern: Option<(String, Regex)>,
     pub find_result: HashMap<ChatTurnId, usize>,
+    pub loaded_logs: Option<Vec<String>>,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
@@ -134,7 +139,10 @@ impl IcedContext {
             curr_processing_tokens: None,
             window_size,
             global_index_dir: global_index_dir.to_string(),
-            log_dir: join4(&global_index_dir, "chats", ".neukgu", "logs")?,
+            log_dir: join(
+                &join3(&global_index_dir, "chats", &format!("{:016x}", chat_id.0))?,
+                &join(".neukgu", "logs")?,
+            )?,
             chat_view_id: Id::unique(),
             popup_scroll_id: Id::unique(),
             chat_input_id: Id::unique(),
@@ -142,6 +150,7 @@ impl IcedContext {
             chat_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
             find_pattern: None,
             find_result: HashMap::new(),
+            loaded_logs: None,
             curr_popup,
             prev_popup: None,
             copy_buffer: None,
@@ -164,6 +173,11 @@ impl IcedContext {
 
         match popup {
             Popup::GetApiKeys => unreachable!(),
+            Popup::Logs => {
+                let logs = load_logs_tail(&self.log_dir)?;
+                self.copy_buffer = Some(logs.join("\n"));
+                self.loaded_logs = Some(logs);
+            },
             Popup::Log((title, id)) => {
                 let (mut log, mut extension) = load_log(&id, &self.log_dir)?;
                 self.copy_buffer = Some(log.to_string());
@@ -176,6 +190,12 @@ impl IcedContext {
                 self.set_long_text_editor_content(log.to_string());
                 self.syntax_highlight = Some(extension);
                 self.popup_title = Some(title);
+            },
+            Popup::TokenUsage => {
+                let token_usage: TokenUsage = load_json(&join(&self.log_dir, "tokens.json")?)?;
+                let token_usage = token_usage.render();
+                self.set_long_text_editor_content(token_usage.to_string());
+                self.copy_buffer = Some(token_usage.to_string());
             },
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
@@ -203,6 +223,7 @@ impl IcedContext {
     }
 
     pub fn close_popup(&mut self) {
+        self.loaded_logs = None;
         self.curr_popup = None;
         self.copy_buffer = None;
         self.long_text_editor_content = TextEditorContent::new();
@@ -229,7 +250,7 @@ impl IcedContext {
     pub fn load_chat_turns(&mut self) -> Result<(), Error> {
         for turn in self.chat.turns.clone().iter() {
             if let Entry::Vacant(e) = self.turns.entry(*turn) {
-                let chat_turn = ChatTurn::load(*turn, &self.global_index_dir)?;
+                let chat_turn = ChatTurn::load(*turn, self.chat.id, &self.global_index_dir)?;
                 let ai_code_blocks = extract_code_blocks(&chat_turn.assistant);
                 let user_code_blocks = extract_code_blocks(&stringify_llm_tokens(&chat_turn.user));
                 e.insert(chat_turn);
@@ -256,6 +277,17 @@ impl ImagePopup for IcedContext {
         IcedMessage::OpenPopup {
             curr: Popup::Image(id),
             prev: self.curr_popup.clone(),
+        }
+    }
+}
+
+impl LogsContext for IcedContext {
+    type Message = IcedMessage;
+
+    fn open_log_popup(&self, log_title: String, log_id: LogId) -> IcedMessage {
+        IcedMessage::OpenPopup {
+            curr: Popup::Log((log_title, log_id)),
+            prev: Some(Popup::Logs),
         }
     }
 }
@@ -317,6 +349,7 @@ impl ChatMessage for IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Popup {
     GetApiKeys,
+    Logs,
     Log((String, LogId)),
     TokenUsage,
     Help,
@@ -399,6 +432,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Help, prev: None }));
                 }
             },
+            (Key::Character("l"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }));
+                }
+            },
             (Key::Character("u"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }));
@@ -414,19 +452,19 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::GetApiKeys(m) => match m {
             GetApiKeysMessage::Enter => {
-                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(0) {
+                if let Some((env_var, _)) = context.get_api_keys_context.missing_api_keys.get(0) {
                     context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key1.to_string());
                 }
 
-                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(1) {
+                if let Some((env_var, _)) = context.get_api_keys_context.missing_api_keys.get(1) {
                     context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key2.to_string());
                 }
 
-                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(2) {
+                if let Some((env_var, _)) = context.get_api_keys_context.missing_api_keys.get(2) {
                     context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key3.to_string());
                 }
 
-                if let Some(env_var) = context.get_api_keys_context.missing_api_keys.get(3) {
+                if let Some((env_var, _)) = context.get_api_keys_context.missing_api_keys.get(3) {
                     context.api_keys.insert(env_var.to_string(), context.get_api_keys_context.key4.to_string());
                 }
 
@@ -450,6 +488,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
             if curr.has_short_text_input() {
                 tasks.push(focus(context.short_text_editor_id.clone()));
+            }
+
+            if let Popup::Logs = &curr {
+                tasks.push(snap_to(context.popup_scroll_id.clone(), RelativeOffset::END));
             }
 
             context.open_popup(curr)?;
@@ -731,7 +773,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
+    else if let Some(logs) = &context.loaded_logs {
+        let view = render_logs(logs, context, context.popup_scroll_id.clone(), context.zoom);
+        full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
+    }
+
+    else if let Some(Popup::Log(_) | Popup::TokenUsage | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
@@ -760,6 +807,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let buttons = vec![
+        button("See (l)ogs", IcedMessage::OpenPopup { curr: Popup::Logs, prev: None }, yellow(), context.zoom),
         button("Token (u)sage", IcedMessage::OpenPopup { curr: Popup::TokenUsage, prev: None }, yellow(), context.zoom),
         button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom),
         button("(H)elp", IcedMessage::OpenPopup { curr: Popup::Help, prev: None }, pink(), context.zoom),
@@ -880,11 +928,11 @@ fn render_web_search_results<'s, 'c>(results: &'s [WebSearchResult], context: &'
     Scrollable::new(Column::from_vec(results).spacing(context.zoom * 12.0)).id(context.popup_scroll_id.clone()).into()
 }
 
-fn get_missing_api_keys(api_keys: &HashMap<String, String>, model: Model) -> Vec<String> {
+fn get_missing_api_keys(api_keys: &HashMap<String, String>, model: Model) -> Vec<(String, Vec<String>)> {
     let env_var = model.api_key_env_var();
 
     if std::env::var(env_var).is_err() && !api_keys.contains_key(env_var) {
-        vec![env_var.to_string()]
+        vec![(env_var.to_string(), vec![])]  // There's no `agent_name`!
     } else {
         vec![]
     }

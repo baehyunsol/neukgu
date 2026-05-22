@@ -16,6 +16,9 @@ pub enum Model {
     GeminiPro,
     GeminiFlash,
 
+    // image models
+    GptImage,
+
     // You can disable certain agents by selecting this model!
     Disabled,
 }
@@ -34,6 +37,7 @@ impl Model {
             Model::Mock => "mock",
             Model::GeminiPro => "gemini-3.1-pro-preview",
             Model::GeminiFlash => "gemini-3-flash-preview",
+            Model::GptImage => "gpt-image-2",
             Model::Disabled => "disabled",
         }
     }
@@ -51,6 +55,7 @@ impl Model {
             Model::Mock => "mock",
             Model::GeminiPro => "gemini-pro",
             Model::GeminiFlash => "gemini-flash",
+            Model::GptImage => "gpt-image",
 
             // This name makes more sense in the ui.
             Model::Disabled => "disable",
@@ -70,6 +75,7 @@ impl Model {
             Model::Mock => "MOCK_API_KEY",
             Model::GeminiPro => "GEMINI_API_KEY",
             Model::GeminiFlash => "GEMINI_API_KEY",
+            Model::GptImage => "OPENAI_API_KEY",
             Model::Disabled => "_",
         }
     }
@@ -88,6 +94,7 @@ impl Model {
             "disable" => Ok(Model::Disabled),
             "gemini-pro" => Ok(Model::GeminiPro),
             "gemini-flash" => Ok(Model::GeminiFlash),
+            "gpt-image" => Ok(Model::GptImage),
             _ => Err(Error::InvalidModelName(s.to_string())),
         }
     }
@@ -105,7 +112,62 @@ impl Model {
             Model::Mock => false,
             Model::GeminiPro => true,
             Model::GeminiFlash => true,
-            Model::Disabled => true,
+            Model::GptImage => false,
+            Model::Disabled => false,
+        }
+    }
+
+    pub fn is_real(&self) -> bool {
+        match self {
+            Model::GptMini => true,
+            Model::Gpt => true,
+            Model::OpenaiEtc1 => true,
+            Model::OpenaiEtc2 => true,
+            Model::OpenaiEtc3 => true,
+            Model::Haiku => true,
+            Model::Sonnet => true,
+            Model::Opus => true,
+            Model::Mock => false,
+            Model::GeminiPro => true,
+            Model::GeminiFlash => true,
+            Model::GptImage => true,
+            Model::Disabled => false,
+        }
+    }
+
+    pub fn is_llm(&self) -> bool {
+        match self {
+            Model::GptMini => true,
+            Model::Gpt => true,
+            Model::OpenaiEtc1 => true,
+            Model::OpenaiEtc2 => true,
+            Model::OpenaiEtc3 => true,
+            Model::Haiku => true,
+            Model::Sonnet => true,
+            Model::Opus => true,
+            Model::Mock => true,
+            Model::GeminiPro => true,
+            Model::GeminiFlash => true,
+            Model::GptImage => false,
+            Model::Disabled => false,
+        }
+    }
+
+    pub fn is_image_edit(&self) -> bool {
+        match self {
+            Model::GptMini => false,
+            Model::Gpt => false,
+            Model::OpenaiEtc1 => false,
+            Model::OpenaiEtc2 => false,
+            Model::OpenaiEtc3 => false,
+            Model::Haiku => false,
+            Model::Sonnet => false,
+            Model::Opus => false,
+            Model::Mock => false,
+            Model::GeminiPro => false,
+            Model::GeminiFlash => false,
+            Model::GptImage => true,
+            Model::Disabled => false,
         }
     }
 
@@ -122,12 +184,13 @@ impl Model {
             Model::Mock => ApiProvider::Mock,
             Model::GeminiPro => ApiProvider::Gemini,
             Model::GeminiFlash => ApiProvider::Gemini,
+            Model::GptImage => ApiProvider::OpenaiImageEdit,
             Model::Disabled => ApiProvider::Mock,
         }
     }
 
-    pub fn all() -> [Model; 12] {
-        [
+    pub fn all() -> Vec<Model> {
+        vec![
             Model::GptMini,
             Model::Gpt,
             Model::OpenaiEtc1,
@@ -139,12 +202,21 @@ impl Model {
             Model::Mock,
             Model::GeminiPro,
             Model::GeminiFlash,
+            Model::GptImage,
             Model::Disabled,
         ]
     }
 
     pub fn short_names() -> Vec<&'static str> {
         Model::all().iter().map(|m| m.short_name()).collect()
+    }
+
+    pub fn default_llm() -> Model {
+        Model::Sonnet
+    }
+
+    pub fn default_image_edit() -> Model {
+        Model::GptImage
     }
 }
 
@@ -159,38 +231,50 @@ pub struct Agents {
     pub big: Model,
     pub small: Model,  // WIP
     pub search: Model,
-    pub summary: Model,
+    pub summary: Model,  // WIP
+    pub image_edit: Model,
 }
 
 impl Agents {
-    pub fn single(model: Model) -> Agents {
+    pub fn single(llm: Model, image_edit: Model) -> Agents {
         Agents {
-            big: model,
-            small: model,
-            search: model,
-            summary: model,
+            big: llm,
+            small: llm,
+            search: llm,
+            summary: llm,
+            image_edit,
         }
     }
 }
 
 impl Agents {
-    pub fn any<F>(&self, f: F) -> bool where F: Fn(Model) -> bool {
-        f(self.big) || f(self.small) || f(self.search) || f(self.summary)
-    }
-
     pub fn iter(&self) -> impl Iterator<Item=Model> {
         use std::iter::once;
-        once(self.big).chain(once(self.small)).chain(once(self.search)).chain(once(self.summary))
+        once(self.big)
+            .chain(once(self.small))
+            .chain(once(self.search))
+            .chain(once(self.summary))
+            .chain(once(self.image_edit))
+    }
+
+    pub fn iter_with_name(&self) -> impl Iterator<Item=(Model, &'static str)> {
+        use std::iter::once;
+        once((self.big, "big"))
+            .chain(once((self.small, "small")))
+            .chain(once((self.search, "search")))
+            .chain(once((self.summary, "summary")))
+            .chain(once((self.image_edit, "image-edit")))
     }
 }
 
 impl Default for Agents {
     fn default() -> Agents {
         Agents {
-            big: Model::Sonnet,
-            small: Model::Haiku,
-            search: Model::Gpt,
-            summary: Model::Haiku,
+            big: Model::default_llm(),
+            small: Model::default_llm(),
+            search: Model::default_llm(),
+            summary: Model::default_llm(),
+            image_edit: Model::default_image_edit(),
         }
     }
 }
@@ -202,6 +286,9 @@ pub enum ApiProvider {
     OpenaiLegacy,
     Mock,
     Gemini,
+
+    // image-gen apis
+    OpenaiImageEdit,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

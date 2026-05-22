@@ -1,13 +1,15 @@
-use super::{button, green};
+use super::{button, gray, green, white};
 use super::popup::{PopupContext, PopupMessage, into_popup};
-use iced::{Element, Length, Task};
-use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{Column, Id, Row, TextInput, text};
+use iced::{Background, Element, Length, Task};
+use iced::alignment::Horizontal;
+use iced::border::{Border, Radius};
+use iced::widget::{Column, Id, Scrollable, TextInput, text};
+use iced::widget::container::{Container, Style};
 use iced::widget::operation::focus;
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
-    pub missing_api_keys: Vec<String>,
+    pub missing_api_keys: Vec<(String, Vec<String>)>,
     pub text_input_ids: Vec<Id>,
     pub key1: String,
     pub key2: String,
@@ -16,7 +18,7 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
-    pub fn new(missing_api_keys: Vec<String>) -> IcedContext {
+    pub fn new(missing_api_keys: Vec<(String, Vec<String>)>) -> IcedContext {
         IcedContext {
             missing_api_keys,
             text_input_ids: (0..4).map(|_| Id::unique()).collect(),
@@ -75,29 +77,47 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
 ) -> Element<'ac, IcedMessage> {
     fn input<'e, 'm, F: Fn(String) -> IcedMessage + 'm>(
         env_var: &'e str,
+        agent_names: &'e [String],
         id: Id,
         value: &'m str,
         on_input: F,
         on_submit: IcedMessage,
         zoom: f32,
     ) -> Element<'m, IcedMessage> {
-        let s = format!("{}{env_var}:", " ".repeat(32 - env_var.len()));
+        let agent_names = if agent_names.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", agent_names.iter().map(|agent| format!("{agent}-agent")).collect::<Vec<_>>().join(", "))
+        };
 
-        Row::from_vec(vec![
-            text!("{s}").size(zoom * 14.0).into(),
-            TextInput::new("", value)
-                .id(id)
-                .size(zoom * 14.0)
-                .width(zoom * 256.0)
-                .on_input(on_input)
-                .on_submit(on_submit)
-                .into(),
-        ]).align_y(Vertical::Center).spacing(zoom * 8.0).into()
+        Container::new(
+            Column::from_vec(vec![
+                text!("{env_var}{agent_names}").size(zoom * 14.0).into(),
+                TextInput::new("", value)
+                    .id(id)
+                    .size(zoom * 14.0)
+                    .width(zoom * 320.0)
+                    .on_input(on_input)
+                    .on_submit(on_submit)
+                    .into(),
+            ])
+                .align_x(Horizontal::Center)
+                .spacing(zoom * 8.0)
+        ).style(move |_| Style {
+            background: Some(Background::Color(gray(0.3))),
+            border: Border {
+                color: white(),
+                width: 0.0,
+                radius: Radius::new(zoom * 8.0),
+            },
+            ..Style::default()
+        }).padding(zoom * 20.0).into()
     }
 
     let mut column: Vec<Element<IcedMessage>> = vec![text!("Enter API Keys").size(zoom * 18.0).into()];
     column.push(input(
-        &api_keys_context.missing_api_keys[0],
+        &api_keys_context.missing_api_keys[0].0,
+        &api_keys_context.missing_api_keys[0].1,
         api_keys_context.text_input_ids[0].clone(),
         &api_keys_context.key1,
         IcedMessage::EditKey1,
@@ -109,9 +129,10 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
         zoom,
     ));
 
-    if let Some(env_var) = api_keys_context.missing_api_keys.get(1) {
+    if let Some((env_var, agent_names)) = api_keys_context.missing_api_keys.get(1) {
         column.push(input(
             env_var,
+            agent_names,
             api_keys_context.text_input_ids[1].clone(),
             &api_keys_context.key2,
             IcedMessage::EditKey2,
@@ -124,9 +145,10 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
         ));
     }
 
-    if let Some(env_var) = api_keys_context.missing_api_keys.get(2) {
+    if let Some((env_var, agent_names)) = api_keys_context.missing_api_keys.get(2) {
         column.push(input(
             env_var,
+            agent_names,
             api_keys_context.text_input_ids[2].clone(),
             &api_keys_context.key3,
             IcedMessage::EditKey3,
@@ -139,9 +161,10 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
         ));
     }
 
-    if let Some(env_var) = api_keys_context.missing_api_keys.get(3) {
+    if let Some((env_var, agent_names)) = api_keys_context.missing_api_keys.get(3) {
         column.push(input(
             env_var,
+            agent_names,
             api_keys_context.text_input_ids[3].clone(),
             &api_keys_context.key4,
             IcedMessage::EditKey4,
@@ -153,10 +176,12 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
     column.push(button("Enter", IcedMessage::Enter, green(), zoom).into());
 
     into_popup(
-        Column::from_vec(column)
-            .align_x(Horizontal::Center)
-            .width(Length::Fill)
-            .spacing(zoom * 12.0)
+        Scrollable::new(
+            Column::from_vec(column)
+                .align_x(Horizontal::Center)
+                .width(Length::Fill)
+                .spacing(zoom * 20.0)
+        )
             .into(),
         popup_context,
     )

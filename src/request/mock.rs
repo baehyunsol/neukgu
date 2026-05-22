@@ -314,6 +314,10 @@ ADD_ARG_2=309030908
             Some("<exit_code>0</exit_code>"),
         ),
         MockRequest::new(
+            "<run>\n<path>new_crate</path>\n<command>cargo run</command>\n</run>",
+            Some("<exit_code>0</exit_code>"),
+        ),
+        MockRequest::new(
             "<read>\n<path>new_crate/Cargo.toml</path>\n</read>",
             Some("new_crate"),
         ),

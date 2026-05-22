@@ -1,16 +1,18 @@
 use chrono::Local;
-use crate::{ApiLog, Error, EtcModels, Logger, LLMToken, Model, WebSearchResult};
+use crate::{ApiLog, Error, EtcModels, Logger, LLMToken, Model, WebSearchResult, init_working_dir};
 use crate::request::{self, Config as RequestConfig, Request, Thinking};
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
 use ragit_fs::{
     WriteMode,
     basename,
+    create_dir,
     join,
     join3,
+    join4,
     read_bytes,
     read_dir,
-    remove_file,
+    remove_dir,
     write_bytes,
     write_string,
 };
@@ -19,7 +21,7 @@ use std::collections::HashMap;
 use std::io::Read;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct ChatId(u64);
+pub struct ChatId(pub u64);
 
 impl ChatId {
     pub fn new() -> ChatId {
@@ -61,14 +63,14 @@ impl Chat {
     }
 
     pub fn load(id: ChatId, global_index_dir: &str) -> Result<Chat, Error> {
-        let chat_at = join3(global_index_dir, "chats", &format!("{:016x}.json", id.0))?;
+        let chat_at = join4(global_index_dir, "chats", &format!("{:016x}", id.0), "context.json")?;
         let chat = read_bytes(&chat_at)?;
         let chat: Chat = serde_json::from_slice(&chat)?;
         Ok(chat)
     }
 
     pub fn store(&self, global_index_dir: &str) -> Result<(), Error> {
-        let chat_at = join3(global_index_dir, "chats", &format!("{:016x}.json", self.id.0))?;
+        let chat_at = join4(global_index_dir, "chats", &format!("{:016x}", self.id.0), "context.json")?;
         write_string(
             &chat_at,
             &serde_json::to_string_pretty(self)?,
@@ -82,14 +84,15 @@ impl Chat {
         let user_at = Local::now().timestamp_millis();
 
         for turn_id in self.turns.iter() {
-            turns.push(ChatTurn::load(*turn_id, global_index_dir)?);
+            turns.push(ChatTurn::load(*turn_id, self.id, global_index_dir)?);
         }
 
         // We'll use this directory as a working directory.
         // We need this directory in order to store images.
-        let working_dir = join(global_index_dir, "chats")?;
+        let working_dir = join3(global_index_dir, "chats", &format!("{:016x}", self.id.0))?;
         let logger = Logger::new(
             join3(&working_dir, ".neukgu", "logs")?,
+            Some(join4(global_index_dir, "chats", ".neukgu", "logs")?),
             false,
             true,
         );
@@ -138,8 +141,8 @@ pub struct ChatTurn {
 }
 
 impl ChatTurn {
-    pub fn load(id: ChatTurnId, global_index_dir: &str) -> Result<ChatTurn, Error> {
-        let path = join3(global_index_dir, "chat-turns", &format!("{:016x}.json.gz", id.0))?;
+    pub fn load(id: ChatTurnId, chat_id: ChatId, global_index_dir: &str) -> Result<ChatTurn, Error> {
+        let path = join4(global_index_dir, "chats", &format!("{:016x}", chat_id.0), &format!("{:016x}.json.gz", id.0))?;
         let json = read_bytes(&path)?;
         let mut decompressed = vec![];
         let mut gz = GzDecoder::new(&json[..]);
@@ -154,7 +157,7 @@ impl ChatTurn {
         gz.read_to_end(&mut compressed)?;
 
         Ok(write_bytes(
-            &join3(global_index_dir, "chat-turns", &format!("{:016x}.json.gz", self.id.0))?,
+            &join4(global_index_dir, "chats", &format!("{:016x}", self.chat.0), &format!("{:016x}.json.gz", self.id.0))?,
             &compressed,
             WriteMode::Atomic,
         )?)
@@ -198,20 +201,17 @@ pub async fn add_chat_turn(chat_id: ChatId, fallback_api_keys: HashMap<String, S
 }
 
 pub fn delete_chat(chat_id: ChatId, global_index_dir: &str) -> Result<(), Error> {
-    let chat = Chat::load(chat_id, global_index_dir)?;
-
-    for turn in chat.turns.iter() {
-        let turn_at = join3(global_index_dir, "chat-turns", &format!("{:016x}.json.gz", turn.0))?;
-        remove_file(&turn_at)?;
-    }
-
-    let chat_at = join3(global_index_dir, "chats", &format!("{:016x}.json", chat_id.0))?;
-    remove_file(&chat_at)?;
-    Ok(())
+    Ok(remove_dir(&join3(global_index_dir, "chats", &format!("{:016x}", chat_id.0))?)?)
 }
 
 pub fn init_chat(title: Option<String>, config: Config, global_index_dir: &str) -> Result<ChatId, Error> {
     let chat = Chat::new(title, config);
+    let chat_at = join3(global_index_dir, "chats", &format!("{:016x}", chat.id.0))?;
+    create_dir(&chat_at)?;
+
+    // It's not a working-dir, but many infrastructure (e.g. logging) needs this.
+    init_working_dir(None, &chat_at, Default::default(), true)?;
+
     chat.store(global_index_dir)?;
     Ok(chat.id)
 }
@@ -220,12 +220,12 @@ pub fn load_all_chats(global_index_dir: &str) -> Result<Vec<Chat>, Error> {
     let chats_at = join(global_index_dir, "chats")?;
     let mut chats = vec![];
 
-    for chat in read_dir(&chats_at, false)? {
-        if basename(&chat)? == ".neukgu" {
+    for chat_id in read_dir(&chats_at, false)? {
+        if basename(&chat_id)? == ".neukgu" {
             continue;
         }
 
-        let chat = read_bytes(&chat)?;
+        let chat = read_bytes(&join(&chat_id, "context.json")?)?;
         let chat: Chat = serde_json::from_slice(&chat)?;
         chats.push(chat);
     }

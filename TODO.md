@@ -245,21 +245,35 @@
 138. Qwen 35B-A3B
   - It does better at implementing `voxel.md` than the 397B one. The 397B one keeps failing with the patch tool, but it doesn't. It does fail a few times, but succeeds in the end.
   - Deepinfra rejects API request if it has more than 4 images...
-139. some config_ui uses `Config::default` instead of `get_global_config`
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
-142. 채팅방마다 dir을 따로 만들고, index를 따로 관리하자
-  - `<global-index-dir>/chats/<id>/context.json`
-  - `<global-index-dir>/chats/<id>/.neukgu/`
-  - 이래야 쓰레기가 안 남지...
-  - 이래야 로그 보는 거랑 token usage 보는게 편해짐
-  - 모든 채팅의 token usage를 한번에 묶어서 보고싶을 때도 있음... 그럴 땐 how?
 143. token usage 보면서 비용도 보고싶음... how?
+  - TokenUsage 스키마를 아예 뜯어고쳐서, 모델별로 따로 집계하도록 만들자!!
 144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음.
   - 구현은 쉬움. 생기자마자 바로 hidden_turns에 넣어버리면 됨!
   - 근데 agent가 사람한테 대답할 방법이 없음...
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
-146. add `<path>` parameter to `<run>`
+147. I want the api key input to be focused when the tab is open.
+148. 비슷한 neukgu-instruction을 복붙해서 쓰는 경우가 많아지고 있음
+  - 지금 하고있는 반복작업: open source coding harness 몇개를 주고 "얘네를 git clone 한 다음에 feature XXX가 어떻게 구현되어 있는지를 분석해서 docs/YYY.md에 저장해줘"라고 시키기
+    - feature XXX만 바꿔가면서 계속 시키는 중... 이걸 어떻게 자동화할 건덕지가 없을까?
+  - 또다른 반복 작업: psd-rs를 구현/수정을 시킬 때 1) 대략적인 프로젝트의 구조, 2) 테스트 방법 3) 문서 위치 등등은 매번 똑같이 복붙해서 넣어주고 있음...
+  - 이거는 반복작업이랑 조금 다른가?? 이거는 걍 AGENT.md를 만들어야하나 싶기도 하고...
+  - 아니면 templated instruction을 만들어??
+  - skill로 만들기는... 좀 애매함. 특별한 skill이 필요하다기보다는 그냥 instruction이 비슷한 거잖아?
+149. SKILL 구현
+  - `<skill>`이라는 tool을 만들고, tool description에다가 skill 목록을 쭉 적으면 됨!!
+  - 특정 skill을 보여달라고 하면 걍 보여주면됨... easy!
+  - skill을 어디에 등록?? global skill store가 필요함. 이건 걍 global index dir 안에다가 만들면 됨
+  - skill에 tool-dependency 등록하기?
+    - 이렇게 하려면 각 skill을 json 파일로 만들어야 함.
+    - 생각해보니 어차피 이름/설명/내용 적으려면 json object로 만들어야 하네
+  - 방금 전에 본 skill을 또 보려고 하면?
+    - 걍 context에 똑같은 skill이 들어오면 숨겨버리자!!
+  - 얘는 optional한 tool인가??
+    - 그냥 등록된 skill이 있냐없냐로 판단하면 될 듯??
+    - skill 등록하는 ui를 만들어야겠네...
+      - 이것도 config ui 안에다가 넣으면 됨!!
 
 ## mock API
 
