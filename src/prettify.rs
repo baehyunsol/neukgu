@@ -36,7 +36,7 @@ pub fn prettify_time(ms: u64) -> String {
     let months = days * 1000 / 30437;
     let years = months / 12;
 
-    if seconds < 10 {
+    if seconds < 5 {
         format!("{:.2} seconds", ms as f64 / 1000.0)
     } else if seconds < 120 {
         format!("{seconds} seconds")
@@ -64,7 +64,7 @@ pub fn prettify_timestamp(timestamp_millis: i64) -> String {
 
     match now - timestamp_millis {
         ..0 => String::from("past"),
-        ..10_000 => String::from("now"),
+        ..5_000 => String::from("now"),
         d => format!("{} ago", prettify_time(d as u64)),
     }
 }
