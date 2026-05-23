@@ -3,6 +3,7 @@ use crate::ImageId;
 use iced::{Background, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::border::{Border, Radius};
+use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
 use iced::widget::{Column, Row, Scrollable, Space, text};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -56,10 +57,13 @@ impl IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
+    KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
     Expand,
     Collapse,
     SetAlignment(Horizontal),
+    ZoomIn,
+    ZoomOut,
     Close,
 }
 
@@ -74,6 +78,42 @@ pub enum Content {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
+        IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.alt()) {
+            (Key::Named(NamedKey::Escape), false) => {
+                return Task::done(IcedMessage::Close);
+            },
+            (Key::Named(NamedKey::ArrowUp), false) => {
+                return Task::done(IcedMessage::Collapse);
+            },
+            (Key::Named(NamedKey::ArrowDown), false) => {
+                return Task::done(IcedMessage::Expand);
+            },
+            (Key::Named(NamedKey::ArrowLeft), false) => match context.alignment {
+                Horizontal::Left => {},
+                Horizontal::Center => {
+                    return Task::done(IcedMessage::SetAlignment(Horizontal::Left));
+                },
+                Horizontal::Right => {
+                    return Task::done(IcedMessage::SetAlignment(Horizontal::Center));
+                },
+            },
+            (Key::Named(NamedKey::ArrowRight), false) => match context.alignment {
+                Horizontal::Left => {
+                    return Task::done(IcedMessage::SetAlignment(Horizontal::Center));
+                },
+                Horizontal::Center => {
+                    return Task::done(IcedMessage::SetAlignment(Horizontal::Right));
+                },
+                Horizontal::Right => {},
+            },
+            (Key::Character("-"), false) => {
+                return Task::done(IcedMessage::ZoomOut);
+            },
+            (Key::Character("="), false) => {
+                return Task::done(IcedMessage::ZoomIn);
+            },
+            _ => {},
+        },
         IcedMessage::WindowResized(s) => {
             context.window_size = s;
         },
@@ -85,6 +125,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::SetAlignment(a) => {
             context.alignment = a;
+        },
+        IcedMessage::ZoomIn => {
+            context.zoom = context.zoom.min(2.4) + 0.1;
+        },
+        IcedMessage::ZoomOut => {
+            context.zoom = context.zoom.max(0.2) - 0.1;
         },
         IcedMessage::Close => unreachable!(),
     }
@@ -122,7 +168,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'c, IcedMessage> {
     let mut content: Element<IcedMessage> = match &context.content {
         Content::Image(_) => todo!(),
-        Content::Text { content: _, extension } => TextEditor::new(&context.text_editor_content).width(context.window_size.width).size(14.0).highlight(
+        Content::Text { content: _, extension } => TextEditor::new(&context.text_editor_content).width(context.window_size.width).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = extension { extension.to_string() } else { String::from("txt") },
             iced::highlighter::Theme::InspiredGitHub,
         ).style(|_, _| TextEditorStyle {
@@ -145,7 +191,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
         Column::from_vec(vec![
             render_top_buttons(context),
             Scrollable::new(Container::new(content).padding(context.zoom * 8.0)).into(),
-        ])
+        ]).spacing(context.zoom * 8.0)
     ).style(|_| Style {
         background: Some(Background::Color(white())),
         border: Border {
@@ -182,5 +228,7 @@ fn render_top_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> 
         },
     }
 
+    buttons.push(button("-", IcedMessage::ZoomOut, blue(), context.zoom).into());
+    buttons.push(button("+", IcedMessage::ZoomIn, blue(), context.zoom).into());
     Row::from_vec(buttons).spacing(context.zoom * 8.0).into()
 }

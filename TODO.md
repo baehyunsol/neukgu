@@ -71,7 +71,6 @@
     - 이건 구현이랑 ui 만드는게 쉬움!!
     - "New Chat" 버튼 옆에 search 버튼 붙이면 됨.
     - 결과 보여주는 popup을 만들면 되고, 거기서 클릭하면 해당 chat으로 바로 연결되게 하면 됨!!
-58. 예쁜 폰트 찾음: https://hbios.quiple.dev
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
   - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
@@ -178,12 +177,11 @@
   - reset session 할 때 기존 session을 저장하고 싶으면 이걸 쓸까?
 106. slack이나 기타 메신저랑 연동하기
   - 늑구가 외부에 질문할 때는 chat interface가 있으니까 이걸 그대로 붙이면 됨
+    - does neukgu wait until someone replies in slack? or the slack reply is sent asynchronously?
   - 외부에서 늑구한테 질문/요청할 때는 늑구가 대답할 방법이 없음. 그나마 할 수 있는 건 `logs/`에 파일을 작성하는 것 뿐
     - 그럼 슬랙이랑 늑구 사이에 작은 agent를 더 넣자.
     - 사용자가 늑구한테 대답을 요청했으면, agent가 늑구한테 "~에 대한 대답을 logs/XXX에 작성해줘"라고 전달하는 거임. 늑구가 해당 파일을 작성했으면 이 agent가 다시 슬랙으로 메시지를 보내는 거지
 111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
-114. Scratch-pad
-  - It's implemented, and I need key bindings... for everything!
 116. cron neukgu
   - 진짜 cron으로 띄우기 vs neukgu daemon이 돌고 있다가 띄우기
     - 주기적으로 떠야하는 작업만 생각하면 전자가 나을 거 같긴한데, 그럼 CLI 보강을 좀 해야할듯?

@@ -104,7 +104,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::Index(IndexMessage::OpenScratchPad { title, content }) |
         IcedMessage::Tab { id: _, message: TabMessage::OpenScratchPad { title, content } } => {
             context.scratch_pad = Some(ScratchPadContext::new(title, content, context.window_size));
-            Task::none()
+
+            // Without this, the tab's scroll will be reset
+            if let Some(i) = context.selected_tab {
+                let id = context.tabs[i].id;
+                tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+            } else {
+                index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
+            }
         },
         IcedMessage::Index(IndexMessage::NewTab { tab, force_new_tab }) => Task::done(IcedMessage::NewTab { tab, force_new_tab }),
         IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
@@ -151,7 +158,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::ScratchPad(ScratchPadMessage::Close) => {
             context.scratch_pad = None;
-            Task::none()
+
+            // Without this, the tab's scroll will be reset
+            if let Some(i) = context.selected_tab {
+                let id = context.tabs[i].id;
+                tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+            } else {
+                index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
+            }
         },
         IcedMessage::ScratchPad(m) => match &mut context.scratch_pad {
             Some(c) => scratch_pad::update(c, m).map(IcedMessage::ScratchPad),
@@ -239,6 +253,13 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 }
 
                 else {
+                    Task::none()
+                }
+            },
+            (_, true, _, true) => {
+                if let Some(c) = &mut context.scratch_pad {
+                    scratch_pad::update(c, ScratchPadMessage::KeyPressed { key, modifiers }).map(IcedMessage::ScratchPad)
+                } else {
                     Task::none()
                 }
             },

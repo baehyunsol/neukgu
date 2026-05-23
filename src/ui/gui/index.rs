@@ -95,6 +95,14 @@ const HELP_MESSAGE: &str = r#"
 - Ctrl+W: close tab
 - Ctrl+Y: yes (confirm popup)
 - Alt+Num: switch tab
+
+## Key bindings (scratch pad)
+
+- Ctrl+Shift+Esc: close scratch pad
+- Ctrl+Shift+Up: collapse scratch pad
+- Ctrl+Shift+Down: expand scratch pad
+- Ctrl+Shift+Left/Right: move scratch pad
+- Ctrl+Shift+Plus/Minus: zoom
 "#;
 
 pub struct IcedContext {
