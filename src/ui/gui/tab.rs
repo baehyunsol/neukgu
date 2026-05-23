@@ -14,6 +14,7 @@ use super::error::{
     IcedContext as ErrorContext,
     IcedMessage as ErrorMessage,
 };
+use super::scratch_pad::Content as ScratchPadContent;
 use super::tabs::Tab;
 use super::worker::{Job, JobResult};
 use super::working_dir::{
@@ -188,6 +189,7 @@ pub enum IcedMessage {
     BackgroundJobResult(JobResult),
     WindowResized(Size),
     Focus,
+    OpenScratchPad { title: Option<String>, content: ScratchPadContent },
 
     // Kill: The caller wants to kill this tab.
     // Dead: Tell the caller that this tab is okay to be closed.
@@ -242,6 +244,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             *context = LocalContext::Error(ErrorContext::new(e, context.window_size(), context.zoom()));
             Task::none()
         },
+        (
+            _,
+            IcedMessage::Browser(BrowserMessage::OpenScratchPad { title, content }) |
+            IcedMessage::Chat(ChatMessage::OpenScratchPad { title, content }) |
+            IcedMessage::WorkingDir(WorkingDirMessage::OpenScratchPad { title, content }),
+        ) => Task::done(IcedMessage::OpenScratchPad { title, content }),
         (_, IcedMessage::Browser(BrowserMessage::Dead) | IcedMessage::Chat(ChatMessage::Dead) | IcedMessage::WorkingDir(WorkingDirMessage::Dead) | IcedMessage::Error(ErrorMessage::Dead)) => {
             Task::done(IcedMessage::Dead)
         },

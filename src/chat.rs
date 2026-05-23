@@ -1,5 +1,5 @@
 use chrono::Local;
-use crate::{ApiLog, Error, EtcModels, Logger, LLMToken, Model, WebSearchResult, init_working_dir};
+use crate::{ApiLog, Error, EtcModels, Logger, LLMToken, Model, WebSearchResult, init_log_dir};
 use crate::request::{self, Config as RequestConfig, Request, Thinking};
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -46,6 +46,7 @@ pub struct Chat {
     pub updated_at: i64,
     pub config: Config,
     pub turns: Vec<ChatTurnId>,
+    pub unfinished_chat: Option<Vec<LLMToken>>,
 }
 
 impl Chat {
@@ -59,6 +60,7 @@ impl Chat {
             updated_at: now,
             config,
             turns: vec![],
+            unfinished_chat: None,
         }
     }
 
@@ -80,6 +82,9 @@ impl Chat {
     }
 
     pub async fn add_turn(&mut self, query: Vec<LLMToken>, fallback_api_keys: HashMap<String, String>, global_index_dir: &str) -> Result<(), Error> {
+        self.unfinished_chat = Some(query.clone());
+        self.store(global_index_dir)?;
+
         let mut turns = Vec::with_capacity(self.turns.len());
         let user_at = Local::now().timestamp_millis();
 
@@ -125,6 +130,8 @@ impl Chat {
 
         self.turns.push(new_turn.id);
         self.updated_at = new_turn.assistant_at;
+        self.unfinished_chat = None;
+        self.store(global_index_dir)?;
         Ok(())
     }
 }
@@ -199,7 +206,6 @@ impl Default for Config {
 pub async fn add_chat_turn(chat_id: ChatId, fallback_api_keys: HashMap<String, String>, query: Vec<LLMToken>, global_index_dir: &str) -> Result<(), Error> {
     let mut chat = Chat::load(chat_id, global_index_dir)?;
     chat.add_turn(query, fallback_api_keys, global_index_dir).await?;
-    chat.store(global_index_dir)?;
     Ok(())
 }
 
@@ -212,8 +218,11 @@ pub fn init_chat(title: Option<String>, config: Config, global_index_dir: &str) 
     let chat_at = join3(global_index_dir, "chats", &format!("{:016x}", chat.id.0))?;
     create_dir(&chat_at)?;
 
-    // It's not a working-dir, but many infrastructure (e.g. logging) needs this.
-    init_working_dir(None, &chat_at, Default::default(), true)?;
+    // We need these directories to store images and logs.
+    create_dir(&join(&chat_at, ".neukgu")?)?;
+    create_dir(&join3(&chat_at, ".neukgu", "images")?)?;
+    create_dir(&join3(&chat_at, ".neukgu", "interruptions")?)?;
+    init_log_dir(&join3(&chat_at, ".neukgu", "logs")?)?;
 
     chat.store(global_index_dir)?;
     Ok(chat.id)

@@ -45,6 +45,7 @@ impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { unreachable!() }
     fn back_popup() -> Self { unreachable!() }
     fn copy_popup_content() -> Self { unreachable!() }
+    fn open_scratch_pad() -> Self { unreachable!() }
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {

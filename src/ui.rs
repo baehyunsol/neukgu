@@ -451,9 +451,8 @@ impl FeContext {
         )
     }
 
-    pub fn get_token_usage(&self) -> Result<String, Error> {
-        let token_usage: TokenUsage = load_json(&join4(&self.working_dir, ".neukgu", "logs", "tokens.json")?)?;
-        Ok(token_usage.render())
+    pub fn get_token_usage(&self) -> Result<TokenUsage, Error> {
+        load_json(&join4(&self.working_dir, ".neukgu", "logs", "tokens.json")?)
     }
 
     // Push `curr_status` and `curr_error` at the end of turns.

@@ -18,6 +18,7 @@ mod index;
 mod logs;
 mod model_store;
 mod popup;
+mod scratch_pad;
 mod tab;
 mod tabs;
 mod worker;
@@ -150,6 +151,10 @@ fn brown() -> Color {
 
 fn pink() -> Color {
     Color::from_rgb(0.9, 0.6, 0.7)
+}
+
+fn purple() -> Color {
+    Color::from_rgb(0.6, 0.1, 0.6)
 }
 
 fn skyblue() -> Color {

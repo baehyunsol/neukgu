@@ -17,6 +17,7 @@ use super::{
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
 use super::popup::{PopupContext, PopupMessage, into_popup};
+use super::scratch_pad::Content as ScratchPadContent;
 use super::worker::{
     Job,
     JobId,
@@ -333,6 +334,7 @@ impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
+    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() || !self.image_buffer.is_empty() }
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -367,6 +369,8 @@ pub enum IcedMessage {
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
     Focus,
+    PrepareScratchPad,
+    OpenScratchPad { title: Option<String>, content: ScratchPadContent },
 
     // Kill: The caller wants to kill this tab.
     // Dead: Tell the caller that this tab is okay to be closed.
@@ -378,6 +382,7 @@ impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { IcedMessage::ClosePopup }
     fn back_popup() -> Self { unreachable!() }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
+    fn open_scratch_pad() -> Self { IcedMessage::PrepareScratchPad }
 }
 
 impl ChatMessage for IcedMessage {
@@ -732,6 +737,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Focus => {
             return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
         },
+        IcedMessage::PrepareScratchPad => {
+            let content = match (context.image_buffer.get(0), &context.copy_buffer) {
+                (Some(_), _) => todo!(),
+                (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
+                (None, None) => unreachable!(),
+            };
+
+            return Ok(Task::done(IcedMessage::OpenScratchPad { title: context.popup_title.clone(), content }));
+        },
+        IcedMessage::OpenScratchPad { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {

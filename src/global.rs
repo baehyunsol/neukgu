@@ -8,6 +8,7 @@ use ragit_fs::{
     exists,
     join,
     join3,
+    join4,
     read_dir,
     read_string,
     remove_dir_all,
@@ -59,13 +60,18 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         create_dir(&join(global_index_dir, "projects")?)?;
     }
 
+    if !exists(&join(global_index_dir, "project-logger")?) {
+        create_dir(&join(global_index_dir, "project-logger")?)?;
+        create_dir(&join3(global_index_dir, "project-logger", ".neukgu")?)?;
+        init_log_dir(&join4(global_index_dir, "project-logger", ".neukgu", "logs")?)?;
+    }
+
     if !exists(&join(global_index_dir, "chats")?) {
         let chats = join(global_index_dir, "chats")?;
         create_dir(&chats)?;
 
         // We need these directories to store images and logs.
         create_dir(&join(&chats, ".neukgu")?)?;
-        create_dir(&join3(&chats, ".neukgu", "logs")?)?;
         create_dir(&join3(&chats, ".neukgu", "images")?)?;
         create_dir(&join3(&chats, ".neukgu", "interruptions")?)?;
         init_log_dir(&join3(&chats, ".neukgu", "logs")?)?;

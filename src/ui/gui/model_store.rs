@@ -61,6 +61,7 @@ impl IcedContext {
             Ok(Some(vec![
                 ApiKey { name: String::from("OPENAI_API_KEY"), key: String::new() },
                 ApiKey { name: String::from("ANTHROPIC_API_KEY"), key: String::new() },
+                ApiKey { name: String::from("MOCK_API_KEY"), key: String::from("mock-1234") },
             ]))
         }
     }

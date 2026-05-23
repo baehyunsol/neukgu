@@ -1,4 +1,4 @@
-use super::{black, blue, button, red, set_bg, white};
+use super::{black, blue, button, purple, red, set_bg, white};
 use iced::{Background, Color, Element, Length};
 use iced::border::{Border, Radius};
 use iced::widget::{Column, Row};
@@ -8,6 +8,7 @@ pub trait PopupContext {
     fn can_close_popup(&self) -> bool;
     fn has_prev_popup(&self) -> bool;
     fn has_something_to_copy(&self) -> bool;
+    fn can_open_scratch_pad(&self) -> bool;
     fn zoom(&self) -> f32;
 }
 
@@ -15,6 +16,7 @@ pub trait PopupMessage {
     fn close_popup() -> Self;
     fn back_popup() -> Self;
     fn copy_popup_content() -> Self;
+    fn open_scratch_pad() -> Self;
 }
 
 pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupContext>(element: Element<'e, Message>, context: &'c Context) -> Element<'e, Message> {
@@ -23,7 +25,7 @@ pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupCont
 
     // There are some popups that cannot be closed (e.g. llm request).
     if context.can_close_popup() {
-        buttons.push(button("Close", Message::close_popup(), red(), zoom).into());
+        buttons.push(button("X", Message::close_popup(), red(), zoom).into());
     }
 
     if context.has_prev_popup() {
@@ -32,6 +34,10 @@ pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupCont
 
     if context.has_something_to_copy() {
         buttons.push(button("Copy", Message::copy_popup_content(), blue(), zoom).into());
+    }
+
+    if context.can_open_scratch_pad() {
+        buttons.push(button("Scratch Pad", Message::open_scratch_pad(), purple(), zoom).into());
     }
 
     Container::new(

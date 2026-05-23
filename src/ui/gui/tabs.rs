@@ -5,6 +5,11 @@ use super::index::{
     IcedContext as IndexContext,
     IcedMessage as IndexMessage,
 };
+use super::scratch_pad::{
+    self,
+    IcedContext as ScratchPadContext,
+    IcedMessage as ScratchPadMessage,
+};
 use super::tab::{
     self,
     IcedContext as TabContext,
@@ -19,7 +24,7 @@ use iced::{Background, Color, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers};
-use iced::widget::{Column, Row, Space, text};
+use iced::widget::{Column, Row, Space, Stack, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::{Container, Style as ContainerStyle};
 use iced::widget::operation::scroll_to;
@@ -42,6 +47,7 @@ pub struct IcedContext {
 
     pub index: IndexContext,
     pub tabs: Vec<TabContext>,
+    pub scratch_pad: Option<ScratchPadContext>,
     pub workers: Workers,
 }
 
@@ -60,7 +66,8 @@ impl IcedContext {
             selected_tab: None,
             index: IndexContext::new(&home_dir),
             tabs: vec![],
-            workers: init_workers(4),
+            scratch_pad: None,
+            workers: init_workers(8),
         }
     }
 }
@@ -69,6 +76,7 @@ impl IcedContext {
 pub enum IcedMessage {
     Index(IndexMessage),
     Tab { id: TabId, message: TabMessage },
+    ScratchPad(ScratchPadMessage),
     Tick,
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
@@ -93,6 +101,11 @@ pub enum Tab {
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
+        IcedMessage::Index(IndexMessage::OpenScratchPad { title, content }) |
+        IcedMessage::Tab { id: _, message: TabMessage::OpenScratchPad { title, content } } => {
+            context.scratch_pad = Some(ScratchPadContext::new(title, content, context.window_size));
+            Task::none()
+        },
         IcedMessage::Index(IndexMessage::NewTab { tab, force_new_tab }) => Task::done(IcedMessage::NewTab { tab, force_new_tab }),
         IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
             if let Some(tab) = context.tabs.get(index) && tab.id == id {
@@ -107,7 +120,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => Task::none(),
-            None => index::update(&mut context.index, m).map(|m| IcedMessage::Index(m)),
+            None => index::update(&mut context.index, m).map(IcedMessage::Index),
         },
         IcedMessage::Tab { id, message: TabMessage::BackgroundJob(w) } => {
             context.workers.push(Some(id), w).unwrap();
@@ -136,6 +149,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             // perhaps it's already dead?
             Task::none()
         },
+        IcedMessage::ScratchPad(ScratchPadMessage::Close) => {
+            context.scratch_pad = None;
+            Task::none()
+        },
+        IcedMessage::ScratchPad(m) => match &mut context.scratch_pad {
+            Some(c) => scratch_pad::update(c, m).map(IcedMessage::ScratchPad),
+            None => Task::none(),  // perhaps it's already dead?
+        },
         IcedMessage::Tick => {
             let mut tasks = vec![];
             let mut job_results_by_tab_id: HashMap<TabId, Vec<JobResult>> = HashMap::new();
@@ -152,7 +173,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                         },
                     },
                     None => {
-                        tasks.push(index::update(&mut context.index, IndexMessage::BackgroundJobResult(job_result)).map(|m| IcedMessage::Index(m)));
+                        tasks.push(index::update(&mut context.index, IndexMessage::BackgroundJobResult(job_result)).map(IcedMessage::Index));
                     },
                 }
             }
@@ -168,7 +189,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 }
             }
 
-            tasks.push(index::update(&mut context.index, IndexMessage::Tick { frame: context.frame, force_update: false }).map(|m| IcedMessage::Index(m)));
+            tasks.push(index::update(&mut context.index, IndexMessage::Tick { frame: context.frame, force_update: false }).map(IcedMessage::Index));
             context.index.current_tabs = context.tabs.iter().enumerate().map(
                 |(i, t)| t.get_preview(i)
             ).collect();
@@ -213,7 +234,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                             let id = context.tabs[i].id;
                             tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
                         },
-                        None => index::update(&mut context.index, IndexMessage::Focus).map(|m| IcedMessage::Index(m)),
+                        None => index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index),
                     }
                 }
 
@@ -226,13 +247,17 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                     let id = context.tabs[selected_tab].id;
                     tab::update(&mut context.tabs[selected_tab], TabMessage::KeyPressed { key, modifiers }).map(move |message| IcedMessage::Tab { id, message })
                 },
-                None => index::update(&mut context.index, IndexMessage::KeyPressed { key, modifiers }).map(|m| IcedMessage::Index(m)),
+                None => index::update(&mut context.index, IndexMessage::KeyPressed { key, modifiers }).map(IcedMessage::Index),
             },
         },
         IcedMessage::WindowResized(size) => {
             context.window_size = size;
             let mut tasks = vec![];
-            tasks.push(index::update(&mut context.index, IndexMessage::WindowResized(size)).map(|m| IcedMessage::Index(m)));
+            tasks.push(index::update(&mut context.index, IndexMessage::WindowResized(size)).map(IcedMessage::Index));
+
+            if let Some(p) = &mut context.scratch_pad {
+                tasks.push(scratch_pad::update(p, ScratchPadMessage::WindowResized(size)).map(IcedMessage::ScratchPad));
+            }
 
             for t in context.tabs.iter_mut() {
                 let id = t.id;
@@ -347,7 +372,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             else if context.tabs.is_empty() {
                 context.selected_tab = None;
-                index::update(&mut context.index, IndexMessage::Focus).map(|m| IcedMessage::Index(m))
+                index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
             }
 
             else {
@@ -357,7 +382,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::SelectIndex => {
             if context.selected_tab.is_some() {
                 context.selected_tab = None;
-                index::update(&mut context.index, IndexMessage::Focus).map(|m| IcedMessage::Index(m))
+                index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
             }
 
             else {
@@ -380,14 +405,23 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         let selected_tab_id = selected_tab.id;
         tab::view(&selected_tab).map(move |message| IcedMessage::Tab { id: selected_tab_id, message })
     } else {
-        index::view(&context.index).map(|m| IcedMessage::Index(m))
+        index::view(&context.index).map(IcedMessage::Index)
     };
 
-    Column::from_vec(vec![
+    let mut view: Element<IcedMessage> = Column::from_vec(vec![
         tabs,
         horizontal_bar,
         curr_tab,
-    ]).into()
+    ]).into();
+
+    if let Some(scratch_pad_context) = &context.scratch_pad {
+        view = Stack::from_vec(vec![
+            view,
+            scratch_pad::view(scratch_pad_context).map(IcedMessage::ScratchPad).into(),
+        ]).into();
+    }
+
+    view
 }
 
 fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {

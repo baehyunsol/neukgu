@@ -7,6 +7,7 @@ use ragit_fs::{
     join3,
     join4,
     read_string,
+    remove_dir_all,
     write_string,
 };
 use serde::de::DeserializeOwned;
@@ -449,6 +450,14 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
     if config.agents.big == Model::Mock {
         reset_mock_state(working_dir)?;
     }
+
+    remove_dir_all(&join3(working_dir, ".neukgu", "snapshots")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
+    write_string(
+        &join3(working_dir, ".neukgu", "snapshots.json")?,
+        "[]",
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
 
     drop(lock_file);
     Ok(())

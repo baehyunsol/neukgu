@@ -340,7 +340,7 @@ pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
         text!("Model:").size(zoom * 14.0).into(),
         PickList::new(
             Model::all().into_iter().filter(
-                |model| *model != Model::Mock && *model != Model::Disabled
+                |model| model.is_real() && model.is_llm()
             ).collect::<Vec<_>>(),
             Some(config.model),
             |model| SetChatConfig::Model(model),

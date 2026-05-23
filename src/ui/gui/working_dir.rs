@@ -25,8 +25,9 @@ use super::api_key::{
 };
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
-use super::logs::{LogsContext, render_logs};
+use super::logs::{LogsContext, render_logs, render_token_usage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
+use super::scratch_pad::Content as ScratchPadContent;
 use super::worker::{Job, JobResult};
 use crate::{
     Config,
@@ -38,6 +39,7 @@ use crate::{
     Logger,
     Model,
     SessionSummary,
+    TokenUsage,
     ToolCallSuccess,
     Turn,
     TurnId,
@@ -198,6 +200,7 @@ pub struct IcedContext {
     pub find_result: HashMap<String, (usize, usize)>,
     pub loaded_turn: Option<(usize, Turn)>,
     pub loaded_logs: Option<Vec<String>>,
+    pub loaded_token_usage: Option<TokenUsage>,
     pub loaded_image: Option<ImageId>,
     pub user_response_timeout_counter: Instant,
     pub curr_popup: Option<Popup>,
@@ -274,6 +277,7 @@ impl IcedContext {
             find_result: HashMap::new(),
             loaded_turn: None,
             loaded_logs: None,
+            loaded_token_usage: None,
             loaded_image: None,
             user_response_timeout_counter: Instant::now(),
             curr_popup,
@@ -383,14 +387,11 @@ impl IcedContext {
             Popup::Image(id) => {
                 self.loaded_image = Some(id);
             },
-            // It's already loaded in `self.text_diff`
             Popup::Diff => {
                 self.copy_buffer = self.text_diff.clone();
             },
             Popup::TokenUsage => {
-                let token_usage = self.fe_context.get_token_usage()?;
-                self.set_long_text_editor_content(token_usage.to_string());
-                self.copy_buffer = Some(token_usage.to_string());
+                self.loaded_token_usage = Some(self.fe_context.get_token_usage()?);
             },
             Popup::Prompt => {
                 let system_prompt = self.fe_context.get_system_prompt();
@@ -428,6 +429,7 @@ impl IcedContext {
         self.hovered_turn = None;
         self.loaded_turn = None;
         self.loaded_logs = None;
+        self.loaded_token_usage = None;
         self.loaded_image = None;
         self.curr_popup = None;
         self.copy_buffer = None;
@@ -498,6 +500,7 @@ impl PopupContext for IcedContext {
 
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
+    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() || self.loaded_image.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -562,6 +565,8 @@ pub enum IcedMessage {
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
     Focus,
+    PrepareScratchPad,
+    OpenScratchPad { title: Option<String>, content: ScratchPadContent },
 
     // Kill: The caller wants to kill this tab. This tab will show a popup "quit session?".
     // KillBeProcess: If the user clicked "yes" for "quit session?", this message is produced.
@@ -576,6 +581,7 @@ impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { IcedMessage::ClosePopup }
     fn back_popup() -> Self { IcedMessage::BackPopup }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
+    fn open_scratch_pad() -> Self { IcedMessage::PrepareScratchPad }
 }
 
 impl ChatMessage for IcedMessage {
@@ -657,9 +663,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
 
                     if let Some(Popup::TokenUsage) = context.curr_popup {
-                        let token_usage = context.fe_context.get_token_usage()?;
-                        context.set_long_text_editor_content(token_usage.to_string());
-                        context.copy_buffer = Some(token_usage.to_string());
+                        context.loaded_token_usage = Some(context.fe_context.get_token_usage()?);
                     }
 
                     if let Some(Popup::FileChanges(_)) = context.curr_popup {
@@ -1093,6 +1097,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Focus => {
             return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
         },
+        IcedMessage::PrepareScratchPad => {
+            let content = match (&context.loaded_image, &context.copy_buffer) {
+                (Some(id), _) => ScratchPadContent::Image(*id),
+                (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
+                (None, None) => unreachable!(),
+            };
+
+            return Ok(Task::done(IcedMessage::OpenScratchPad { title: context.popup_title.clone(), content }));
+        },
+        IcedMessage::OpenScratchPad { .. } => unreachable!(),
         IcedMessage::Kill => {
             return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
         },
@@ -1199,6 +1213,11 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     else if let Some(logs) = &context.loaded_logs {
         let view = render_logs(logs, context, context.popup_scroll_id.clone(), context.zoom);
+        full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
+    }
+
+    else if let Some(token_usage) = &context.loaded_token_usage {
+        let view = render_token_usage(token_usage, context, context.popup_scroll_id.clone(), context.zoom);
         full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
     }
 
@@ -1330,7 +1349,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Log(_) | Popup::Help | Popup::TokenUsage | Popup::Prompt | Popup::Instruction) = &context.curr_popup {
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::Prompt | Popup::Instruction) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);

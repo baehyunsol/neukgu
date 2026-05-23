@@ -183,15 +183,7 @@
     - 사용자가 늑구한테 대답을 요청했으면, agent가 늑구한테 "~에 대한 대답을 logs/XXX에 작성해줘"라고 전달하는 거임. 늑구가 해당 파일을 작성했으면 이 agent가 다시 슬랙으로 메시지를 보내는 거지
 111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
 114. Scratch-pad
-  - zed/vsc를 쓸 때 보통 탭을 가로로 여러개 띄워놓고 쓰잖아? 이게 neukgu에서도 가능해야함
-  - 그냥 `tab::view()`를 2번 호출한 다음에 둘을 `iced::widget::Row`에 집어넣어도 되는데, 그럼 너무 못생겼을 거 같음
-  - 그래서 scratch pad라는 개념을 만들까... 생각하는 중!
-  - scratch pad는 항상 왼쪽이나 오른쪽에 작게 떠 있는 popup임.
-  - 다른 popup들보다 가장 마지막에 render되기 때문에, scratch pad는 항상 보임!
-  - 현재 tab/popup을 scratch pad로 띄우는 단축키가 존재
-  - scratch pad를 hide/show/close 하는 단축키가 존재
-  - tab을 넘기는 것과 scratch pad는 완전 별도로 동작함
-  - scratch pad로 메모장도 띄울 수 있게 하자! 그냥 TextEditor 하나만 덜렁 뜨는 거임!
+  - It's implemented, and I need key bindings... for everything!
 116. cron neukgu
   - 진짜 cron으로 띄우기 vs neukgu daemon이 돌고 있다가 띄우기
     - 주기적으로 떠야하는 작업만 생각하면 전자가 나을 거 같긴한데, 그럼 CLI 보강을 좀 해야할듯?

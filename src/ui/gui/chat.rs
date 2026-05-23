@@ -5,6 +5,7 @@ use super::{
     disabled_button,
     gray,
     pink,
+    purple,
     red,
     set_bg,
     set_round_bg,
@@ -18,8 +19,9 @@ use super::api_key::{
     get_api_keys_popup,
 };
 use super::config::{SetChatConfig, chat_config_ui1, set_chat_config};
-use super::logs::{LogsContext, render_logs};
+use super::logs::{LogsContext, render_logs, render_token_usage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
+use super::scratch_pad::Content as ScratchPadContent;
 use super::worker::{
     Job,
     JobId,
@@ -102,6 +104,8 @@ pub struct IcedContext {
     pub find_pattern: Option<(String, Regex)>,
     pub find_result: HashMap<ChatTurnId, usize>,
     pub loaded_logs: Option<Vec<String>>,
+    pub loaded_token_usage: Option<TokenUsage>,
+    pub loaded_image: Option<ImageId>,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
@@ -151,6 +155,8 @@ impl IcedContext {
             find_pattern: None,
             find_result: HashMap::new(),
             loaded_logs: None,
+            loaded_token_usage: None,
+            loaded_image: None,
             curr_popup,
             prev_popup: None,
             copy_buffer: None,
@@ -164,6 +170,11 @@ impl IcedContext {
             zoom: 1.0,
         };
         context.load_chat_turns()?;
+
+        if let Some(unfinished_chat) = chat.unfinished_chat {
+            context.fill_turn(unfinished_chat);
+        }
+
         Ok(context)
     }
 
@@ -192,10 +203,7 @@ impl IcedContext {
                 self.popup_title = Some(title);
             },
             Popup::TokenUsage => {
-                let token_usage: TokenUsage = load_json(&join(&self.log_dir, "tokens.json")?)?;
-                let token_usage = token_usage.render();
-                self.set_long_text_editor_content(token_usage.to_string());
-                self.copy_buffer = Some(token_usage.to_string());
+                self.loaded_token_usage = Some(load_json(&join(&self.log_dir, "tokens.json")?)?);
             },
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
@@ -224,6 +232,8 @@ impl IcedContext {
 
     pub fn close_popup(&mut self) {
         self.loaded_logs = None;
+        self.loaded_token_usage = None;
+        self.loaded_image = None;
         self.curr_popup = None;
         self.copy_buffer = None;
         self.long_text_editor_content = TextEditorContent::new();
@@ -261,12 +271,24 @@ impl IcedContext {
 
         Ok(())
     }
+
+    pub fn fill_turn(&mut self, turn: Vec<LLMToken>) {
+        for token in turn.iter() {
+            match token {
+                LLMToken::String(s) => {
+                    self.set_chat_input_content(s.to_string());
+                },
+                LLMToken::Image(_) => todo!(),
+            }
+        }
+    }
 }
 
 impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { !matches!(self.curr_popup, Some(Popup::GetApiKeys) | None) }
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
+    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() || self.loaded_image.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -315,6 +337,8 @@ pub enum IcedMessage {
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
     Focus,
+    PrepareScratchPad,
+    OpenScratchPad { title: Option<String>, content: ScratchPadContent },
 
     // Kill: The caller wants to kill this tab. This tab will show a popup "quit session?".
     // Dead: Tell the caller that this tab is okay to be closed.
@@ -326,6 +350,7 @@ impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { IcedMessage::ClosePopup }
     fn back_popup() -> Self { IcedMessage::BackPopup }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
+    fn open_scratch_pad() -> Self { IcedMessage::PrepareScratchPad }
 }
 
 impl ChatMessage for IcedMessage {
@@ -605,6 +630,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Focus => {
             return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
         },
+        IcedMessage::PrepareScratchPad => {
+            let content = match (&context.loaded_image, &context.copy_buffer) {
+                (Some(id), _) => ScratchPadContent::Image(*id),
+                (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
+                (None, None) => unreachable!(),
+            };
+
+            return Ok(Task::done(IcedMessage::OpenScratchPad { title: context.popup_title.clone(), content }));
+        },
+        IcedMessage::OpenScratchPad { .. } => unreachable!(),
         IcedMessage::Kill => {
             return Ok(Task::done(IcedMessage::Dead));
         },
@@ -780,7 +815,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
     }
 
-    else if let Some(Popup::Log(_) | Popup::TokenUsage | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
+    else if let Some(token_usage) = &context.loaded_token_usage {
+        let view = render_token_usage(token_usage, context, context.popup_scroll_id.clone(), context.zoom);
+        full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
+    }
+
+    else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
@@ -835,8 +875,9 @@ pub fn render_turn<'n, 'cn, 'cx>(
     align_name: Horizontal,
     context: &'cx IcedContext,
 ) -> Element<'cx, IcedMessage> {
+    let stringified_llm_tokens = stringify_llm_tokens(content);
     let mut buttons = vec![
-        button("Copy", IcedMessage::CopyString(stringify_llm_tokens(content)), blue(), context.zoom),
+        button("Copy", IcedMessage::CopyString(stringified_llm_tokens.to_string()), blue(), context.zoom),
     ];
 
     if let Some(thinking) = thinking {
@@ -856,6 +897,13 @@ pub fn render_turn<'n, 'cn, 'cx>(
             buttons.push(button(&format!("Code Block {}", i + 1), IcedMessage::OpenPopup { curr: Popup::CodeBlock { code: code.to_string(), ext: ext.clone() }, prev: None }, yellow(), context.zoom));
         }
     }
+
+    buttons.push(button(
+        "Scratch Pad",
+        IcedMessage::OpenScratchPad { title: None, content: ScratchPadContent::Text { content: stringified_llm_tokens.to_string(), extension: Some(String::from("md")) } },
+        purple(),
+        context.zoom,
+    ));
 
     let buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
         buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
@@ -964,7 +1012,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
         .size(zoom * 14.0)
         .id(editor_id)
         .width(window_size.width * 0.75)
-        .height(zoom * if is_focused { 160.0 } else { 32.0 });
+        .height(zoom * if is_focused { 192.0 } else { 32.0 });
 
     if can_be_focused {
         text_editor = text_editor
@@ -1021,7 +1069,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
             .into();
     }
 
-    let container_height = if is_focused { zoom * 172.0 } else { zoom * 44.0 };
+    let container_height = if is_focused { zoom * 204.0 } else { zoom * 44.0 };
     let text_editor = Container::new(
         Row::from_vec(vec![
             Space::new().width(window_size.width * 0.05).into(),

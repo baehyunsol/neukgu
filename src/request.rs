@@ -146,7 +146,7 @@ impl Request {
                 logger.log(LogEntry::GotResponse(200))?;
                 api_log.response_header = logger.log(LogEntry::ResponseHeader(HashMap::new()))?;
                 api_log.response_body = logger.log(LogEntry::ResponseText(serde_json::to_string_pretty(&response)?))?;
-                logger.log_token_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
+                logger.log_token_usage(self.model, response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                 response.log = api_log;
                 return Ok(response);
             }
@@ -171,7 +171,7 @@ impl Request {
                                         ApiProvider::Mock => unreachable!(),
                                         ApiProvider::Gemini => Response::from_gemini(&s)?,
                                     };
-                                    logger.log_token_usage(response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
+                                    logger.log_token_usage(self.model, response.cached_input_tokens, response.input_tokens, response.output_tokens)?;
                                     response.log = api_log;
                                     return Ok(response);
                                 },

@@ -25,6 +25,7 @@ use super::config::{
 };
 use super::model_store::{self, IcedContext as ModelStoreContext, IcedMessage as ModelStoreMessage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
+use super::scratch_pad::Content as ScratchPadContent;
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
 use super::worker::JobResult;
@@ -235,6 +236,7 @@ impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
+    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() }
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -270,12 +272,15 @@ pub enum IcedMessage {
     MainViewScrolled(AbsoluteOffset),
     BackgroundJobResult(JobResult),
     Focus,
+    PrepareScratchPad,
+    OpenScratchPad { title: Option<String>, content: ScratchPadContent },
 }
 
 impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { IcedMessage::ClosePopup }
     fn back_popup() -> Self { unreachable!() }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
+    fn open_scratch_pad() -> Self { IcedMessage::PrepareScratchPad }
 }
 
 #[derive(Clone, Debug)]
@@ -485,6 +490,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.hovered_tab = None;
             return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
         },
+        IcedMessage::PrepareScratchPad => {
+            return Ok(Task::done(IcedMessage::OpenScratchPad {
+                title: None,
+                content: ScratchPadContent::Text { content: context.copy_buffer.clone().unwrap(), extension: context.syntax_highlight.clone() },
+            }));
+        },
+        IcedMessage::OpenScratchPad { .. } => unreachable!(),
     }
 
     Ok(Task::none())

@@ -2,12 +2,12 @@ use chrono::{Local, SecondsFormat};
 use crate::{
     ChosenTurn,
     Error,
+    Model,
     ToolCall,
     ToolCallError,
     ToolCallSuccess,
     TurnId,
     load_json,
-    prettify_tokens,
 };
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -156,31 +156,48 @@ impl Logger {
         }
     }
 
-    pub fn log_token_usage(&self, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {
+    pub fn log_token_usage(&self, model: Model, cached_input: u64, input: u64, output: u64) -> Result<(), Error> {
         if !self.enabled { return Ok(()); }
 
-        // TODO: update the global token usage
-        let usage_at = join(&self.log_dir, "tokens.json")?;
         let now = Local::now().timestamp().max(0) as u64 / 3600;
-        let mut usage: TokenUsage = load_json(&usage_at)?;
+        let local_token_usage = Some(join(&self.log_dir, "tokens.json")?);
+        let global_token_usage = if let Some(global_log_dir) = &self.global_log_dir {
+            Some(join(global_log_dir, "tokens.json")?)
+        } else {
+            None
+        };
 
-        match usage.0.entry(now) {
-            Entry::Occupied(mut e) => {
-                let e = e.get_mut();
-                e.0 += cached_input;
-                e.1 += input;
-                e.2 += output;
-            },
-            Entry::Vacant(e) => {
-                e.insert((cached_input, input, output));
-            },
+        for usage_at in [
+            local_token_usage,
+            global_token_usage,
+        ] {
+            let Some(usage_at) = usage_at else { continue };
+            let mut usage: TokenUsage = load_json(&usage_at)?;
+
+            match usage.0.entry(now) {
+                Entry::Occupied(mut e) => match e.get_mut().entry(model) {
+                    Entry::Occupied(mut e) => {
+                        let e = e.get_mut();
+                        e.0 += cached_input;
+                        e.1 += input;
+                        e.2 += output;
+                    },
+                    Entry::Vacant(e) => {
+                        e.insert((cached_input, input, output));
+                    },
+                },
+                Entry::Vacant(e) => {
+                    e.insert([(model, (cached_input, input, output))].into_iter().collect());
+                },
+            }
+
+            write_string(
+                &usage_at,
+                &serde_json::to_string_pretty(&usage)?,
+                WriteMode::Atomic,
+            )?;
         }
 
-        write_string(
-            &usage_at,
-            &serde_json::to_string_pretty(&usage)?,
-            WriteMode::Atomic,
-        )?;
         Ok(())
     }
 
@@ -191,33 +208,55 @@ impl Logger {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TokenUsage(HashMap<u64  /* timestamp */, (u64 /* cached_input */, u64 /* input */, u64 /* output */)>);
+pub struct TokenUsage(HashMap<u64  /* timestamp */, HashMap<Model, (u64 /* cached_input */, u64 /* input */, u64 /* output */)>>);
 
 impl TokenUsage {
-    pub fn total(&self) -> (u64, u64, u64) {
-        self.0.values().fold((0, 0, 0), |(ci, i, o), (cii, ii, oo)| (ci + *cii, i + *ii, o + *oo))
+    pub fn total(&self) -> HashMap<Model, (u64, u64, u64)> {
+        let mut result: HashMap<Model, (u64, u64, u64)> = HashMap::new();
+
+        for usage in self.0.values() {
+            for (model, (cached_input, input, output)) in usage.iter() {
+                match result.entry(*model) {
+                    Entry::Occupied(mut e) => {
+                        let e = e.get_mut();
+                        e.0 += cached_input;
+                        e.1 += input;
+                        e.2 += output;
+                    },
+                    Entry::Vacant(e) => {
+                        e.insert((*cached_input, *input, *output));
+                    },
+                }
+            }
+        }
+
+        result
     }
 
-    pub fn recent(&self) -> (u64, u64, u64) {
+    pub fn recent(&self) -> HashMap<Model, (u64, u64, u64)> {
         let now = Local::now().timestamp().max(0) as u64 / 3600;
         let recent_6 = (now.max(5) - 5)..(now + 1);
-        recent_6.map(
-            |k| self.0.get(&k).cloned().unwrap_or((0, 0, 0))
-        ).fold((0, 0, 0), |(ci, i, o), (cii, ii, oo)| (ci + cii, i + ii, o + oo))
-    }
+        let mut result: HashMap<Model, (u64, u64, u64)> = HashMap::new();
 
-    pub fn render(&self) -> String {
-        let (total_cached_input, total_input, total_output) = self.total();
-        let (recent_cached_input, recent_input, recent_output) = self.recent();
-        format!(
-            "total cached input: {}\nrecent 6 hours cached input: {}\ntotal non-cached input: {}\nrecent 6 hours non-cached input: {}\ntotal output: {}\nrecent 6 hours output: {}\n",
-            prettify_tokens(total_cached_input),
-            prettify_tokens(recent_cached_input),
-            prettify_tokens(total_input),
-            prettify_tokens(recent_input),
-            prettify_tokens(total_output),
-            prettify_tokens(recent_output),
-        )
+        for t in recent_6 {
+            if let Some(usage) = self.0.get(&t) {
+                for (model, (cached_input, input, output)) in usage.iter() {
+                    match result.entry(*model) {
+                        Entry::Occupied(mut e) => {
+                            let e = e.get_mut();
+                            e.0 += cached_input;
+                            e.1 += input;
+                            e.2 += output;
+                        },
+                        Entry::Vacant(e) => {
+                            e.insert((*cached_input, *input, *output));
+                        },
+                    }
+                }
+            }
+        }
+
+        result
     }
 }
 
