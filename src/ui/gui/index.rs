@@ -99,8 +99,8 @@ const HELP_MESSAGE: &str = r#"
 ## Key bindings (scratch pad)
 
 - Ctrl+Shift+Esc: close scratch pad
-- Ctrl+Shift+Up: collapse scratch pad
-- Ctrl+Shift+Down: expand scratch pad
+- Ctrl+Shift+Up/Down: scroll scratch pad to top/bottom
+- Ctrl+Shift+E: expand/collapse scratch pad
 - Ctrl+Shift+Left/Right: move scratch pad
 - Ctrl+Shift+Plus/Minus: zoom
 "#;
@@ -244,7 +244,15 @@ impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
-    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() }
+
+    fn can_open_scratch_pad(&self) -> bool {
+        if let Some(c) = &self.copy_buffer && c.len() < 32768 {
+            true
+        } else {
+            false
+        }
+    }
+
     fn zoom(&self) -> f32 { self.zoom }
 }
 

@@ -95,6 +95,7 @@ pub struct IcedContext {
     pub curr_processing_tokens: Option<Vec<LLMToken>>,
     pub window_size: Size,
     pub global_index_dir: String,
+    pub working_dir: String,
     pub log_dir: String,
     pub chat_view_id: Id,
     pub popup_scroll_id: Id,
@@ -122,6 +123,7 @@ pub struct IcedContext {
 impl IcedContext {
     pub fn new(chat_id: ChatId, api_keys: HashMap<String, String>, window_size: Size) -> Result<IcedContext, Error> {
         let global_index_dir = get_global_index_dir()?;
+        let working_dir = join3(&global_index_dir, "chats", &format!("{:016x}", chat_id.0))?;
         let chat = Chat::load(chat_id, &global_index_dir)?;
         let missing_api_keys = get_missing_api_keys(&api_keys, chat.config.model);
         let mut curr_popup = None;
@@ -143,10 +145,8 @@ impl IcedContext {
             curr_processing_tokens: None,
             window_size,
             global_index_dir: global_index_dir.to_string(),
-            log_dir: join(
-                &join3(&global_index_dir, "chats", &format!("{:016x}", chat_id.0))?,
-                &join(".neukgu", "logs")?,
-            )?,
+            working_dir: working_dir.to_string(),
+            log_dir: join3(&working_dir, ".neukgu", "logs")?,
             chat_view_id: Id::unique(),
             popup_scroll_id: Id::unique(),
             chat_input_id: Id::unique(),
@@ -288,7 +288,15 @@ impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { !matches!(self.curr_popup, Some(Popup::GetApiKeys) | None) }
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
-    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() || self.loaded_image.is_some() }
+
+    fn can_open_scratch_pad(&self) -> bool {
+        match (&self.loaded_image, &self.copy_buffer) {
+            (Some(_), _) => true,
+            (_, Some(c)) if c.len() < 32768 => true,
+            _ => false,
+        }
+    }
+
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -632,7 +640,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::PrepareScratchPad => {
             let content = match (&context.loaded_image, &context.copy_buffer) {
-                (Some(id), _) => ScratchPadContent::Image(*id),
+                (Some(id), _) => ScratchPadContent::Image { path: id.path(&context.working_dir)? },
                 (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
                 (None, None) => unreachable!(),
             };

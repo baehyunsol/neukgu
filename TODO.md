@@ -265,6 +265,22 @@
     - skill 등록하는 ui를 만들어야겠네...
       - 이것도 config ui 안에다가 넣으면 됨!!
 152. browser에서 파일 미리보기 할 때, 방향키로 browse 가능케 하기!!
+153. scratch pad
+  - 메모장 간단하게 띄울 수 있으면 좋을 듯?
+  - scratch pad의 현재 내용을 copy하는 버튼... 굳이 필요할까? 일단 보류!
+154. neukgu가 zed를 대체하려면?
+  - git 관련된 기능이 훨씬 보강되어야 함
+    - git status 바로 보기
+    - `git diff --cached -U5 --diff-algorithm=patience` 바로 보기
+    - `git diff -U5 --diff-algorithm=patience` 바로 보기
+    - 최근 commit들 바로 보기
+  - 간단한 텍스트 파일은 즉시 수정이 가능해야함: text editor를 집어넣어??
+155. snapshot/sandbox를 git으로 관리하기??
+  - 이게 잘되면 옛날처럼 모든 turn의 snapshot을 떠놓고 오류나면 즉시 롤백하면 됨
+  - 롤백도 지금처럼 6 turn 씩 자르는게 아니고 모든 turn으로 다 할 수 있음.
+  - working-dir바깥에 `.git/`을 새로 만들고, working-dir에서는 해당 git이 아예 안 보이게 하면 됨
+    - working-dir 안에 있는 `.gitignore`와 `.git/`을 일시적으로 비활성화 하고 snapshot을 만들고 다시 활성화해야함
+    - 
 
 ## mock API
 

@@ -31,6 +31,9 @@ const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
 pub fn run() -> Result<(), Error> {
     iced::application(TabsContext::new, tabs::update, tabs::view)
         .theme(Theme::Dark)
+        .font(include_bytes!("../../resources/SpaceMono-Bold.ttf"))
+        .font(include_bytes!("../../resources/SpaceMono-BoldItalic.ttf"))
+        .font(include_bytes!("../../resources/SpaceMono-Italic.ttf"))
         .font(include_bytes!("../../resources/SpaceMono-Regular.ttf"))
         .default_font(DEFAULT_MONO_FONT)
         .subscription(|_| Subscription::batch([

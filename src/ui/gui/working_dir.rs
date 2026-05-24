@@ -500,7 +500,15 @@ impl PopupContext for IcedContext {
 
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
-    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() || self.loaded_image.is_some() }
+
+    fn can_open_scratch_pad(&self) -> bool {
+        match (&self.loaded_image, &self.copy_buffer) {
+            (Some(_), _) => true,
+            (_, Some(c)) if c.len() < 32768 => true,
+            _ => false,
+        }
+    }
+
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -714,8 +722,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
                 if context.can_click_turn_entry() {
-                    let scroll_index = context.select_turn(if ctrl { -10 } else { -1 });
-                    return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                    let scroll_offset = context.select_turn(if ctrl { -10 } else { -1 });
+                    return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
                 }
 
                 else if ctrl && context.curr_popup.is_some() {
@@ -724,8 +732,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Named(NamedKey::ArrowDown), ctrl, false, false) => {
                 if context.can_click_turn_entry() {
-                    let scroll_index = context.select_turn(if ctrl { 10 } else { 1 });
-                    return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                    let scroll_offset = context.select_turn(if ctrl { 10 } else { 1 });
+                    return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
                 }
 
                 else if ctrl && context.curr_popup.is_some() {
@@ -1099,7 +1107,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::PrepareScratchPad => {
             let content = match (&context.loaded_image, &context.copy_buffer) {
-                (Some(id), _) => ScratchPadContent::Image(*id),
+                (Some(id), _) => ScratchPadContent::Image { path: id.path(&context.fe_context.working_dir)? },
                 (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
                 (None, None) => unreachable!(),
             };

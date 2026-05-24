@@ -1,10 +1,15 @@
 use super::{black, blue, button, disabled_button, gray, red, white};
-use crate::ImageId;
 use iced::{Background, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Column, Row, Scrollable, Space, text};
+use iced::widget::{Column, Id, Row, Scrollable, Space, text};
+use iced::widget::container::{Container, Style};
+use iced::widget::image::{
+    Handle as ImageHandle,
+    Viewer as ImageViewer,
+};
+use iced::widget::operation::{RelativeOffset, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
@@ -12,7 +17,6 @@ use iced::widget::text_editor::{
     Style as TextEditorStyle,
     TextEditor,
 };
-use iced::widget::container::{Container, Style};
 use std::sync::Arc;
 
 pub struct IcedContext {
@@ -21,6 +25,7 @@ pub struct IcedContext {
     pub title: Option<String>,
     pub content: Content,
     pub is_expanded: bool,
+    pub popup_scroll_id: Id,
     pub zoom: f32,
     pub text_editor_content: TextEditorContent,
 }
@@ -37,6 +42,7 @@ impl IcedContext {
             title,
             content: content.clone(),
             is_expanded: true,
+            popup_scroll_id: Id::unique(),
             zoom: 1.0,
             text_editor_content: TextEditorContent::new(),
         };
@@ -59,8 +65,7 @@ impl IcedContext {
 pub enum IcedMessage {
     KeyPressed { key: Key, modifiers: Modifiers },
     WindowResized(Size),
-    Expand,
-    Collapse,
+    ToggleExpand,
     SetAlignment(Horizontal),
     ZoomIn,
     ZoomOut,
@@ -69,7 +74,7 @@ pub enum IcedMessage {
 
 #[derive(Clone, Debug)]
 pub enum Content {
-    Image(ImageId),
+    Image { path: String },
     Text {
         content: String,
         extension: Option<String>,
@@ -83,10 +88,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 return Task::done(IcedMessage::Close);
             },
             (Key::Named(NamedKey::ArrowUp), false) => {
-                return Task::done(IcedMessage::Collapse);
+                return snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 0.0 });
             },
             (Key::Named(NamedKey::ArrowDown), false) => {
-                return Task::done(IcedMessage::Expand);
+                return snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 1.0 });
             },
             (Key::Named(NamedKey::ArrowLeft), false) => match context.alignment {
                 Horizontal::Left => {},
@@ -106,6 +111,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 },
                 Horizontal::Right => {},
             },
+            (Key::Character("e"), false) => {
+                return Task::done(IcedMessage::ToggleExpand);
+            },
             (Key::Character("-"), false) => {
                 return Task::done(IcedMessage::ZoomOut);
             },
@@ -117,11 +125,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::WindowResized(s) => {
             context.window_size = s;
         },
-        IcedMessage::Expand => {
-            context.is_expanded = true;
-        },
-        IcedMessage::Collapse => {
-            context.is_expanded = false;
+        IcedMessage::ToggleExpand => {
+            context.is_expanded = !context.is_expanded;
         },
         IcedMessage::SetAlignment(a) => {
             context.alignment = a;
@@ -167,7 +172,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'c, IcedMessage> {
     let mut content: Element<IcedMessage> = match &context.content {
-        Content::Image(_) => todo!(),
+        Content::Image { path } => ImageViewer::new(ImageHandle::from_path(path)).into(),
         Content::Text { content: _, extension } => TextEditor::new(&context.text_editor_content).width(context.window_size.width).size(context.zoom * 14.0).highlight(
             &if let Some(extension) = extension { extension.to_string() } else { String::from("txt") },
             iced::highlighter::Theme::InspiredGitHub,
@@ -190,7 +195,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
     Container::new(
         Column::from_vec(vec![
             render_top_buttons(context),
-            Scrollable::new(Container::new(content).padding(context.zoom * 8.0)).into(),
+            Scrollable::new(Container::new(content).padding(context.zoom * 8.0)).id(context.popup_scroll_id.clone()).into(),
         ]).spacing(context.zoom * 8.0)
     ).style(|_| Style {
         background: Some(Background::Color(white())),
@@ -207,9 +212,9 @@ fn render_top_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> 
     let mut buttons = vec![
         button("X", IcedMessage::Close, red(), context.zoom).into(),
         if context.is_expanded {
-            button("▼", IcedMessage::Collapse, black(), context.zoom).into()
+            button("▼", IcedMessage::ToggleExpand, black(), context.zoom).into()
         } else {
-            button("▶", IcedMessage::Expand, black(), context.zoom).into()
+            button("▶", IcedMessage::ToggleExpand, black(), context.zoom).into()
         },
     ];
 

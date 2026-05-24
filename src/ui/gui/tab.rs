@@ -31,7 +31,6 @@ use std::collections::HashMap;
 
 pub struct IcedContext {
     pub id: TabId,
-    pub cwd: String,
     pub api_keys: HashMap<String, String>,
     pub local: LocalContext,
 }
@@ -52,7 +51,6 @@ impl IcedContext {
 
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
-                    cwd: dir,
                     api_keys,
                     local: local_context,
                 }
@@ -65,7 +63,6 @@ impl IcedContext {
 
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
-                    cwd: home_dir.to_string(),
                     api_keys,
                     local: local_context,
                 }
@@ -79,7 +76,6 @@ impl IcedContext {
 
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
-                    cwd: dir,
                     api_keys,
                     local: local_context,
                 }
@@ -269,44 +265,40 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             Task::none()
         },
-        (LocalContext::Browser(c), IcedMessage::Tick { frame, force_update }) => browser::update(c, BrowserMessage::Tick { frame, force_update }).map(|t| IcedMessage::Browser(t)),
-        (LocalContext::Browser(c), IcedMessage::KeyPressed { key, modifiers }) => browser::update(c, BrowserMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Browser(t)),
+        (LocalContext::Browser(c), IcedMessage::Tick { frame, force_update }) => browser::update(c, BrowserMessage::Tick { frame, force_update }).map(IcedMessage::Browser),
+        (LocalContext::Browser(c), IcedMessage::KeyPressed { key, modifiers }) => browser::update(c, BrowserMessage::KeyPressed { key, modifiers }).map(IcedMessage::Browser),
         (LocalContext::Browser(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
         },
-        (LocalContext::Browser(c), IcedMessage::Browser(BrowserMessage::ChDir(path))) => {
-            context.cwd = path.to_string();
-            browser::update(c, BrowserMessage::ChDir(path)).map(|t| IcedMessage::Browser(t))
-        },
-        (LocalContext::Browser(c), IcedMessage::BackgroundJobResult(r)) => browser::update(c, BrowserMessage::BackgroundJobResult(r)).map(|t| IcedMessage::Browser(t)),
-        (LocalContext::Browser(c), IcedMessage::Focus) => browser::update(c, BrowserMessage::Focus).map(|t| IcedMessage::Browser(t)),
-        (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(|t| IcedMessage::Browser(t)),
-        (LocalContext::Chat(c), IcedMessage::Tick { frame, force_update }) => chat::update(c, ChatMessage::Tick { frame, force_update }).map(|t| IcedMessage::Chat(t)),
-        (LocalContext::Chat(c), IcedMessage::KeyPressed { key, modifiers }) => chat::update(c, ChatMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Chat(t)),
+        (LocalContext::Browser(c), IcedMessage::BackgroundJobResult(r)) => browser::update(c, BrowserMessage::BackgroundJobResult(r)).map(IcedMessage::Browser),
+        (LocalContext::Browser(c), IcedMessage::Focus) => browser::update(c, BrowserMessage::Focus).map(IcedMessage::Browser),
+        (LocalContext::Browser(c), IcedMessage::Browser(m)) => browser::update(c, m).map(IcedMessage::Browser),
+        (LocalContext::Chat(c), IcedMessage::Tick { frame, force_update }) => chat::update(c, ChatMessage::Tick { frame, force_update }).map(IcedMessage::Chat),
+        (LocalContext::Chat(c), IcedMessage::KeyPressed { key, modifiers }) => chat::update(c, ChatMessage::KeyPressed { key, modifiers }).map(IcedMessage::Chat),
         (LocalContext::Chat(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
         },
-        (LocalContext::Chat(c), IcedMessage::BackgroundJobResult(r)) => chat::update(c, ChatMessage::BackgroundJobResult(r)).map(|t| IcedMessage::Chat(t)),
-        (LocalContext::Chat(c), IcedMessage::Focus) => chat::update(c, ChatMessage::Focus).map(|t| IcedMessage::Chat(t)),
-        (LocalContext::Chat(c), IcedMessage::Chat(m)) => chat::update(c, m).map(|t| IcedMessage::Chat(t)),
-        (LocalContext::WorkingDir(c), IcedMessage::Tick { frame, force_update }) => working_dir::update(c, WorkingDirMessage::Tick { frame, force_update }).map(|t| IcedMessage::WorkingDir(t)),
-        (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::WorkingDir(t)),
+        (LocalContext::Chat(c), IcedMessage::BackgroundJobResult(r)) => chat::update(c, ChatMessage::BackgroundJobResult(r)).map(IcedMessage::Chat),
+        (LocalContext::Chat(c), IcedMessage::Focus) => chat::update(c, ChatMessage::Focus).map(IcedMessage::Chat),
+        (LocalContext::Chat(c), IcedMessage::Chat(m)) => chat::update(c, m).map(IcedMessage::Chat),
+        (LocalContext::WorkingDir(c), IcedMessage::Tick { frame, force_update }) => working_dir::update(c, WorkingDirMessage::Tick { frame, force_update }).map(IcedMessage::WorkingDir),
+        (LocalContext::WorkingDir(c), IcedMessage::KeyPressed { key, modifiers }) => working_dir::update(c, WorkingDirMessage::KeyPressed { key, modifiers }).map(IcedMessage::WorkingDir),
         (LocalContext::WorkingDir(c), IcedMessage::WindowResized(s)) => {
             c.window_size = s;
             Task::none()
         },
-        (LocalContext::WorkingDir(c), IcedMessage::BackgroundJobResult(r)) => working_dir::update(c, WorkingDirMessage::BackgroundJobResult(r)).map(|t| IcedMessage::WorkingDir(t)),
-        (LocalContext::WorkingDir(c), IcedMessage::Focus) => working_dir::update(c, WorkingDirMessage::Focus).map(|t| IcedMessage::WorkingDir(t)),
-        (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(|t| IcedMessage::WorkingDir(t)),
-        (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(|t| IcedMessage::Error(t)),
+        (LocalContext::WorkingDir(c), IcedMessage::BackgroundJobResult(r)) => working_dir::update(c, WorkingDirMessage::BackgroundJobResult(r)).map(IcedMessage::WorkingDir),
+        (LocalContext::WorkingDir(c), IcedMessage::Focus) => working_dir::update(c, WorkingDirMessage::Focus).map(IcedMessage::WorkingDir),
+        (LocalContext::WorkingDir(c), IcedMessage::WorkingDir(m)) => working_dir::update(c, m).map(IcedMessage::WorkingDir),
+        (LocalContext::Error(c), IcedMessage::KeyPressed { key, modifiers }) => error::update(c, ErrorMessage::KeyPressed { key, modifiers }).map(IcedMessage::Error),
         (LocalContext::Error(_), IcedMessage::Tick { .. } | IcedMessage::Focus) => Task::none(),
         (context, IcedMessage::Kill) => match context {
-            LocalContext::Browser(c) => browser::update(c, BrowserMessage::Kill).map(|m| IcedMessage::Browser(m)),
-            LocalContext::Chat(c) => chat::update(c, ChatMessage::Kill).map(|m| IcedMessage::Chat(m)),
-            LocalContext::WorkingDir(c) => working_dir::update(c, WorkingDirMessage::Kill).map(|m| IcedMessage::WorkingDir(m)),
-            LocalContext::Error(c) => error::update(c, ErrorMessage::Kill).map(|m| IcedMessage::Error(m)),
+            LocalContext::Browser(c) => browser::update(c, BrowserMessage::Kill).map(IcedMessage::Browser),
+            LocalContext::Chat(c) => chat::update(c, ChatMessage::Kill).map(IcedMessage::Chat),
+            LocalContext::WorkingDir(c) => working_dir::update(c, WorkingDirMessage::Kill).map(IcedMessage::WorkingDir),
+            LocalContext::Error(c) => error::update(c, ErrorMessage::Kill).map(IcedMessage::Error),
         },
         (context, message) => panic!("{context:?}\n{message:?}"),
     }
@@ -314,9 +306,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     match &context.local {
-        LocalContext::Browser(c) => browser::view(c).map(|m| IcedMessage::Browser(m)),
-        LocalContext::Chat(c) => chat::view(c).map(|m| IcedMessage::Chat(m)),
-        LocalContext::WorkingDir(c) => working_dir::view(c).map(|m| IcedMessage::WorkingDir(m)),
-        LocalContext::Error(e) => error::view(e).map(|m| IcedMessage::Error(m)),
+        LocalContext::Browser(c) => browser::view(c).map(IcedMessage::Browser),
+        LocalContext::Chat(c) => chat::view(c).map(IcedMessage::Chat),
+        LocalContext::WorkingDir(c) => working_dir::view(c).map(IcedMessage::WorkingDir),
+        LocalContext::Error(e) => error::view(e).map(IcedMessage::Error),
     }
 }

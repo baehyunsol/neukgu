@@ -209,6 +209,15 @@ impl IcedContext {
         self.zoom * (new_selection.max(3) - 3) as f32 * 42.3
     }
 
+    pub fn select_entry_by_name(&mut self, name: &str) {
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.name == name {
+                self.selected_entry = Some(i);
+                return;
+            }
+        }
+    }
+
     pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
         self.close_popup();
         self.curr_popup = Some(popup.clone());
@@ -248,7 +257,7 @@ impl IcedContext {
                         },
                         Err(e) => match image::load_from_memory(e.as_bytes()) {
                             Ok(img) => {
-                                self.image_buffer = vec![(format!("{}x{}", img.width(), img.height()), ImageHandle::from_bytes(e.as_bytes().to_vec()))];
+                                self.image_buffer = vec![(format!("{}x{}", img.width(), img.height()), ImageHandle::from_path(&path))];
                                 None
                             },
                             _ => match render_first_10_pages(e.as_bytes()) {
@@ -266,10 +275,11 @@ impl IcedContext {
                 };
 
                 let preview = match &content {
-                    Some(content) if content.chars().count() > 32768 => {
-                        // hex_dump's line is 84 characters, so it shows 4KiB if the file is binary
-                        let pre = content.chars().take(10751).collect::<String>();
-                        let post = content.chars().collect::<Vec<_>>().into_iter().rev().take(10752).rev().collect::<String>();
+                    Some(content) if content.len() > 32768 => {
+                        // hex dump's line is 84 bytes long (representation) and is 16 bytes long (actual data)
+                        // there're no multi-byte chars in hex dumps
+                        let pre = content.get(..10751).unwrap().to_string();
+                        let post = content.get((content.len() - 10752)..).unwrap().to_string();
                         let trunc = if is_binary {
                             file_size - 4096
                         } else {
@@ -334,7 +344,15 @@ impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
-    fn can_open_scratch_pad(&self) -> bool { self.copy_buffer.is_some() || !self.image_buffer.is_empty() }
+
+    fn can_open_scratch_pad(&self) -> bool {
+        match (self.image_buffer.is_empty(), &self.copy_buffer) {
+            (false, _) => true,
+            (_, Some(c)) if c.len() < 32768 => true,
+            _ => false,
+        }
+    }
+
     fn zoom(&self) -> f32 { self.zoom }
 }
 
@@ -348,7 +366,7 @@ pub enum IcedMessage {
     ClosePopup,
     CopyPopupContent,
     CopyString(String),
-    ChDir(String),
+    ChDir { new: String, old: Option<String>, going_up: bool },
     DeleteFile(String),
     DeleteDirectory(String),
     Create { path: String },
@@ -505,12 +523,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::ArrowUp), false, true, false) => {
-                return Ok(Task::done(IcedMessage::ChDir(parent(&context.cwd)?)));
+                return Ok(Task::done(IcedMessage::ChDir { new: parent(&context.cwd)?, old: Some(context.cwd.to_string()), going_up: true }));
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
                 if context.curr_popup.is_none() {
-                    let scroll_index = context.select_entry(if ctrl { -10 } else { -1 });
-                    return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                    let scroll_offset = context.select_entry(if ctrl { -10 } else { -1 });
+                    return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
                 }
 
                 else if ctrl {
@@ -519,8 +537,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Named(NamedKey::ArrowDown), ctrl, false, false) => {
                 if context.curr_popup.is_none() {
-                    let scroll_index = context.select_entry(if ctrl { 10 } else { 1 });
-                    return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_index }));
+                    let scroll_offset = context.select_entry(if ctrl { 10 } else { 1 });
+                    return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
                 }
 
                 else if ctrl {
@@ -531,7 +549,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 if context.curr_popup.is_none() && let Some(i) = context.selected_entry {
                     match context.entries.get(i) {
                         Some(entry) if entry.is_dir => {
-                            return Ok(Task::done(IcedMessage::ChDir(entry.path.to_string())));
+                            return Ok(Task::done(IcedMessage::ChDir { new: entry.path.to_string(), old: Some(context.cwd.to_string()), going_up: false }));
                         },
                         Some(entry) => {
                             return Ok(Task::done(IcedMessage::OpenPopup(Popup::PreviewFile { path: entry.path.to_string() })));
@@ -634,14 +652,23 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::CopyString(s) => {
             return Ok(iced::clipboard::write(s.to_string()));
         },
-        IcedMessage::ChDir(path) => {
+        IcedMessage::ChDir { new, old, going_up } => {
             context.close_popup();
-            context.cwd = path.to_string();
-            context.entries = load_entries(&path)?;
-            context.has_neukgu_index = check_neukgu_index(&path)?;
-            context.entry_view_scrolled = AbsoluteOffset { x: 0.0, y: 0.0 };
-            context.selected_entry = None;
-            return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
+            context.cwd = new.to_string();
+            context.entries = load_entries(&new)?;
+            context.has_neukgu_index = check_neukgu_index(&new)?;
+
+            if let (Some(old), true) = (&old, going_up) {
+                context.select_entry_by_name(&basename(old)?);
+                let scroll_offset = context.select_entry(0);
+                return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
+            }
+
+            else {
+                context.entry_view_scrolled = AbsoluteOffset { x: 0.0, y: 0.0 };
+                context.selected_entry = None;
+                return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
+            }
         },
         IcedMessage::DeleteFile(path) => {
             context.close_popup();
@@ -739,6 +766,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::PrepareScratchPad => {
             let content = match (context.image_buffer.get(0), &context.copy_buffer) {
+                (Some((_, ImageHandle::Path(_, path))), _) => ScratchPadContent::Image { path: path.clone().into_os_string().into_string().unwrap() },
                 (Some(_), _) => todo!(),
                 (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
                 (None, None) => unreachable!(),
@@ -938,7 +966,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     Column::from_vec(column)
                         .spacing(context.zoom * 20.0)
                         .width(Length::Fill)
-                ).width(Length::Fill).into(), context),
+                ).id(context.popup_scroll_id.clone()).width(Length::Fill).into(), context),
             ]).into();
         }
 
@@ -953,7 +981,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 into_popup(Scrollable::new(Column::from_vec(vec![
                     title.into(),
                     text_editor.into(),
-                ]).spacing(context.zoom * 20.0).width(Length::Fill)).width(Length::Fill).into(), context),
+                ]).spacing(context.zoom * 20.0).width(Length::Fill)).id(context.popup_scroll_id.clone()).width(Length::Fill).into(), context),
             ]).into();
         }
     } else if let Some(Popup::PreviewSymlink { .. }) = &context.curr_popup {
@@ -962,10 +990,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 text!("{pointer}").size(context.zoom * 18.0).width(context.window_size.width).into(),
                 text!("{error}").size(context.zoom * 14.0).color(red()).into(),
             ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center),
+
+            // TODO: open in a new tab
             Some(SymlinkInfo { pointee, is_dir, .. }) => Column::from_vec(vec![
                 text!("link to {pointee}").size(context.zoom * 14.0).width(context.window_size.width).into(),
                 if *is_dir {
-                    button("Jump", IcedMessage::ChDir(pointee.to_string()), skyblue(), context.zoom).into()
+                    button("Jump", IcedMessage::ChDir { new: pointee.to_string(), old: Some(context.cwd.to_string()), going_up: false }, skyblue(), context.zoom).into()
                 } else {
                     // TODO: what if it's a link to another link?
                     button("Open", IcedMessage::OpenPopup(Popup::PreviewFile { path: pointee.to_string() }), skyblue(), context.zoom).into()
@@ -1027,10 +1057,10 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
 
     if let Ok(parent) = parent(&context.cwd) && !parent.is_empty() {
-        buttons_row2.push(button("Up", IcedMessage::ChDir(parent), blue(), context.zoom).into());
+        buttons_row2.push(button("Up", IcedMessage::ChDir { new: parent, old: Some(context.cwd.to_string()), going_up: true }, blue(), context.zoom).into());
     }
 
-    buttons_row2.push(button("Home", IcedMessage::ChDir(context.home_dir.to_string()), blue(), context.zoom).into());
+    buttons_row2.push(button("Home", IcedMessage::ChDir { new: context.home_dir.to_string(), old: Some(context.cwd.to_string()), going_up: false }, blue(), context.zoom).into());
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup(Popup::Find { error: None, job: None }), blue(), context.zoom).into());
 
     let buttons_row1 = if context.curr_popup.is_some() {
@@ -1121,7 +1151,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
             .on_enter(IcedMessage::HoverOnEntry(Some(entry.name.to_string())))
             .on_exit(IcedMessage::HoverOnEntry(None))
             .on_press(if entry.is_dir {
-                IcedMessage::ChDir(entry.path.to_string())
+                IcedMessage::ChDir { new: entry.path.to_string(), old: Some(context.cwd.to_string()), going_up: false }
             } else if entry.symlink.is_some() {
                 IcedMessage::OpenPopup(Popup::PreviewSymlink { path: entry.path.to_string() })
             } else {
