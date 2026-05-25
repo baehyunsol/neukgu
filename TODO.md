@@ -281,6 +281,10 @@
   - working-dir바깥에 `.git/`을 새로 만들고, working-dir에서는 해당 git이 아예 안 보이게 하면 됨
     - working-dir 안에 있는 `.gitignore`와 `.git/`을 일시적으로 비활성화 하고 snapshot을 만들고 다시 활성화해야함
     - 
+156. anthropic token 셀 때 cache_creation_input_tokens도 세야함
+157. openai-compatible-api에서 reasoning token 뽑아내기
+  - openai 공식 문서에는 아예 언급이 없음
+  - ollama 0.24.0 linux에서 쓰니까 message 안에 content/reasoning/role이 들어있거든? 셋다 string. 근데 또 웃긴건 ollama 문서에는 field 이름이 reasoning이 아니고 thinking이라고 돼 있음...
 
 ## mock API
 

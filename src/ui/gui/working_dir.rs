@@ -1,5 +1,6 @@
 use super::{
     FeContext,
+    TEXT_EDITOR_CONTENT_LIMIT,
     Truncation,
     black,
     blue,
@@ -362,7 +363,7 @@ impl IcedContext {
                 let (mut log, mut extension) = load_log(&id, &self.log_dir)?;
                 self.copy_buffer = Some(log.to_string());
 
-                if log.len() > 32768 {
+                if log.len() > TEXT_EDITOR_CONTENT_LIMIT {
                     log = String::from("The log is too long to display. Copy the log and paste it to your text editor to see the log.");
                     extension = String::from("txt");
                 }
@@ -504,7 +505,7 @@ impl PopupContext for IcedContext {
     fn can_open_scratch_pad(&self) -> bool {
         match (&self.loaded_image, &self.copy_buffer) {
             (Some(_), _) => true,
-            (_, Some(c)) if c.len() < 32768 => true,
+            (_, Some(c)) if c.len() < TEXT_EDITOR_CONTENT_LIMIT => true,
             _ => false,
         }
     }

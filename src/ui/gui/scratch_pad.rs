@@ -26,6 +26,7 @@ pub struct IcedContext {
     pub content: Content,
     pub is_expanded: bool,
     pub popup_scroll_id: Id,
+    pub text_editor_id: Id,
     pub zoom: f32,
     pub text_editor_content: TextEditorContent,
 }
@@ -43,6 +44,7 @@ impl IcedContext {
             content: content.clone(),
             is_expanded: true,
             popup_scroll_id: Id::unique(),
+            text_editor_id: Id::unique(),
             zoom: 1.0,
             text_editor_content: TextEditorContent::new(),
         };
@@ -67,6 +69,7 @@ pub enum IcedMessage {
     WindowResized(Size),
     ToggleExpand,
     SetAlignment(Horizontal),
+    EditText(TextEditorAction),
     ZoomIn,
     ZoomOut,
     Close,
@@ -79,6 +82,7 @@ pub enum Content {
         content: String,
         extension: Option<String>,
     },
+    Editor,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -131,6 +135,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::SetAlignment(a) => {
             context.alignment = a;
         },
+        IcedMessage::EditText(a) => {
+            context.text_editor_content.perform(a);
+        },
         IcedMessage::ZoomIn => {
             context.zoom = context.zoom.min(2.4) + 0.1;
         },
@@ -173,16 +180,37 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'c, IcedMessage> {
     let mut content: Element<IcedMessage> = match &context.content {
         Content::Image { path } => ImageViewer::new(ImageHandle::from_path(path)).into(),
-        Content::Text { content: _, extension } => TextEditor::new(&context.text_editor_content).width(context.window_size.width).size(context.zoom * 14.0).highlight(
-            &if let Some(extension) = extension { extension.to_string() } else { String::from("txt") },
-            iced::highlighter::Theme::InspiredGitHub,
-        ).style(|_, _| TextEditorStyle {
-            background: Background::Color(gray(0.85)),
-            border: Border::default(),
-            placeholder: gray(0.15),
-            value: black(),
-            selection: gray(0.4),
-        }).into(),
+        Content::Text { content: _, extension } => TextEditor::new(&context.text_editor_content)
+            .id(context.text_editor_id.clone())
+            .width(context.window_size.width)
+            .size(context.zoom * 14.0)
+            .highlight(
+                &if let Some(extension) = extension { extension.to_string() } else { String::from("txt") },
+                iced::highlighter::Theme::InspiredGitHub,
+            )
+            .style(|_, _| TextEditorStyle {
+                background: Background::Color(gray(0.85)),
+                border: Border::default(),
+                placeholder: gray(0.15),
+                value: black(),
+                selection: gray(0.4),
+            })
+            .into(),
+        Content::Editor => TextEditor::new(&context.text_editor_content)
+            .id(context.text_editor_id.clone())
+            .width(context.window_size.width)
+            .min_height(context.zoom * 200.0)
+            .size(context.zoom * 14.0)
+            .on_action(IcedMessage::EditText)
+            .style(|_, _| TextEditorStyle {
+                background: Background::Color(gray(0.85)),
+                // TODO: set border when focused
+                border: Border::default(),
+                placeholder: gray(0.15),
+                value: black(),
+                selection: gray(0.4),
+            })
+            .into(),
     };
 
     if let Some(title) = &context.title {

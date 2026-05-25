@@ -1,4 +1,6 @@
 use super::{
+    MEMORY_LOAD_LIMIT,
+    TEXT_EDITOR_CONTENT_LIMIT,
     black,
     blue,
     button,
@@ -239,10 +241,10 @@ impl IcedContext {
             Popup::PreviewFile { path } => {
                 let mut is_binary = false;
                 let file_size = file_size(&path)? as usize;
-                let content: Option<String> = if file_size > 33554432 {
+                let content: Option<String> = if file_size > MEMORY_LOAD_LIMIT {
                     is_binary = true;
-                    let pre = read_bytes_offset(&path, 0, 16384)?;
-                    let mut post_offset = file_size - 16384;
+                    let pre = read_bytes_offset(&path, 0, (TEXT_EDITOR_CONTENT_LIMIT / 2) as u64)?;
+                    let mut post_offset = file_size - TEXT_EDITOR_CONTENT_LIMIT / 2;
                     post_offset -= post_offset % 32;
                     let post = read_bytes_offset(&path, post_offset as u64, file_size as u64)?;
                     Some(vec![
@@ -275,13 +277,14 @@ impl IcedContext {
                 };
 
                 let preview = match &content {
-                    Some(content) if content.len() > 32768 => {
+                    Some(content) if content.len() > TEXT_EDITOR_CONTENT_LIMIT => {
                         // hex dump's line is 84 bytes long (representation) and is 16 bytes long (actual data)
                         // there're no multi-byte chars in hex dumps
-                        let pre = content.get(..10751).unwrap().to_string();
-                        let post = content.get((content.len() - 10752)..).unwrap().to_string();
+                        let preview_lines = (TEXT_EDITOR_CONTENT_LIMIT - 512) / 2 / 84;
+                        let pre = content.get(..(preview_lines * 84 - 1)).unwrap().to_string();
+                        let post = content.get((content.len() - preview_lines * 84)..).unwrap().to_string();
                         let trunc = if is_binary {
-                            file_size - 4096
+                            file_size - preview_lines * 16 * 2
                         } else {
                             content.len() - pre.len() - post.len()
                         };
@@ -348,7 +351,7 @@ impl PopupContext for IcedContext {
     fn can_open_scratch_pad(&self) -> bool {
         match (self.image_buffer.is_empty(), &self.copy_buffer) {
             (false, _) => true,
-            (_, Some(c)) if c.len() < 32768 => true,
+            (_, Some(c)) if c.len() < TEXT_EDITOR_CONTENT_LIMIT => true,
             _ => false,
         }
     }
@@ -1490,7 +1493,7 @@ fn render_run_result<'cm, 'o, 'e, 'cn>(
             button("Copy", IcedMessage::CopyString(s.to_string()), blue(), context.zoom).into(),
         ]).spacing(context.zoom * 8.0).align_y(Vertical::Center);
         let text_box = Container::new(
-            if s.len() > 32768 {
+            if s.len() > TEXT_EDITOR_CONTENT_LIMIT {
                 text!("The text is too long to display, please copy the text and paste it to another text editor.").size(context.zoom * 14.0).width(context.window_size.width)
             } else {
                 text!("{s}").size(context.zoom * 14.0).width(context.window_size.width)

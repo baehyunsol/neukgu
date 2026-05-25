@@ -26,6 +26,15 @@ mod working_dir;
 
 use tabs::{IcedContext as TabsContext, IcedMessage as TabsMessage};
 
+// widget::TextEditor is very heavy, especially with syntax highlighting, so we have to limit the size of the content.
+// NOTE: The limit must never be less than 680.
+const TEXT_EDITOR_CONTENT_LIMIT: usize = 65536;
+
+// If this limit is too small, the file browser will fail to load large image files (instead it'll just dump the hex).
+// If this limit is too big, the file browser will take very long time to dump the hex of large binary files.
+// NOTE: This limit must be greater than `TEXT_EDITOR_CONTENT_LIMIT`.
+const MEMORY_LOAD_LIMIT: usize = 33554432;
+
 const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
 
 pub fn run() -> Result<(), Error> {

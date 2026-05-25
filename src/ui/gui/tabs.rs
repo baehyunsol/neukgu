@@ -7,6 +7,7 @@ use super::index::{
 };
 use super::scratch_pad::{
     self,
+    Content as ScratchPadContent,
     IcedContext as ScratchPadContext,
     IcedMessage as ScratchPadMessage,
 };
@@ -27,7 +28,7 @@ use iced::keyboard::{Key, Modifiers};
 use iced::widget::{Column, Row, Space, Stack, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::container::{Container, Style as ContainerStyle};
-use iced::widget::operation::scroll_to;
+use iced::widget::operation::{focus, scroll_to};
 use iced::widget::scrollable::AbsoluteOffset;
 use ragit_fs::{basename, current_dir};
 use std::collections::hash_map::{Entry, HashMap};
@@ -255,6 +256,16 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 else {
                     Task::none()
                 }
+            },
+            (Key::Character("m"), true, false, true) => {
+                if let Some(c) = &context.scratch_pad && let ScratchPadContent::Editor = &c.content {
+                    return focus(c.text_editor_id.clone());
+                }
+
+                let new_scratch_pad = ScratchPadContext::new(None, ScratchPadContent::Editor, context.window_size);
+                let text_editor_id = new_scratch_pad.text_editor_id.clone();
+                context.scratch_pad = Some(new_scratch_pad);
+                focus(text_editor_id)
             },
             (_, true, _, true) => {
                 if let Some(c) = &mut context.scratch_pad {

@@ -1,4 +1,5 @@
 use super::{
+    TEXT_EDITOR_CONTENT_LIMIT,
     black,
     blue,
     brown,
@@ -246,7 +247,7 @@ impl PopupContext for IcedContext {
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
 
     fn can_open_scratch_pad(&self) -> bool {
-        if let Some(c) = &self.copy_buffer && c.len() < 32768 {
+        if let Some(c) = &self.copy_buffer && c.len() < TEXT_EDITOR_CONTENT_LIMIT {
             true
         } else {
             false
