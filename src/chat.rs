@@ -12,7 +12,7 @@ use ragit_fs::{
     join4,
     read_bytes,
     read_dir,
-    remove_dir,
+    remove_dir_all,
     write_bytes,
     write_string,
 };
@@ -210,7 +210,7 @@ pub async fn add_chat_turn(chat_id: ChatId, fallback_api_keys: HashMap<String, S
 }
 
 pub fn delete_chat(chat_id: ChatId, global_index_dir: &str) -> Result<(), Error> {
-    Ok(remove_dir(&join3(global_index_dir, "chats", &format!("{:016x}", chat_id.0))?)?)
+    Ok(remove_dir_all(&join3(global_index_dir, "chats", &format!("{:016x}", chat_id.0))?)?)
 }
 
 pub fn init_chat(title: Option<String>, config: Config, global_index_dir: &str) -> Result<ChatId, Error> {

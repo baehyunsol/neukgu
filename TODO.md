@@ -285,6 +285,8 @@
 157. openai-compatible-api에서 reasoning token 뽑아내기
   - openai 공식 문서에는 아예 언급이 없음
   - ollama 0.24.0 linux에서 쓰니까 message 안에 content/reasoning/role이 들어있거든? 셋다 string. 근데 또 웃긴건 ollama 문서에는 field 이름이 reasoning이 아니고 thinking이라고 돼 있음...
+  - deepinfra uses the field name "reasoning_content", and neukgu's current implementation also uses this field
+  - how about using all the 3 keys? make all of them optional and just choose whatever one...
 
 ## mock API
 
