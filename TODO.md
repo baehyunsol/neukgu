@@ -286,6 +286,10 @@
 160. read prompt를 좀 더 보강하자
   - AI들이 자꾸 text가 아니면 read를 안 쓰려는 경향이 있음. 모든 파일 다 지원된다고 해주자!!
   - 이거 하기 전에 docx/xlsx/pptx 지원 추가하고 hex viewer도 추가해야할 듯?
+161. Ctrl+Shift+P to open a scratch-calculator!
+  - 이거말고 또 다른 유용한 widget 있으려나?? 달력?? 지도?? 다 끌리긴 함 ㅋㅋㅋ 그냥 종합 gui 연습장 될 듯? ㅋㅋ
+  - 쌈빡하게 slider로 구현? ㅋㅋㅋ
+    - 아니면 걍 계산자를 구현할 수도 있지 않음?? 오 이거 재밌을 듯??
 
 ## mock API
 
