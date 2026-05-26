@@ -38,6 +38,7 @@ use crate::{
     Error,
     NeukguId,
     Project,
+    ProjectJson,
     clean_global_index_dir,
     delete_chat,
     get_global_chat_config,
@@ -49,6 +50,7 @@ use crate::{
     init_working_dir,
     load_all_chats,
     load_all_indexes,
+    load_json,
     prettify_timestamp,
     remove_global_index,
     save_global_chat_config,
@@ -197,11 +199,19 @@ impl IcedContext {
             Popup::ProjectConfig => {
                 self.new_project_config = get_global_config(&self.global_index_dir)?;
             },
+            Popup::ExistingProjectConfig(id) => {
+                let ProjectJson { working_dir, .. } = load_json(&join3(&self.global_index_dir, "indexes", &format!("{:016x}", id.0))?)?;
+                self.new_project_config = Config::load(&working_dir)?;
+            },
             Popup::NewChat => {
                 self.new_chat_config = get_global_chat_config(&self.global_index_dir)?;
             },
             Popup::ChatConfig => {
                 self.new_chat_config = get_global_chat_config(&self.global_index_dir)?;
+            },
+            Popup::ExistingChatConfig(id) => {
+                let Chat { config, .. } = Chat::load(id, &self.global_index_dir)?;
+                self.new_chat_config = config;
             },
             Popup::Instruction { working_dir } => {
                 let instruction = read_string(&join(&working_dir, "neukgu-instruction.md")?)?;
@@ -270,8 +280,10 @@ pub enum IcedMessage {
     ExpandTabSection,
     NewProject,
     SaveGlobalProjectConfig,
+    SaveProjectConfig(NeukguId),
     NewChat,
     SaveGlobalChatConfig,
+    SaveChatConfig(ChatId),
     DeleteProject {
         project_name: String,
         working_dir: String,
@@ -304,8 +316,10 @@ impl PopupMessage for IcedMessage {
 pub enum Popup {
     NewProject,
     ProjectConfig,
+    ExistingProjectConfig(NeukguId),
     NewChat,
     ChatConfig,
+    ExistingChatConfig(ChatId),
     Instruction {
         working_dir: String,
     },
@@ -448,6 +462,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             save_global_config(&context.new_project_config, &context.global_index_dir)?;
             context.close_popup();
         },
+        IcedMessage::SaveProjectConfig(id) => {
+            let ProjectJson { working_dir, .. } = load_json(&join3(&context.global_index_dir, "indexes", &format!("{:016x}", id.0))?)?;
+            context.new_project_config.store(&working_dir)?;
+            context.close_popup();
+        },
         IcedMessage::NewChat => {
             let chat_title = context.short_text_editor_content.to_string();
             let chat_title = if chat_title.is_empty() { None } else { Some(chat_title) };
@@ -457,6 +476,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::SaveGlobalChatConfig => {
             save_global_chat_config(&context.new_chat_config, &context.global_index_dir)?;
+            context.close_popup();
+        },
+        IcedMessage::SaveChatConfig(id) => {
+            let mut chat = Chat::load(id, &context.global_index_dir)?;
+            chat.config = context.new_chat_config.clone();
+            chat.store(&context.global_index_dir)?;
             context.close_popup();
         },
         IcedMessage::DeleteProject { project_name, working_dir } => {
@@ -644,13 +669,18 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::ProjectConfig) = context.curr_popup {
+    else if let Some(Popup::ProjectConfig | Popup::ExistingProjectConfig(_)) = context.curr_popup {
+        let save_action = match context.curr_popup {
+            Some(Popup::ExistingProjectConfig(id)) => IcedMessage::SaveProjectConfig(id),
+            _ => IcedMessage::SaveGlobalProjectConfig,
+        };
+
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(Scrollable::new(
                 Column::from_vec(vec![
                     config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig),
-                    button("Save", IcedMessage::SaveGlobalProjectConfig, green(), context.zoom).into(),
+                    button("Save", save_action, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
                     .align_x(Horizontal::Center)
@@ -666,14 +696,19 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::ChatConfig) = context.curr_popup {
+    else if let Some(Popup::ChatConfig | Popup::ExistingChatConfig(_)) = context.curr_popup {
+        let save_action = match context.curr_popup {
+            Some(Popup::ExistingChatConfig(id)) => IcedMessage::SaveChatConfig(id),
+            _ => IcedMessage::SaveGlobalChatConfig,
+        };
+
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(Scrollable::new(
                 Column::from_vec(vec![
                     chat_config_ui1(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
                     chat_config_ui2(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
-                    button("Save", IcedMessage::SaveGlobalChatConfig, green(), context.zoom).into(),
+                    button("Save", save_action, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
                     .align_x(Horizontal::Center)
@@ -785,48 +820,46 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             let elapsed = if project.error.is_some() {
                 String::new()
             } else {
-                format!("({})", prettify_timestamp(project.updated_at))
+                format!(" ({})", prettify_timestamp(project.updated_at))
+            };
+
+            // TODO: see summaries of the session
+            let mut buttons = vec![
+                if context.working_dir_tab_indexes.contains_key(&project.neukgu_id) {
+                    button("Switch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom)
+                } else {
+                    button("Launch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom)
+                },
+                button("Browse", IcedMessage::NewTab { tab: Tab::Browser { dir: project.working_dir.to_string(), file: None }, force_new_tab: false }, skyblue(), context.zoom),
+                button("Config", IcedMessage::OpenPopup(Popup::ExistingProjectConfig(project.neukgu_id)), blue(), context.zoom),
+                button("Instruction", IcedMessage::OpenPopup(Popup::Instruction { working_dir: project.working_dir.to_string() }), yellow(), context.zoom),
+            ];
+
+            if project.is_in_global_index_dir {
+                buttons.push(button(
+                    "Delete",
+                    IcedMessage::OpenPopup(Popup::AskDeleteProject {
+                        project_name: path.to_string(),
+                        working_dir: project.working_dir.to_string(),
+                    }),
+                    red(),
+                    context.zoom,
+                ));
+            }
+
+            let buttons = if context.curr_popup.is_some() {
+                buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+            } else {
+                buttons.into_iter().map(|button| button.into()).collect()
             };
 
             Container::new(
                 Column::from_vec(vec![
-                    text!("{path} {elapsed}").size(context.zoom * 14.0).width(context.window_size.width).into(),
+                    text!("{path}{elapsed}").size(context.zoom * 14.0).width(context.window_size.width).into(),
                     if let Some(error) = &project.error {
                         text!("{error}").size(context.zoom * 14.0).color(red()).into()
-                    } else if context.curr_popup.is_some() {
-                        Row::from_vec(vec![
-                            if context.working_dir_tab_indexes.contains_key(&project.neukgu_id) {
-                                disabled_button("Switch", green(), context.zoom).into()
-                            } else {
-                                disabled_button("Launch", green(), context.zoom).into()
-                            },
-                            disabled_button("Browse", skyblue(), context.zoom).into(),
-                            disabled_button("Instruction", yellow(), context.zoom).into(),
-                            if project.is_in_global_index_dir {
-                                disabled_button("Delete", red(), context.zoom).into()
-                            } else {
-                                Space::new().into()
-                            },
-                        ]).spacing(context.zoom * 4.0).into()
                     } else {
-                        // TODO: see summaries of the session
-                        Row::from_vec(vec![
-                            if context.working_dir_tab_indexes.contains_key(&project.neukgu_id) {
-                                button("Switch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom).into()
-                            } else {
-                                button("Launch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom).into()
-                            },
-                            button("Browse", IcedMessage::NewTab { tab: Tab::Browser { dir: project.working_dir.to_string(), file: None }, force_new_tab: false }, skyblue(), context.zoom).into(),
-                            button("Instruction", IcedMessage::OpenPopup(Popup::Instruction { working_dir: project.working_dir.to_string() }), yellow(), context.zoom).into(),
-                            if project.is_in_global_index_dir {
-                                button("Delete", IcedMessage::OpenPopup(Popup::AskDeleteProject {
-                                    project_name: path.to_string(),
-                                    working_dir: project.working_dir.to_string(),
-                                }), red(), context.zoom).into()
-                            } else {
-                                Space::new().into()
-                            },
-                        ]).spacing(context.zoom * 4.0).into()
+                        Row::from_vec(buttons).spacing(context.zoom * 4.0).into()
                     },
                 ]).spacing(context.zoom * 4.0)
             )
@@ -840,31 +873,36 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let column: Vec<Element<IcedMessage>> = context.recent_chats.iter().map(
-        |chat| Container::new(
-            Column::from_vec(vec![
-                text!(
-                    "{} ({})",
-                    chat.title.as_ref().unwrap_or(&String::from("untitled")),
-                    prettify_timestamp(chat.updated_at),
-                ).size(context.zoom * 14.0).width(context.window_size.width).into(),
-                Row::from_vec(
-                    if context.curr_popup.is_some() {
-                        vec![
-                            disabled_button("Open", green(), context.zoom).into(),
-                            disabled_button("Delete", red(), context.zoom).into(),
-                        ]
-                    } else {
-                        vec![
-                            button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom).into(),
-                            button("Delete", IcedMessage::OpenPopup(Popup::AskDeleteChat { id: chat.id, title: chat.title.clone() }), red(), context.zoom).into(),
-                        ]
-                    }
-                ).spacing(context.zoom * 8.0).into(),
-            ]).spacing(context.zoom * 8.0)
-        )
-            .style(|_| set_round_bg(gray(0.3), context.zoom))
-            .padding(context.zoom * 8.0)
-            .into()
+        |chat| {
+            let buttons = vec![
+                button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom),
+                button("Config", IcedMessage::OpenPopup(Popup::ExistingChatConfig(chat.id)), blue(), context.zoom),
+                button("Delete", IcedMessage::OpenPopup(Popup::AskDeleteChat { id: chat.id, title: chat.title.clone() }), red(), context.zoom),
+            ];
+
+            let buttons = if context.curr_popup.is_some() {
+                buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
+            } else {
+                buttons.into_iter().map(|button| button.into()).collect()
+            };
+
+            Container::new(
+                Column::from_vec(vec![
+                    text!(
+                        "{} ({})",
+                        chat.title.as_ref().unwrap_or(&String::from("untitled")),
+                        prettify_timestamp(chat.updated_at),
+                    )
+                        .size(context.zoom * 14.0)
+                        .width(context.window_size.width)
+                        .into(),
+                    Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
+                ]).spacing(context.zoom * 8.0)
+            )
+                .style(|_| set_round_bg(gray(0.3), context.zoom))
+                .padding(context.zoom * 8.0)
+                .into()
+        }
     ).collect();
 
     Column::from_vec(column).spacing(context.zoom * 8.0).into()

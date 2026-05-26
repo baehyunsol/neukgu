@@ -60,6 +60,7 @@ pub use context::{
 pub use error::{Error, from_browser_error};
 pub use global::{
     Project,
+    ProjectJson,
     clean_global_index_dir,
     get_global_chat_config,
     get_global_config,

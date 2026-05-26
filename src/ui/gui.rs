@@ -173,6 +173,10 @@ fn skyblue() -> Color {
     Color::from_rgb(0.5, 0.7, 0.9)
 }
 
+fn gold() -> Color {
+    Color::from_rgb(0.9, 0.8, 0.1)
+}
+
 fn count_chars(s: &str) -> usize {
     s.chars().map(
         |ch| match ch {

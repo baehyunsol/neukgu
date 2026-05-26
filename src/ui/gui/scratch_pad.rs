@@ -1,4 +1,4 @@
-use super::{black, blue, button, disabled_button, gray, red, white};
+use super::{black, blue, button, disabled_button, gold, gray, red, white};
 use iced::{Background, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::border::{Border, Radius};
@@ -14,6 +14,7 @@ use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
     Edit as TextEditorEdit,
+    Status as TextEditorStatus,
     Style as TextEditorStyle,
     TextEditor,
 };
@@ -202,13 +203,28 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
             .min_height(context.zoom * 200.0)
             .size(context.zoom * 14.0)
             .on_action(IcedMessage::EditText)
-            .style(|_, _| TextEditorStyle {
-                background: Background::Color(gray(0.85)),
-                // TODO: set border when focused
-                border: Border::default(),
-                placeholder: gray(0.15),
-                value: black(),
-                selection: gray(0.4),
+            .style(|_, status| {
+                let border = match status {
+                    TextEditorStatus::Hovered => Border {
+                        color: black(),
+                        width: 2.0,
+                        ..Border::default()
+                    },
+                    TextEditorStatus::Focused { .. } => Border {
+                        color: gold(),
+                        width: 2.0,
+                        ..Border::default()
+                    },
+                    _ => Border::default(),
+                };
+
+                TextEditorStyle {
+                    background: Background::Color(gray(0.85)),
+                    border,
+                    placeholder: gray(0.15),
+                    value: black(),
+                    selection: gray(0.4),
+                }
             })
             .into(),
     };

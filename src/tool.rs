@@ -1213,8 +1213,15 @@ impl ToolCallError {
             ),
             ToolCallError::NoSummaryInDoneFile => String::from("You're supposed to write summary of what you've done at `logs/done` file. Try write the file again with the summary."),
             ToolCallError::CanOnlyPatchText { path, error } => format!("`read_string({path:?})` failed with `{error}`."),
-            ToolCallError::CannotApplyPatch(PatchError::NoMatch) => String::from("I can't apply the patch because no matches are found."),
-            ToolCallError::CannotApplyPatch(PatchError::MultipleMatch) => String::from("I found multiple matches in the file that can apply your patch. Please give me more contexts so that I can decide where to patch."),
+            ToolCallError::CannotApplyPatch(e) => match e {
+                PatchError::NoMatch { missing_context_marker: None } => String::from("I can't apply the patch because no matches are found."),
+                PatchError::NoMatch { missing_context_marker: Some(line) } => format!(
+                    "It seems like you're confused with the context marker. A context line in unified diff format consists of a context marker (' ' in this case) and the content of the line.\nSo, you have to insert ' ' before {line:?} to make it a context line, like {:?}.",
+                    format!(" {line}"),
+                ),
+                PatchError::MultipleMatch => String::from("I found multiple matches in the file that can apply your patch. Please give me more contexts so that I can decide where to patch."),
+                PatchError::NoUpdate => String::from("I can't apply the patch because the patch only has context lines, and there're no lines to remove or update. Please specify what lines to remove or delete."),
+            },
             ToolCallError::NoSuchBinary { binary, available_binaries } => format!(
                 "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}{}",
                 available_binaries.join(", "),

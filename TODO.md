@@ -90,7 +90,7 @@
 70. `my-project/.neukgu/`가 존재하는 상황에서 `my-project/foo/bar/.neukgu/`를 또 만들 경우
   - 둘이 동시에 돌리면 온갖 이상한 오류가 쏟아짐.
   - 둘이 동시에 안 돌린다는 가정 하에 저런 식의 작업이 도움이 되는 경우도 있음
-  - working_dir을 하는 시점에서 검사가 가능함
+  - init_working_dir을 하는 시점에서 검사가 가능함
     - 계속 parent로 올라가면서 `.neukgu/`를 확인할 수도 있고
     - 모든 children을 recursive하게 뒤져서 `.neukgu/`를 확인할 수도 있음
       - 이거는 엄청 비쌀텐데?
@@ -230,14 +230,8 @@
 135. 지금은 gui에 pause/resume 버튼만 있잖아? backend_process가 죽어있으면 respawn이라는 버튼이 되게 하자!
   - 일단 구현은 했는데 아직 별 의미가 없음. backend가 갑자기 죽더라도 frontend는 그 사실을 모르기 때문에 (확인을 안함) respawn 버튼이 안 뜸. 이걸 자주 확인하기는 너무 비쌀 거 같은데...
 136. "Favorites" button to the browser tab
-137. Qwen 397B 찐빠
-  - patch tool에서 context line은 앞부분에 ' '를 추가로 넣어야하는데 안 넣고 있음... 맞춰보고 ' '만 넣으면 좋은 상황이면 에러메시지로 알려주자!
-138. Qwen 35B-A3B
-  - It does better at implementing `voxel.md` than the 397B one. The 397B one keeps failing with the patch tool, but it doesn't. It does fail a few times, but succeeds in the end.
-  - Deepinfra rejects API request if it has more than 4 images...
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
 143. token usage 보면서 비용도 보고싶음... how?
-  - TokenUsage 스키마를 아예 뜯어고쳐서, 모델별로 따로 집계하도록 만들자!!
 144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음.
   - 구현은 쉬움. 생기자마자 바로 hidden_turns에 넣어버리면 됨!
   - 근데 agent가 사람한테 대답할 방법이 없음...
@@ -265,9 +259,6 @@
     - skill 등록하는 ui를 만들어야겠네...
       - 이것도 config ui 안에다가 넣으면 됨!!
 152. browser에서 파일 미리보기 할 때, 방향키로 browse 가능케 하기!!
-153. scratch pad
-  - 메모장 간단하게 띄울 수 있으면 좋을 듯?
-  - scratch pad의 현재 내용을 copy하는 버튼... 굳이 필요할까? 일단 보류!
 154. neukgu가 zed를 대체하려면?
   - git 관련된 기능이 훨씬 보강되어야 함
     - git status 바로 보기
@@ -287,6 +278,14 @@
   - ollama 0.24.0 linux에서 쓰니까 message 안에 content/reasoning/role이 들어있거든? 셋다 string. 근데 또 웃긴건 ollama 문서에는 field 이름이 reasoning이 아니고 thinking이라고 돼 있음...
   - deepinfra uses the field name "reasoning_content", and neukgu's current implementation also uses this field
   - how about using all the 3 keys? make all of them optional and just choose whatever one...
+158. `<run>`에다가 path랑 stderr을 같이 줄 경우, 지금은 둘을 별개로 취급하고 있지만 AI는 stderr이 path에 대한 상대경로라고 생각하네 -> 근데 ai가 맞는 듯?
+  - 사실 어떻게 해도 헷갈림. 이거는 프롬프트에 더 자세히 적어둬야함!
+159. https://github.com/developer0hye/office2pdf
+  - 한국인이 claude로 만든 라이브러리 ㅋㅋㅋ
+  - docx/xlsx/pptx -> pdf인데 pure-rust라서 더 좋음!!
+160. read prompt를 좀 더 보강하자
+  - AI들이 자꾸 text가 아니면 read를 안 쓰려는 경향이 있음. 모든 파일 다 지원된다고 해주자!!
+  - 이거 하기 전에 docx/xlsx/pptx 지원 추가하고 hex viewer도 추가해야할 듯?
 
 ## mock API
 

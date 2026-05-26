@@ -95,9 +95,12 @@ If you want to edit a long, existing file, this tool can be very helpful. You pr
 </diff>
 </patch>
 
-The diff lines must start with ' ' (context), '+' (add) or '-' (delete). It's like a unified diff, but without the headers (no line numbers). You only provide the context lines and the add/delete lines. You must provide enough context lines so that there is exactly 1 match in the file. If the diff matches multiple parts of the file, the file will not be updated.
+The format is like unified diff, but with only single body. There're no headers (lines that start with "---", "+++" or "@@"), but only context and change lines.
+A context line (one that's not changed) starts with " ". You have to be careful: you have to add an extra whitespace to an existing indentation. If the line has 4 spaces and you want it to be a context line, the line must start with 5 spaces, one for the context-line-marker and the other 4 for the content.
+An add line starts with "+" and a remove line starts with "-".
 
 If you want to update different parts of a file, you have to call this tool multiple times. A `<patch>` tool can update one part of a file at a time.
+If there're no matches or multiple matches, the tool will not update the file. You have to disambiguate by providing more context lines.
 "#),
             ToolKind::Run => format!(r#"
 {index}. Run

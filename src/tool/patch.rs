@@ -2,6 +2,7 @@ use super::{ToolCallError, ToolCallSuccess};
 use crate::ParseError;
 use ragit_fs::read_string;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -43,10 +44,13 @@ impl DiffKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum PatchError {
-    NoMatch,
+    NoMatch { missing_context_marker: Option<String> },
     MultipleMatch,
+
+    // only context lines
+    NoUpdate,
 }
 
 pub fn patch_file(path: &str, diff: &[LineDiff]) -> Result<ToolCallSuccess, ToolCallError> {
@@ -79,12 +83,16 @@ pub fn patch_diff(content: &str, diff: &[LineDiff]) -> Result<String, PatchError
         |LineDiff { line, .. }| line.to_string()
     ).collect();
 
+    if context_before == context_after {
+        return Err(PatchError::NoUpdate);
+    }
+
     if context_before.is_empty() && content.is_empty() {
         return Ok(context_after.join("\n"));
     }
 
     if context_before.is_empty() || old_content_lines.len() < context_before.len() {
-        return Err(PatchError::NoMatch);
+        return Err(PatchError::NoMatch { missing_context_marker: check_missing_context_marker(content, diff) });
     }
 
     let mut matches = vec![];
@@ -96,7 +104,7 @@ pub fn patch_diff(content: &str, diff: &[LineDiff]) -> Result<String, PatchError
     }
 
     match matches.len() {
-        0 => Err(PatchError::NoMatch),
+        0 => Err(PatchError::NoMatch { missing_context_marker: check_missing_context_marker(content, diff) }),
         1 => {
             let match_at = matches[0];
             let new_content_lines = [
@@ -146,6 +154,43 @@ pub fn parse_line_diff(lines: &str) -> Result<Vec<LineDiff>, ParseError> {
     }
 
     Ok(diff)
+}
+
+/*
+```
+pub struct Person {
+    pub name: String,
+    pub age: u16,
+}
+```
+
+->
+
+```
+     pub name: String,
++    pub is_rustacean: bool,
+     pub age: u16,
+```
+
+-> The context lines must have 5 spaces (one for context-marker and 4 for indentation), but many
+chinese models output only 4 spaces. So it checks such mistakes and generates a warning.
+*/
+fn check_missing_context_marker(content: &str, diff: &[LineDiff]) -> Option<String> {
+    let lines: HashSet<String> = content.lines().map(|s| s.to_string()).collect();
+    let context_lines: Vec<String> = diff.iter().filter_map(
+        |LineDiff { kind, line }| match kind {
+            DiffKind::Context if line.starts_with(" ") => Some(line.to_string()),
+            _ => None,
+        }
+    ).collect();
+
+    for context_line in context_lines.iter() {
+        if !lines.contains(context_line) && lines.contains(&format!(" {context_line}")) {
+            return Some(format!(" {context_line}"));
+        }
+    }
+
+    None
 }
 
 // VIBE NOTE: gpt-5.5 (via neukgu) wrote some of these tests.
