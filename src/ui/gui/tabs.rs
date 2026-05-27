@@ -7,9 +7,9 @@ use super::index::{
 };
 use super::scratch_pad::{
     self,
-    Content as ScratchPadContent,
     IcedContext as ScratchPadContext,
     IcedMessage as ScratchPadMessage,
+    Tab as ScratchPadTab,
 };
 use super::tab::{
     self,
@@ -48,7 +48,7 @@ pub struct IcedContext {
 
     pub index: IndexContext,
     pub tabs: Vec<TabContext>,
-    pub scratch_pad: Option<ScratchPadContext>,
+    pub scratch_pad: ScratchPadContext,
     pub workers: Workers,
 }
 
@@ -67,7 +67,7 @@ impl IcedContext {
             selected_tab: None,
             index: IndexContext::new(&home_dir),
             tabs: vec![],
-            scratch_pad: None,
+            scratch_pad: ScratchPadContext::new(),
             workers: init_workers(8),
         }
     }
@@ -104,7 +104,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
     match message {
         IcedMessage::Index(IndexMessage::OpenScratchPad { title, content }) |
         IcedMessage::Tab { id: _, message: TabMessage::OpenScratchPad { title, content } } => {
-            context.scratch_pad = Some(ScratchPadContext::new(title, content, context.window_size));
+            context.scratch_pad.open_content(title, content);
 
             // Without this, the tab's scroll will be reset
             if let Some(i) = context.selected_tab {
@@ -158,7 +158,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::none()
         },
         IcedMessage::ScratchPad(ScratchPadMessage::Close) => {
-            context.scratch_pad = None;
+            context.scratch_pad.tab = ScratchPadTab::Hidden;
 
             // Without this, the tab's scroll will be reset
             if let Some(i) = context.selected_tab {
@@ -168,10 +168,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
             }
         },
-        IcedMessage::ScratchPad(m) => match &mut context.scratch_pad {
-            Some(c) => scratch_pad::update(c, m).map(IcedMessage::ScratchPad),
-            None => Task::none(),  // perhaps it's already dead?
-        },
+        IcedMessage::ScratchPad(m) => scratch_pad::update(&mut context.scratch_pad, m).map(IcedMessage::ScratchPad),
         IcedMessage::Tick => {
             let mut tasks = vec![];
             let mut job_results_by_tab_id: HashMap<TabId, Vec<JobResult>> = HashMap::new();
@@ -258,18 +255,16 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 }
             },
             (Key::Character("m"), true, false, true) => {
-                if let Some(c) = &context.scratch_pad && let ScratchPadContent::Editor = &c.content {
-                    return focus(c.text_editor_id.clone());
-                }
-
-                let new_scratch_pad = ScratchPadContext::new(None, ScratchPadContent::Editor, context.window_size);
-                let text_editor_id = new_scratch_pad.text_editor_id.clone();
-                context.scratch_pad = Some(new_scratch_pad);
-                focus(text_editor_id)
+                context.scratch_pad.toggle_text_editor();
+                focus(context.scratch_pad.text_editor_id.clone())
+            },
+            (Key::Character("p"), true, false, true) => {
+                context.scratch_pad.toggle_slide_rule();
+                Task::none()
             },
             (_, true, _, true) => {
-                if let Some(c) = &mut context.scratch_pad {
-                    scratch_pad::update(c, ScratchPadMessage::KeyPressed { key, modifiers }).map(IcedMessage::ScratchPad)
+                if context.scratch_pad.tab != ScratchPadTab::Hidden {
+                    scratch_pad::update(&mut context.scratch_pad, ScratchPadMessage::KeyPressed { key, modifiers }).map(IcedMessage::ScratchPad)
                 } else {
                     Task::none()
                 }
@@ -286,10 +281,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.window_size = size;
             let mut tasks = vec![];
             tasks.push(index::update(&mut context.index, IndexMessage::WindowResized(size)).map(IcedMessage::Index));
-
-            if let Some(p) = &mut context.scratch_pad {
-                tasks.push(scratch_pad::update(p, ScratchPadMessage::WindowResized(size)).map(IcedMessage::ScratchPad));
-            }
+            tasks.push(scratch_pad::update(&mut context.scratch_pad, ScratchPadMessage::WindowResized(size)).map(IcedMessage::ScratchPad));
 
             for t in context.tabs.iter_mut() {
                 let id = t.id;
@@ -446,10 +438,10 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         curr_tab,
     ]).into();
 
-    if let Some(scratch_pad_context) = &context.scratch_pad {
+    if context.scratch_pad.tab != ScratchPadTab::Hidden {
         view = Stack::from_vec(vec![
             view,
-            scratch_pad::view(scratch_pad_context).map(IcedMessage::ScratchPad).into(),
+            scratch_pad::view(&context.scratch_pad).map(IcedMessage::ScratchPad).into(),
         ]).into();
     }
 

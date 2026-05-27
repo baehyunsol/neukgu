@@ -1,4 +1,9 @@
 use super::{black, blue, button, disabled_button, gold, gray, red, white};
+use super::slide_rule::{
+    self,
+    IcedContext as SlideRuleContext,
+    IcedMessage as SlideRuleMessage,
+};
 use iced::{Background, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::border::{Border, Radius};
@@ -24,43 +29,123 @@ pub struct IcedContext {
     pub window_size: Size,
     pub alignment: Horizontal,
     pub title: Option<String>,
-    pub content: Content,
+    pub tab: Tab,
     pub is_expanded: bool,
     pub popup_scroll_id: Id,
     pub text_editor_id: Id,
     pub zoom: f32,
+
+    // context for each tab
+    pub text_viewer_context: (String, Option<String>),  // (content, extension)
+    pub text_editor_context: String,
+    pub image_path: String,
+    pub slide_rule_context: SlideRuleContext,
+
     pub text_editor_content: TextEditorContent,
 }
 
 impl IcedContext {
-    pub fn new(
-        title: Option<String>,
-        content: Content,
-        window_size: Size,
-    ) -> IcedContext {
-        let mut context = IcedContext {
-            window_size,
+    pub fn new() -> IcedContext {
+        IcedContext {
+            window_size: Size::new(0.0, 0.0),
             alignment: Horizontal::Right,
-            title,
-            content: content.clone(),
+            title: None,
+            tab: Tab::Hidden,
             is_expanded: true,
             popup_scroll_id: Id::unique(),
             text_editor_id: Id::unique(),
             zoom: 1.0,
+            text_viewer_context: (String::new(), None),
+            text_editor_context: String::new(),
+            image_path: String::new(),
+            slide_rule_context: SlideRuleContext::new(),
             text_editor_content: TextEditorContent::new(),
-        };
-
-        if let Content::Text { content, .. } = content {
-            context.set_text_editor_content(content);
         }
-
-        context
     }
 
     pub fn set_text_editor_content(&mut self, c: String) {
         self.text_editor_content.perform(TextEditorAction::SelectAll);
         self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
         self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
+    }
+
+    fn save_context(&mut self) {
+        match self.tab {
+            Tab::TextView => {
+                self.text_viewer_context.0 = self.text_editor_content.text();
+            },
+            Tab::TextEdit => {
+                self.text_editor_context = self.text_editor_content.text();
+            },
+            Tab::Hidden | Tab::Image | Tab::SlideRule => {},
+        }
+    }
+
+    pub fn open_content(&mut self, title: Option<String>, content: Content) {
+        self.title = title;
+
+        match content {
+            Content::Image { path } => {
+                self.image_path = path;
+
+                if self.tab != Tab::Image {
+                    self.toggle_image();
+                }
+            },
+            Content::Text { content, extension } => {
+                self.text_viewer_context = (content.clone(), extension);
+
+                if self.tab != Tab::TextView {
+                    self.toggle_text_viewer();
+                }
+
+                // We have to call this after `toggle_text_viewer` so that the text_editor_context
+                // can be saved safely.
+                self.set_text_editor_content(content);
+            },
+        }
+    }
+
+    pub fn toggle_text_viewer(&mut self) {
+        self.save_context();
+
+        if self.tab == Tab::TextView {
+            self.tab = Tab::Hidden;
+        } else {
+            self.tab = Tab::TextView;
+            self.set_text_editor_content(self.text_viewer_context.0.to_string());
+        }
+    }
+
+    pub fn toggle_text_editor(&mut self) {
+        self.save_context();
+
+        if self.tab == Tab::TextEdit {
+            self.tab = Tab::Hidden;
+        } else {
+            self.tab = Tab::TextEdit;
+            self.set_text_editor_content(self.text_editor_context.to_string());
+        }
+    }
+
+    pub fn toggle_image(&mut self) {
+        self.save_context();
+
+        if self.tab == Tab::Image {
+            self.tab = Tab::Hidden;
+        } else {
+            self.tab = Tab::Image;
+        }
+    }
+
+    pub fn toggle_slide_rule(&mut self) {
+        self.save_context();
+
+        if self.tab == Tab::SlideRule {
+            self.tab = Tab::Hidden;
+        } else {
+            self.tab = Tab::SlideRule;
+        }
     }
 }
 
@@ -70,10 +155,20 @@ pub enum IcedMessage {
     WindowResized(Size),
     ToggleExpand,
     SetAlignment(Horizontal),
+    UpdateSlideRule(SlideRuleMessage),
     EditText(TextEditorAction),
     ZoomIn,
     ZoomOut,
     Close,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Tab {
+    Hidden,
+    TextView,
+    TextEdit,
+    Image,
+    SlideRule,
 }
 
 #[derive(Clone, Debug)]
@@ -83,7 +178,6 @@ pub enum Content {
         content: String,
         extension: Option<String>,
     },
-    Editor,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -136,6 +230,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::SetAlignment(a) => {
             context.alignment = a;
         },
+        IcedMessage::UpdateSlideRule(m) => {
+            return slide_rule::update(&mut context.slide_rule_context, m).map(IcedMessage::UpdateSlideRule);
+        },
         IcedMessage::EditText(a) => {
             context.text_editor_content.perform(a);
         },
@@ -145,7 +242,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::ZoomOut => {
             context.zoom = context.zoom.max(0.2) - 0.1;
         },
-        IcedMessage::Close => unreachable!(),
+        IcedMessage::Close => {
+            context.tab = Tab::Hidden;
+        },
     }
 
     Task::none()
@@ -179,14 +278,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'c, IcedMessage> {
-    let mut content: Element<IcedMessage> = match &context.content {
-        Content::Image { path } => ImageViewer::new(ImageHandle::from_path(path)).into(),
-        Content::Text { content: _, extension } => TextEditor::new(&context.text_editor_content)
+    let mut content: Element<IcedMessage> = match context.tab {
+        Tab::Hidden => unreachable!(),
+        Tab::TextView => TextEditor::new(&context.text_editor_content)
             .id(context.text_editor_id.clone())
             .width(context.window_size.width)
             .size(context.zoom * 14.0)
             .highlight(
-                &if let Some(extension) = extension { extension.to_string() } else { String::from("txt") },
+                &if let Some(extension) = &context.text_viewer_context.1 { extension.to_string() } else { String::from("txt") },
                 iced::highlighter::Theme::InspiredGitHub,
             )
             .style(|_, _| TextEditorStyle {
@@ -197,7 +296,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
                 selection: gray(0.4),
             })
             .into(),
-        Content::Editor => TextEditor::new(&context.text_editor_content)
+        Tab::TextEdit => TextEditor::new(&context.text_editor_content)
             .id(context.text_editor_id.clone())
             .width(context.window_size.width)
             .min_height(context.zoom * 200.0)
@@ -227,6 +326,8 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
                 }
             })
             .into(),
+        Tab::Image => ImageViewer::new(ImageHandle::from_path(&context.image_path)).into(),
+        Tab::SlideRule => slide_rule::view(&context.slide_rule_context, context.window_size, context.zoom).map(IcedMessage::UpdateSlideRule),
     };
 
     if let Some(title) = &context.title {

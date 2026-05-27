@@ -104,6 +104,8 @@ const HELP_MESSAGE: &str = r#"
 - Ctrl+Shift+Esc: close scratch pad
 - Ctrl+Shift+Up/Down: scroll scratch pad to top/bottom
 - Ctrl+Shift+E: expand/collapse scratch pad
+- Ctrl+Shift+M: open memo
+- Ctrl+Shift+P: open slide rule
 - Ctrl+Shift+Left/Right: move scratch pad
 - Ctrl+Shift+Plus/Minus: zoom
 "#;
