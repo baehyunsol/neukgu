@@ -18,7 +18,7 @@ use super::tab::{
     LocalContext,
     TabId,
 };
-use super::worker::{JobResult, Workers, init_workers};
+use super::worker::{JobResult, JobResultKind, Workers, init_workers};
 use super::working_dir::IcedMessage as WorkingDirMessage;
 use crate::{ChatId, get_neukgu_id};
 use iced::{Background, Color, Element, Length, Size, Task};
@@ -70,6 +70,10 @@ impl IcedContext {
             scratch_pad: ScratchPadContext::new(),
             workers: init_workers(8),
         }
+    }
+
+    pub fn notify(&mut self, note: String) {
+        todo!()
     }
 }
 
@@ -126,6 +130,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 Task::none()
             }
         },
+        IcedMessage::Index(IndexMessage::BackgroundJob(w)) => {
+            context.workers.push(None, w).unwrap();
+            Task::none()
+        },
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => Task::none(),
             None => index::update(&mut context.index, m).map(IcedMessage::Index),
@@ -175,8 +183,11 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.frame += 1;
 
             for (job_result, tab_id) in context.workers.poll() {
-                match tab_id {
-                    Some(tab_id) => match job_results_by_tab_id.entry(tab_id) {
+                match (job_result, tab_id) {
+                    (JobResult { kind: JobResultKind::WorkerError(e), .. }, _) => {
+                        context.notify(e);
+                    },
+                    (job_result, Some(tab_id)) => match job_results_by_tab_id.entry(tab_id) {
                         Entry::Occupied(mut e) => {
                             e.get_mut().push(job_result);
                         },
@@ -184,7 +195,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                             e.insert(vec![job_result]);
                         },
                     },
-                    None => {
+                    (job_result, None) => {
                         tasks.push(index::update(&mut context.index, IndexMessage::BackgroundJobResult(job_result)).map(IcedMessage::Index));
                     },
                 }
@@ -255,12 +266,31 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 }
             },
             (Key::Character("m"), true, false, true) => {
+                let mut tasks = vec![
+                    focus(context.scratch_pad.text_editor_id.clone()),
+                ];
                 context.scratch_pad.toggle_text_editor();
-                focus(context.scratch_pad.text_editor_id.clone())
+
+                // Without this, the tab's scroll will be reset
+                if let Some(i) = context.selected_tab {
+                    let id = context.tabs[i].id;
+                    tasks.push(tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message }));
+                } else {
+                    tasks.push(index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index));
+                }
+
+                Task::batch(tasks)
             },
             (Key::Character("p"), true, false, true) => {
                 context.scratch_pad.toggle_slide_rule();
-                Task::none()
+
+                // Without this, the tab's scroll will be reset
+                if let Some(i) = context.selected_tab {
+                    let id = context.tabs[i].id;
+                    tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+                } else {
+                    index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
+                }
             },
             (_, true, _, true) => {
                 if context.scratch_pad.tab != ScratchPadTab::Hidden {

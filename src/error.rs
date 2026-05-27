@@ -59,6 +59,9 @@ pub enum Error {
     /// see <https://docs.rs/png/latest/png/enum.EncodingError.html>
     PngEncodingError(png::EncodingError),
 
+    /// see <https://docs.rs/regex/latest/regex/enum.Error.html>
+    RegexError(regex::Error),
+
     /// see <https://docs.rs/reqwest/latest/reqwest/struct.Error.html>
     ReqwestError(reqwest::Error),
 
@@ -132,6 +135,12 @@ impl From<hayro::hayro_syntax::LoadPdfError> for Error {
 impl From<png::EncodingError> for Error {
     fn from(e: png::EncodingError) -> Error {
         Error::PngEncodingError(e)
+    }
+}
+
+impl From<regex::Error> for Error {
+    fn from(e: regex::Error) -> Error {
+        Error::RegexError(e)
     }
 }
 

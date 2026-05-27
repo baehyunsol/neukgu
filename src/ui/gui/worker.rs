@@ -1,6 +1,14 @@
 use super::tab::TabId;
 use base64::Engine;
-use crate::{ChatId, Error, LLMToken, add_chat_turn, get_global_index_dir};
+use crate::{
+    ChatId,
+    Error,
+    LLMToken,
+    MatchPreview,
+    add_chat_turn,
+    find_pattern_in_chats,
+    get_global_index_dir,
+};
 use crate::subprocess::{self, Output};
 use crate::tool::parse_command;
 use serde::Deserialize;
@@ -38,6 +46,9 @@ pub enum JobKind {
         api_keys: HashMap<String, String>,
         query: Vec<LLMToken>,
     },
+    FindInChats {
+        regex: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -52,9 +63,11 @@ pub enum JobResultKind {
     RgTimeout,
     Run(Output),
     RunError(String),
-    InvalidCommand { command: String, error: String },
+    InvalidCommand { error: String },
     AddChatTurnSuccess,
     AddChatTurnError(String),
+    FindInChats { regex: String, matches: Vec<(ChatId, Vec<MatchPreview>)> },
+    FindInChatsError(String),
     WorkerError(String),
 }
 
@@ -155,7 +168,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     },
                 },
                 Err(e) => {
-                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::InvalidCommand { command, error: format!("{e:?}") } }).unwrap();
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::InvalidCommand { error: format!("{e:?}") } }).unwrap();
                 },
             },
             Job { id, kind: JobKind::AddChatTurn { chat_id, api_keys, query } } => match add_chat_turn_blocked(chat_id, api_keys, query) {
@@ -164,6 +177,14 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 },
                 Err(e) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnError(format!("{e:?}")) }).unwrap();
+                },
+            },
+            Job { id, kind: JobKind::FindInChats { regex } } => match find_pattern_in_chats(&regex) {
+                Ok(matches) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::FindInChats { regex, matches } }).unwrap();
+                },
+                Err(e) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::FindInChatsError(format!("{e:?}")) }).unwrap();
                 },
             },
         }

@@ -289,6 +289,13 @@
 161. more scratch-widgets
   - slide-rule은 구현 완료
   - 이거말고 또 다른 유용한 widget 있으려나?? 달력?? 지도?? 다 끌리긴 함 ㅋㅋㅋ 그냥 종합 gui 연습장 될 듯? ㅋㅋ
+162. Agent Client Protocol
+  - https://agentclientprotocol.com/get-started/introduction
+  - Agent랑 IDE랑 이걸로 통신한대.
+  - 늑구에 이거 잘 구현해놓으면 1) Zed랑 늑구랑 붙일 수 있음 2) 늑구에서 다른 agent (CC, Codex) 볼 수 있음...!! 근데 둘다 엄청 빡세겠지? ㅠㅠ
+163. claude code (혹은 다른 harness)의 session을 읽어서 늑구의 session으로 변환할 수 있으면...
+  - 늑구에서 계속 실행하면 개이득이고, 늑구에서 볼 수만 있어도 엄청 좋지!!
+164. browser에도 scratch pad 버튼 붙이자 -> 현재 dir의 entry를 간단하게 string으로 바꿔서 띄우기!!
 
 ## mock API
 

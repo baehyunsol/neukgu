@@ -526,7 +526,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::ArrowUp), false, true, false) => {
-                return Ok(Task::done(IcedMessage::ChDir { new: parent(&context.cwd)?, old: Some(context.cwd.to_string()), going_up: true }));
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::ChDir { new: parent(&context.cwd)?, old: Some(context.cwd.to_string()), going_up: true }));
+                }
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
                 if context.curr_popup.is_none() {
@@ -781,14 +783,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
-            JobResultKind::RgTimeout => {
-                match &mut context.curr_popup {
-                    Some(Popup::Find { error, job }) if *job == job_result.id => {
-                        *job = None;
-                        *error = Some(String::from("ripgrep timeout"));
-                    },
-                    _ => {},
-                }
+            JobResultKind::RgTimeout => match &mut context.curr_popup {
+                Some(Popup::Find { error, job }) if *job == job_result.id => {
+                    *job = None;
+                    *error = Some(String::from("ripgrep timeout"));
+                },
+                _ => {},
             },
             JobResultKind::Rg { regex, matches, count } => match &context.curr_popup {
                 Some(Popup::Find { job, .. }) if *job == job_result.id => {
@@ -798,7 +798,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                         (matches[..512].to_vec(), Some(matches.len() - 512))
                     };
 
-                    context.open_popup(Popup::FindResult { regex: regex.to_string(), matches, truncate, match_count: *count })?;
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::FindResult { regex: regex.to_string(), matches, truncate, match_count: *count })));
                 },
                 _ => {},
             },
@@ -885,12 +885,15 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             render_create_popup(path, context),
         ]).into();
+    // NOTE: It's a copy-paste of the same popup in ui/gui/index.rs
     } else if let Some(Popup::Find { error, job }) = &context.curr_popup {
-        let text_editor = TextInput::new("regex", &context.short_text_editor_content)
+        let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
             .size(context.zoom * 14.0)
-            .id(context.short_text_editor_id.clone())
-            .on_input(|input| IcedMessage::EditShortText(input))
-            .on_submit(IcedMessage::Find);
+            .id(context.short_text_editor_id.clone());
+
+        if job.is_none() {
+            text_editor = text_editor.on_input(IcedMessage::EditShortText).on_submit(IcedMessage::Find);
+        }
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -908,7 +911,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                         Space::new().into()
                     },
                     if job.is_some() {
-                        disabled_button("Find", green(), context.zoom).padding(context.zoom * 20.0).into()
+                        disabled_button("Find", gray(0.4), context.zoom).padding(context.zoom * 20.0).into()
                     } else {
                         button("Find", IcedMessage::Find, green(), context.zoom).padding(context.zoom * 20.0).into()
                     },

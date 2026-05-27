@@ -29,13 +29,14 @@ use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
-use super::worker::JobResult;
+use super::worker::{Job, JobId, JobKind, JobResult, JobResultKind};
 use chrono::Local;
 use crate::{
     Chat,
     ChatId,
     Config,
     Error,
+    MatchPreview,
     NeukguId,
     Project,
     ProjectJson,
@@ -223,6 +224,8 @@ impl IcedContext {
             },
             Popup::AskDeleteProject { .. } => {},
             Popup::AskDeleteChat { .. } => {},
+            Popup::FindInChats { .. } => {},
+            Popup::FindInChatsResult { .. } => todo!(),
             Popup::ModelStore => {
                 self.model_store_context.refresh()?;
                 return Ok(model_store::update(&mut self.model_store_context, ModelStoreMessage::Focus)?.map(IcedMessage::UpdateModelStore));
@@ -294,6 +297,7 @@ pub enum IcedMessage {
     OpenPopup(Popup),
     ClosePopup,
     CopyPopupContent,
+    FindInChats,
     EditShortText(String),
     EditLongText(TextEditorAction),
     FocusLongTextEdit,
@@ -301,6 +305,7 @@ pub enum IcedMessage {
     SetChatConfig(SetChatConfig),
     UpdateModelStore(ModelStoreMessage),
     MainViewScrolled(AbsoluteOffset),
+    BackgroundJob(Job),
     BackgroundJobResult(JobResult),
     Focus,
     PrepareScratchPad,
@@ -332,6 +337,16 @@ pub enum Popup {
     AskDeleteChat {
         id: ChatId,
         title: Option<String>,
+    },
+    FindInChats {
+        error: Option<String>,
+
+        // It'll be set when the background worker starts working.
+        job: Option<JobId>,
+    },
+    FindInChatsResult {
+        regex: String,
+        matches: Vec<(ChatId, Vec<MatchPreview>)>,
     },
     ModelStore,
     Help,
@@ -500,13 +515,40 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::OpenPopup(popup) => {
-            return context.open_popup(popup);
+            let mut tasks: Vec<Task<IcedMessage>> = vec![
+                scroll_to(context.main_view_id.clone(), context.main_view_scrolled),
+            ];
+
+            match &popup {
+                Popup::NewProject | Popup::NewChat | Popup::FindInChats { .. } => {
+                    tasks.push(focus(context.short_text_editor_id.clone()));
+                },
+                _ => {},
+            }
+
+            tasks.push(context.open_popup(popup)?);
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::ClosePopup => {
             context.close_popup();
+            return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
         },
         IcedMessage::CopyPopupContent => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
+        },
+        IcedMessage::FindInChats => {
+            let job_id = JobId::new();
+
+            if let Some(Popup::FindInChats { job, .. }) = &mut context.curr_popup {
+                *job = Some(job_id);
+            }
+
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: job_id,
+                kind: JobKind::FindInChats {
+                    regex: context.short_text_editor_content.to_string(),
+                },
+            })));
         },
         IcedMessage::EditShortText(s) => {
             context.short_text_editor_content = s;
@@ -529,7 +571,23 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::MainViewScrolled(o) => {
             context.main_view_scrolled = o;
         },
-        IcedMessage::BackgroundJobResult(_) => todo!(),
+        IcedMessage::BackgroundJob(_) => unreachable!(),
+        IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
+            JobResultKind::FindInChatsError(e) => match &mut context.curr_popup {
+                Some(Popup::FindInChats { error, job }) if *job == job_result.id => {
+                    *job = None;
+                    *error = Some(e.to_string());
+                },
+                _ => {},
+            },
+            JobResultKind::FindInChats { regex, matches } => match &context.curr_popup {
+                Some(Popup::FindInChats { job, .. }) if *job == job_result.id => {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::FindInChatsResult { regex: regex.to_string(), matches: matches.to_vec() })));
+                },
+                _ => {},
+            },
+            _ => {},
+        },
         IcedMessage::Focus => {
             context.hovered_tab = None;
             return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
@@ -632,6 +690,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 button(
                     "Config",
                     IcedMessage::OpenPopup(Popup::ChatConfig),
+                    blue(),
+                    context.zoom,
+                ),
+                button(
+                    "Find",
+                    IcedMessage::OpenPopup(Popup::FindInChats { error: None, job: None }),
                     blue(),
                     context.zoom,
                 ),
@@ -766,6 +830,46 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(ask.into(), context).into(),
+        ]).into();
+    }
+
+    // NOTE: It's a copy-paste of the same popup in ui/gui/browser.rs
+    else if let Some(Popup::FindInChats { error, job }) = &context.curr_popup {
+        let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
+            .size(context.zoom * 14.0)
+            .id(context.short_text_editor_id.clone());
+
+        if job.is_none() {
+            text_editor = text_editor.on_input(IcedMessage::EditShortText).on_submit(IcedMessage::FindInChats);
+        }
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Column::from_vec(vec![
+                    text_editor.into(),
+                    if job.is_some() {
+                        text!("Finding...").size(context.zoom * 14.0).into()
+                    } else {
+                        Space::new().into()
+                    },
+                    if let Some(error) = error {
+                        text!("{error}").size(context.zoom * 14.0).color(red()).into()
+                    } else {
+                        Space::new().into()
+                    },
+                    if job.is_some() {
+                        disabled_button("Find", gray(0.4), context.zoom).padding(context.zoom * 20.0).into()
+                    } else {
+                        button("Find", IcedMessage::FindInChats, green(), context.zoom).padding(context.zoom * 20.0).into()
+                    },
+                ])
+                    .spacing(context.zoom * 20.0)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill)
+                    .into(),
+                context,
+            ).into(),
         ]).into();
     }
 

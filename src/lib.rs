@@ -43,8 +43,10 @@ pub use chat::{
     ChatId,
     ChatTurn,
     ChatTurnId,
+    MatchPreview,
     add_chat_turn,
     delete_chat,
+    find_pattern_in_chats,
     init_chat,
     load_all_chats,
 };

@@ -1,5 +1,16 @@
 use chrono::Local;
-use crate::{ApiLog, Error, EtcModels, Logger, LLMToken, Model, WebSearchResult, init_log_dir};
+use crate::{
+    ApiLog,
+    Error,
+    EtcModels,
+    Logger,
+    LLMToken,
+    Model,
+    WebSearchResult,
+    get_global_index_dir,
+    init_log_dir,
+    stringify_llm_tokens,
+};
 use crate::request::{self, Config as RequestConfig, Request, Thinking};
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -243,4 +254,67 @@ pub fn load_all_chats(global_index_dir: &str) -> Result<Vec<Chat>, Error> {
     }
 
     Ok(chats)
+}
+
+#[derive(Clone, Debug)]
+pub struct MatchPreview {
+    pub pre_truncated: bool,
+    pub pre: String,
+    pub matched: String,
+    pub post_truncated: bool,
+    pub post: String,
+}
+
+impl MatchPreview {
+    pub fn new(s: &str, start: usize, end: usize) -> MatchPreview {
+        let bytes = s.as_bytes();
+
+        MatchPreview {
+            pre_truncated: start >= 12,
+            pre: if start < 12 {
+                String::from_utf8_lossy(&bytes[..start]).to_string()
+            } else {
+                String::from_utf8_lossy(&bytes[(start - 10)..start]).to_string()
+            }.replace("\n", " "),
+            matched: String::from_utf8_lossy(&bytes[start..end]).replace("\n", " "),
+            post_truncated: end + 12 < s.len(),
+            post: if end + 12 >= s.len() {
+                String::from_utf8_lossy(&bytes[end..]).to_string()
+            } else {
+                String::from_utf8_lossy(&bytes[end..(end + 10)]).to_string()
+            }.replace("\n", " "),
+        }
+    }
+}
+
+pub fn find_pattern_in_chats(pattern: &str) -> Result<Vec<(ChatId, Vec<MatchPreview>)>, Error> {
+    let mut result = vec![];
+    let pattern = regex::Regex::new(pattern)?;
+    let global_index_dir = get_global_index_dir()?;
+    let chats = load_all_chats(&global_index_dir)?;
+
+    for chat in chats.iter() {
+        let mut previews = vec![];
+
+        for turn in chat.turns.iter() {
+            let turn = ChatTurn::load(*turn, chat.id, &global_index_dir)?;
+            let user = stringify_llm_tokens(&turn.user);
+
+            if let Some(cap) = pattern.captures(&user) {
+                let m = cap.get(0).unwrap();
+                previews.push(MatchPreview::new(&user, m.start(), m.end()));
+            }
+
+            if let Some(cap) = pattern.captures(&turn.assistant) {
+                let m = cap.get(0).unwrap();
+                previews.push(MatchPreview::new(&turn.assistant, m.start(), m.end()));
+            }
+        }
+
+        if !previews.is_empty() {
+            result.push((chat.id, previews));
+        }
+    }
+
+    Ok(result)
 }
