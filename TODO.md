@@ -232,9 +232,11 @@
 136. "Favorites" button to the browser tab
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
 143. token usage 보면서 비용도 보고싶음... how?
-144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음.
-  - 구현은 쉬움. 생기자마자 바로 hidden_turns에 넣어버리면 됨!
-  - 근데 agent가 사람한테 대답할 방법이 없음...
+144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음. I can implement this in neukgu like:
+  - system prompt: answer the user question + don't say anything other than the answer
+  - turns
+    - the same turns that the big agent would see
+  - user question + instruction (answer the question according to the turns + don't say anything other than the answer)
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
 147. I want the api key input to be focused when the tab is open.
