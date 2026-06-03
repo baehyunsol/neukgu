@@ -272,18 +272,18 @@ impl MatchPreview {
         let bytes = s.as_bytes();
 
         MatchPreview {
-            pre_truncated: start >= 12,
-            pre: if start < 12 {
+            pre_truncated: start >= 20,
+            pre: if start < 20 {
                 String::from_utf8_lossy(&bytes[..start]).to_string()
             } else {
-                String::from_utf8_lossy(&bytes[(start - 10)..start]).to_string()
+                String::from_utf8_lossy(&bytes[(start - 16)..start]).to_string()
             }.replace("\n", " "),
             matched: String::from_utf8_lossy(&bytes[start..end]).replace("\n", " "),
-            post_truncated: end + 12 < s.len(),
-            post: if end + 12 >= s.len() {
+            post_truncated: end + 20 < s.len(),
+            post: if end + 20 >= s.len() {
                 String::from_utf8_lossy(&bytes[end..]).to_string()
             } else {
-                String::from_utf8_lossy(&bytes[end..(end + 10)]).to_string()
+                String::from_utf8_lossy(&bytes[end..(end + 16)]).to_string()
             }.replace("\n", " "),
         }
     }

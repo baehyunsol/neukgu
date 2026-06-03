@@ -15,6 +15,7 @@ use super::{
     skyblue,
     take_chars,
     white,
+    yellow,
 };
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
@@ -101,10 +102,11 @@ You can create or initialize a neukgu working directory in file browser.
 - Alt+Up: `cd ..`
 - (Ctrl)+Up/Down: prev/next file entry (Ctrl to move faster)
 - Ctrl+Plus/Minus: zoom
-- Ctrl+C: create working dir
+- Ctrl+D: create new dir
 - Ctrl+H: help message
 - Ctrl+I: init working dir
 - Ctrl+L: launch working dir
+- Ctrl+P: create new working dir
 - Ctrl+T: new tab
 - Ctrl+W: close tab
 - Ctrl+Y: yes (confirm popup)
@@ -225,7 +227,8 @@ impl IcedContext {
         self.curr_popup = Some(popup.clone());
 
         match popup {
-            Popup::Create { .. } => {},
+            Popup::CreateWorkingDir { .. } => {},
+            Popup::CreateDir { .. } => {},
             Popup::Init { path } => {
                 let instruction_at = join(&path, "neukgu-instruction.md")?;
 
@@ -310,6 +313,7 @@ impl IcedContext {
             Popup::PreviewSymlink { path } => {
                 self.loaded_symlink = Some(SymlinkInfo::new(&path));
             },
+            Popup::FileInfo { is_dir, path } => todo!(),
             Popup::AskDelete { .. } => {},
             Popup::Find { .. } => {},
             Popup::FindResult { .. } => {},
@@ -372,7 +376,8 @@ pub enum IcedMessage {
     ChDir { new: String, old: Option<String>, going_up: bool },
     DeleteFile(String),
     DeleteDirectory(String),
-    Create { path: String },
+    CreateWorkingDir { path: String },
+    CreateDir { parent: String },
     Init { path: String },
     Launch { path: String },
     NewBrowser { dir: String, file: Option<String> },
@@ -472,11 +477,13 @@ impl SymlinkInfo {
 
 #[derive(Clone, Debug)]
 pub enum Popup {
-    Create { path: String },
+    CreateWorkingDir { path: String },
+    CreateDir { path: String },
     Init { path: String },
     EntryError(String),
     PreviewFile { path: String },
     PreviewSymlink { path: String },
+    FileInfo { is_dir: bool, path: String },
     AskDelete { is_dir: bool, path: String },
     Find {
         error: Option<String>,
@@ -579,9 +586,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
                 }
             },
-            (Key::Character("c"), true, false, false) => {
+            (Key::Character("d"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() })));
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() })));
                 }
             },
             (Key::Character("f"), true, false, false) => {
@@ -602,6 +609,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("l"), true, false, false) => {
                 if context.curr_popup.is_none() && context.has_neukgu_index {
                     return Ok(Task::done(IcedMessage::Launch { path: context.cwd.clone() }));
+                }
+            },
+            (Key::Character("p"), true, false, false) => {
+                if context.curr_popup.is_none() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() })));
                 }
             },
             (Key::Character("y"), true, false, false) => {
@@ -635,7 +647,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             ];
 
             match &popup {
-                Popup::Create { .. } | Popup::Find { .. } => {
+                Popup::CreateWorkingDir { .. } | Popup::CreateDir { .. } | Popup::Find { .. } => {
                     tasks.push(focus(context.short_text_editor_id.clone()));
                 },
                 Popup::Init { .. } => {
@@ -685,7 +697,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             remove_dir_all(&path)?;
             context.entries = load_entries(&context.cwd)?;
         },
-        IcedMessage::Create { path } => {
+        IcedMessage::CreateWorkingDir { path } => {
             let project_name = context.short_text_editor_content.to_string();
             validate_project_name(&project_name)?;
             let instruction = context.long_text_editor_content.text();
@@ -693,6 +705,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             create_dir(&project_path)?;
             init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
+        },
+        IcedMessage::CreateDir { parent } => {
+            let dir_name = context.short_text_editor_content.to_string();
+            let new_dir = join(&parent, &dir_name)?;
+            create_dir(&new_dir)?;
+            context.close_popup();
+            return Ok(Task::done(IcedMessage::ChDir { new: new_dir, old: Some(parent), going_up: false }));
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
@@ -880,13 +899,41 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             render_init_popup(path, context),
         ]).into();
-    } else if let Some(Popup::Create { path }) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::CreateWorkingDir { path }) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_create_popup(path, context),
         ]).into();
+    }
+
+    else if let Some(Popup::CreateDir { path }) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Column::from_vec(vec![
+                    Space::new().width(context.window_size.width).into(),
+                    text!("Directory name").size(context.zoom * 14.0).into(),
+                    TextInput::new("Directory name", &context.short_text_editor_content)
+                        .size(context.zoom * 14.0)
+                        .width(context.zoom * 400.0)
+                        .id(context.short_text_editor_id.clone())
+                        .on_input(IcedMessage::EditShortText)
+                        .on_submit(IcedMessage::CreateDir { parent: path.to_string() })
+                        .into(),
+                    button("Create", IcedMessage::CreateDir { parent: path.to_string() }, green(), context.zoom).into(),
+                ])
+                    .align_x(Horizontal::Center)
+                    .spacing(context.zoom * 8.0)
+                    .into(),
+                context,
+            ),
+        ]).into();
+    }
+
     // NOTE: It's a copy-paste of the same popup in ui/gui/index.rs
-    } else if let Some(Popup::Find { error, job }) = &context.curr_popup {
+    else if let Some(Popup::Find { error, job }) = &context.curr_popup {
         let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
             .size(context.zoom * 14.0)
             .id(context.short_text_editor_id.clone());
@@ -923,17 +970,23 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 context,
             ).into(),
         ]).into();
-    } else if let Some(Popup::FindResult { regex, matches, truncate, match_count }) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::FindResult { regex, matches, truncate, match_count }) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(render_find_result(regex, matches, *truncate, *match_count, context), context),
         ]).into();
-    } else if let Some(Popup::RunResult { job_id: _, started_at, command, output, error }) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::RunResult { job_id: _, started_at, command, output, error }) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(render_run_result(*started_at, command, output, error, context), context),
         ]).into();
-    } else if let Some(Popup::EntryError(_) | Popup::PreviewFile { .. } | Popup::Help) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::EntryError(_) | Popup::PreviewFile { .. } | Popup::Help) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
 
         if let Some((pre, trunc, post)) = &context.long_preview {
@@ -990,7 +1043,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 ]).spacing(context.zoom * 20.0).width(Length::Fill)).id(context.popup_scroll_id.clone()).width(Length::Fill).into(), context),
             ]).into();
         }
-    } else if let Some(Popup::PreviewSymlink { .. }) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::PreviewSymlink { .. }) = &context.curr_popup {
         let popup = match &context.loaded_symlink {
             Some(SymlinkInfo { pointer, error: Some(error), .. }) => Column::from_vec(vec![
                 text!("{pointer}").size(context.zoom * 18.0).width(context.window_size.width).into(),
@@ -1014,12 +1069,16 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(popup.into(), context),
         ]).into();
-    } else if let Some(Popup::EntryError(e)) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::EntryError(e)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(text!("{e}").size(context.zoom * 14.0).into(), context),
         ]).into();
-    } else if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
         let ask = if *is_dir {
             Column::from_vec(vec![
                 text!("Delete directory `{path}`?").size(context.zoom * 14.0).into(),
@@ -1036,7 +1095,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(ask.into(), context),
         ]).into();
-    } else if let Some(Popup::Help) = &context.curr_popup {
+    }
+
+    else if let Some(Popup::Help) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(Scrollable::new(text!("{HELP_MESSAGE}").size(context.zoom * 14.0)).id(context.popup_scroll_id.clone()).into(), context).into(),
@@ -1049,12 +1110,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let mut buttons_row1: Vec<Button<IcedMessage>> = if context.has_neukgu_index {
         vec![
-            button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("New (p)roject", IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("New (d)irectory", IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() }), green(), context.zoom).into(),
             button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom).into(),
         ]
     } else {
         vec![
-            button("(C)reate new", IcedMessage::OpenPopup(Popup::Create { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("New (p)roject", IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("New (d)irectory", IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() }), green(), context.zoom).into(),
             button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom).into(),
         ]
     };
@@ -1094,6 +1157,12 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     }
 
     if context.curr_popup.is_some() {
+        row.push(disabled_button("Info", yellow(), context.zoom).into());
+    } else {
+        row.push(button("Info", IcedMessage::OpenPopup(Popup::FileInfo { is_dir: entry.is_dir, path: entry.path.to_string() }), yellow(), context.zoom).into());
+    }
+
+    if context.curr_popup.is_some() {
         row.push(disabled_button("Delete", red(), context.zoom).into());
     } else {
         row.push(button("Delete", IcedMessage::OpenPopup(Popup::AskDelete { is_dir: entry.is_dir, path: entry.path.to_string() }), red(), context.zoom).into());
@@ -1123,7 +1192,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         },
         None => {
             if entry.symlink.is_some() {
-                String::from("symlink      ")
+                String::from("symlink       ")
             } else {
                 " ".repeat(14)
             }
@@ -1193,7 +1262,7 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         .size(context.zoom * 14.0)
         .id(context.long_text_editor_id.clone())
         .min_height(400)
-        .on_action(|action| IcedMessage::EditLongText(action));
+        .on_action(IcedMessage::EditLongText);
 
     into_popup(
         Scrollable::new(
@@ -1216,7 +1285,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
     let short_text_editor = TextInput::new("Name of the project", &context.short_text_editor_content)
         .size(context.zoom * 14.0)
         .id(context.short_text_editor_id.clone())
-        .on_input(|input| IcedMessage::EditShortText(input))
+        .on_input(IcedMessage::EditShortText)
         .on_submit(IcedMessage::FocusLongTextEdit);
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
@@ -1224,7 +1293,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .size(context.zoom * 14.0)
         .id(context.long_text_editor_id.clone())
         .min_height(400)
-        .on_action(|action| IcedMessage::EditLongText(action));
+        .on_action(IcedMessage::EditLongText);
 
     into_popup(
         Scrollable::new(
@@ -1232,7 +1301,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
                 short_text_editor.into(),
                 long_text_editor.into(),
                 config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
-                button("Create", IcedMessage::Create { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
+                button("Create", IcedMessage::CreateWorkingDir { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
                 .align_x(Horizontal::Center)
@@ -1248,7 +1317,7 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
     let mut dirs = vec![];
     let mut files = vec![];
 
-    for e in read_dir(path, true)? {
+    for e in read_dir(path, false)? {
         let (has_neukgu_index, mut error) = match check_neukgu_index(&e) {
             Ok(h) => (h, None),
             Err(e) => (false, Some(format!("{e:?}"))),
@@ -1321,6 +1390,9 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
             });
         }
     }
+
+    dirs.sort_by_key(|e| e.name.to_ascii_lowercase());
+    files.sort_by_key(|e| e.name.to_ascii_lowercase());
 
     Ok(vec![dirs, files].concat())
 }

@@ -10,6 +10,7 @@ use super::{
     green,
     pink,
     red,
+    set_bg,
     set_round_bg,
     skyblue,
     white,
@@ -238,7 +239,7 @@ impl IcedContext {
             Popup::AskDeleteChat { .. } => {},
             Popup::AskDeleteChatSystemPrompt(_) => {},
             Popup::FindInChats { .. } => {},
-            Popup::FindInChatsResult { .. } => todo!(),
+            Popup::FindInChatsResult { .. } => {},
             Popup::ModelStore => {
                 self.model_store_context.refresh()?;
                 return Ok(model_store::update(&mut self.model_store_context, ModelStoreMessage::Focus)?.map(IcedMessage::UpdateModelStore));
@@ -1011,6 +1012,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::FindInChatsResult { regex, matches }) = &context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_find_in_chats_result(regex, matches, context),
+        ]).into();
+    }
+
     else if let Some(Popup::ModelStore) = context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1359,4 +1367,58 @@ fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage
         },
         None => Space::new().into(),
     }
+}
+
+fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId, Vec<MatchPreview>)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let mut column: Vec<Element<IcedMessage>> = vec![
+        text!("Find: {regex}").size(context.zoom * 14.0).into(),
+    ];
+    let chat_titles: HashMap<ChatId, String> = context.recent_chats.iter().filter_map(
+        |chat| match &chat.title {
+            Some(title) => Some((chat.id, title.to_string())),
+            None => None,
+        }
+    ).collect();
+
+    column.extend(matches.iter().map(
+        |(chat_id, previews)| {
+            let mut column = vec![
+                Row::from_vec(vec![
+                    text!("{}", chat_titles.get(chat_id).cloned().unwrap_or(String::from("untitled chat"))).size(context.zoom * 18.0).into(),
+                    button("Open", IcedMessage::NewTab { tab: Tab::Chat(*chat_id), force_new_tab: false }, green(), context.zoom).into(),
+                ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
+            ];
+
+            for preview in previews.iter() {
+                let row: Vec<Element<IcedMessage>> = vec![
+                    text!("{}{}", if preview.pre_truncated { "..." } else { "" }, preview.pre).size(context.zoom * 14.0).into(),
+                    Container::new(text!("{}", preview.matched).color(black()).size(context.zoom * 14.0)).style(|_| set_bg(white())).into(),
+                    text!("{}{}", preview.post, if preview.post_truncated { "..." } else { "" }).size(context.zoom * 14.0).into(),
+                ];
+
+                column.push(Row::from_vec(row).into());
+            }
+
+            Container::new(
+                Column::from_vec(column)
+                    .width(context.window_size.width)
+                    .padding(context.zoom * 8.0)
+                    .spacing(context.zoom * 4.0)
+            ).style(|_| set_round_bg(gray(0.2), context.zoom)).into()
+        }
+    ));
+
+    if matches.is_empty() {
+        column.push(text!("No matches found").size(context.zoom * 14.0).into());
+    }
+
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(column)
+                .spacing(context.zoom * 8.0),
+        )
+            .id(context.popup_scroll_id.clone())
+            .into(),
+        context,
+    )
 }
