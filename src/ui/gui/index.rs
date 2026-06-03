@@ -20,6 +20,7 @@ use super::config::{
     SetProjectConfig,
     chat_config_ui1,
     chat_config_ui2,
+    chat_config_ui3,
     config_ui,
     set_chat_config,
     set_project_config,
@@ -42,6 +43,7 @@ use crate::{
     ProjectJson,
     clean_global_index_dir,
     delete_chat,
+    get_chat_system_prompts,
     get_global_chat_config,
     get_global_config,
     get_global_index_dir,
@@ -54,8 +56,10 @@ use crate::{
     load_json,
     prettify_timestamp,
     remove_global_index,
+    save_chat_system_prompts,
     save_global_chat_config,
     save_global_config,
+    truncate_chars,
     validate_project_name,
 };
 use crate::chat::Config as ChatConfig;
@@ -132,11 +136,13 @@ pub struct IcedContext {
     pub battery: Option<(battery::State, f32)>,
     pub hovered_tab: Option<TabId>,
     pub curr_popup: Option<Popup>,
+    pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
     pub syntax_highlight: Option<String>,
 
     pub new_project_config: Config,
     pub new_chat_config: ChatConfig,
+    pub system_prompts: Vec<String>,
     pub model_store_context: ModelStoreContext,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
@@ -169,10 +175,12 @@ impl IcedContext {
             battery: None,
             hovered_tab: None,
             curr_popup: None,
+            prev_popup: None,
             copy_buffer: None,
             syntax_highlight: None,
             new_project_config: get_global_config(&global_index_dir).unwrap(),
             new_chat_config: get_global_chat_config(&global_index_dir).unwrap(),
+            system_prompts: get_chat_system_prompts(&global_index_dir).unwrap(),
             model_store_context: ModelStoreContext::new(global_index_dir.to_string()),
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
@@ -216,6 +224,10 @@ impl IcedContext {
                 let Chat { config, .. } = Chat::load(id, &self.global_index_dir)?;
                 self.new_chat_config = config;
             },
+            Popup::ChatSystemPrompts => {},
+            Popup::EditChatSystemPrompt(i) => {
+                self.set_long_text_editor_content(self.system_prompts[i].to_string());
+            },
             Popup::Instruction { working_dir } => {
                 let instruction = read_string(&join(&working_dir, "neukgu-instruction.md")?)?;
                 self.copy_buffer = Some(instruction.to_string());
@@ -224,6 +236,7 @@ impl IcedContext {
             },
             Popup::AskDeleteProject { .. } => {},
             Popup::AskDeleteChat { .. } => {},
+            Popup::AskDeleteChatSystemPrompt(_) => {},
             Popup::FindInChats { .. } => {},
             Popup::FindInChatsResult { .. } => todo!(),
             Popup::ModelStore => {
@@ -258,7 +271,7 @@ impl IcedContext {
 
 impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
-    fn has_prev_popup(&self) -> bool { false }
+    fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
 
     fn can_open_scratch_pad(&self) -> bool {
@@ -294,7 +307,14 @@ pub enum IcedMessage {
         working_dir: String,
     },
     DeleteChat(ChatId),
-    OpenPopup(Popup),
+    AddChatSystemPrompt,
+    EditChatSystemPrompt(usize),
+    DeleteChatSystemPrompt(usize),
+    OpenPopup {
+        curr: Popup,
+        prev: Option<Popup>,
+    },
+    BackPopup,
     ClosePopup,
     CopyPopupContent,
     FindInChats,
@@ -314,7 +334,7 @@ pub enum IcedMessage {
 
 impl PopupMessage for IcedMessage {
     fn close_popup() -> Self { IcedMessage::ClosePopup }
-    fn back_popup() -> Self { unreachable!() }
+    fn back_popup() -> Self { IcedMessage::BackPopup }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
     fn open_scratch_pad() -> Self { IcedMessage::PrepareScratchPad }
 }
@@ -327,6 +347,8 @@ pub enum Popup {
     NewChat,
     ChatConfig,
     ExistingChatConfig(ChatId),
+    ChatSystemPrompts,
+    EditChatSystemPrompt(usize),
     Instruction {
         working_dir: String,
     },
@@ -338,6 +360,7 @@ pub enum Popup {
         id: ChatId,
         title: Option<String>,
     },
+    AskDeleteChatSystemPrompt(usize),
     FindInChats {
         error: Option<String>,
 
@@ -356,7 +379,7 @@ pub enum Popup {
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match try_update(context, message) {
         Ok(t) => t,
-        Err(e) => Task::done(IcedMessage::OpenPopup(Popup::Error(format!("{e:?}")))),
+        Err(e) => Task::done(IcedMessage::OpenPopup { curr: Popup::Error(format!("{e:?}")), prev: None }),
     }
 }
 
@@ -373,6 +396,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.recent_projects.sort_by_key(|p| -p.updated_at);
                 context.recent_chats.sort_by_key(|c| -c.updated_at);
 
+                context.system_prompts = get_chat_system_prompts(&context.global_index_dir)?;
                 context.update_battery_state();
             }
 
@@ -407,22 +431,22 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("c"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::NewChat)));
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::NewChat, prev: None }));
                 }
             },
             (Key::Character("h"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Help, prev: None }));
                 }
             },
             (Key::Character("m"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::ModelStore)));
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::ModelStore, prev: None }));
                 }
             },
             (Key::Character("p"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::NewProject)));
+                    return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::NewProject, prev: None }));
                 }
             },
             // tabs::update will do the exact same thing with the exact same key binding
@@ -438,6 +462,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
                 else if let Some(Popup::AskDeleteChat { id, .. }) = &context.curr_popup {
                     return Ok(Task::done(IcedMessage::DeleteChat(*id)));
+                }
+
+                else if let Some(Popup::AskDeleteChatSystemPrompt(i)) = context.curr_popup {
+                    return Ok(Task::done(IcedMessage::DeleteChatSystemPrompt(i)));
                 }
             },
             (Key::Character("-"), true, false, false) => {
@@ -472,62 +500,99 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             create_dir(&project_path)?;
             init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), true)?;
-            context.close_popup();
-            return Ok(Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }));
+            return Ok(Task::batch(vec![
+                Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }),
+                Task::done(IcedMessage::ClosePopup),
+            ]));
         },
         IcedMessage::SaveGlobalProjectConfig => {
             save_global_config(&context.new_project_config, &context.global_index_dir)?;
-            context.close_popup();
+            return Ok(Task::done(IcedMessage::ClosePopup));
         },
         IcedMessage::SaveProjectConfig(id) => {
             let ProjectJson { working_dir, .. } = load_json(&join3(&context.global_index_dir, "indexes", &format!("{:016x}", id.0))?)?;
             context.new_project_config.store(&working_dir)?;
-            context.close_popup();
+            return Ok(Task::done(IcedMessage::ClosePopup));
         },
         IcedMessage::NewChat => {
             let chat_title = context.short_text_editor_content.to_string();
             let chat_title = if chat_title.is_empty() { None } else { Some(chat_title) };
             let chat_id = init_chat(chat_title, context.new_chat_config.clone(), &context.global_index_dir)?;
-            context.close_popup();
-            return Ok(Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }));
+            return Ok(Task::batch(vec![
+                Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }),
+                Task::done(IcedMessage::ClosePopup),
+            ]));
         },
         IcedMessage::SaveGlobalChatConfig => {
             save_global_chat_config(&context.new_chat_config, &context.global_index_dir)?;
-            context.close_popup();
+            return Ok(Task::done(IcedMessage::ClosePopup));
         },
         IcedMessage::SaveChatConfig(id) => {
             let mut chat = Chat::load(id, &context.global_index_dir)?;
             chat.config = context.new_chat_config.clone();
             chat.store(&context.global_index_dir)?;
-            context.close_popup();
+            return Ok(Task::done(IcedMessage::ClosePopup));
         },
         IcedMessage::DeleteProject { project_name, working_dir } => {
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             let neukgu_id = get_neukgu_id(&working_dir)?;
             remove_dir_all(&project_path)?;
             remove_global_index(&context.global_index_dir, neukgu_id)?;
-            context.close_popup();
-            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
+            return Ok(Task::batch(vec![
+                Task::done(IcedMessage::Tick { frame: 0, force_update: true }),
+                Task::done(IcedMessage::ClosePopup),
+            ]));
         },
         IcedMessage::DeleteChat(chat_id) => {
             delete_chat(chat_id, &context.global_index_dir)?;
-            context.close_popup();
-            return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
+            return Ok(Task::batch(vec![
+                Task::done(IcedMessage::Tick { frame: 0, force_update: true }),
+                Task::done(IcedMessage::ClosePopup),
+            ]));
         },
-        IcedMessage::OpenPopup(popup) => {
+        IcedMessage::AddChatSystemPrompt => {
+            context.system_prompts.push(String::new());
+            save_chat_system_prompts(&context.system_prompts, &context.global_index_dir)?;
+            return Ok(Task::done(IcedMessage::OpenPopup {
+                curr: Popup::EditChatSystemPrompt(context.system_prompts.len() - 1),
+                prev: Some(Popup::ChatSystemPrompts),
+            }));
+        },
+        IcedMessage::EditChatSystemPrompt(i) => {
+            context.system_prompts[i] = context.long_text_editor_content.text();
+            save_chat_system_prompts(&context.system_prompts, &context.global_index_dir)?;
+            return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::ChatSystemPrompts, prev: None }));
+        },
+        IcedMessage::DeleteChatSystemPrompt(i) => {
+            context.system_prompts.remove(i);
+            save_chat_system_prompts(&context.system_prompts, &context.global_index_dir)?;
+            return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::ChatSystemPrompts, prev: None }));
+        },
+        IcedMessage::OpenPopup { curr, prev } => {
             let mut tasks: Vec<Task<IcedMessage>> = vec![
                 scroll_to(context.main_view_id.clone(), context.main_view_scrolled),
             ];
 
-            match &popup {
+            match &curr {
+                Popup::EditChatSystemPrompt(_) => {
+                    tasks.push(focus(context.long_text_editor_id.clone()));
+                },
                 Popup::NewProject | Popup::NewChat | Popup::FindInChats { .. } => {
                     tasks.push(focus(context.short_text_editor_id.clone()));
                 },
                 _ => {},
             }
 
-            tasks.push(context.open_popup(popup)?);
+            tasks.push(context.open_popup(curr)?);
+            context.prev_popup = prev;
             return Ok(Task::batch(tasks));
+        },
+        IcedMessage::BackPopup => {
+            if let Some(prev_popup) = &context.prev_popup {
+                let prev_popup = prev_popup.clone();
+                context.prev_popup = None;
+                return Ok(context.open_popup(prev_popup)?);
+            }
         },
         IcedMessage::ClosePopup => {
             context.close_popup();
@@ -563,7 +628,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             set_project_config(&mut context.new_project_config, c);
         },
         IcedMessage::SetChatConfig(c) => {
-            set_chat_config(&mut context.new_chat_config, c);
+            set_chat_config(&mut context.new_chat_config, &context.system_prompts, c);
         },
         IcedMessage::UpdateModelStore(m) => {
             return Ok(model_store::update(&mut context.model_store_context, m)?.map(IcedMessage::UpdateModelStore));
@@ -582,7 +647,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             JobResultKind::FindInChats { regex, matches } => match &context.curr_popup {
                 Some(Popup::FindInChats { job, .. }) if *job == job_result.id => {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::FindInChatsResult { regex: regex.to_string(), matches: matches.to_vec() })));
+                    return Ok(Task::done(IcedMessage::OpenPopup {
+                        curr: Popup::FindInChatsResult { regex: regex.to_string(), matches: matches.to_vec() },
+                        prev: None,
+                    }));
                 },
                 _ => {},
             },
@@ -662,13 +730,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             vec![
                 button(
                     "New (p)roject",
-                    IcedMessage::OpenPopup(Popup::NewProject),
+                    IcedMessage::OpenPopup { curr: Popup::NewProject, prev: None },
                     green(),
                     context.zoom,
                 ),
                 button(
                     "Config",
-                    IcedMessage::OpenPopup(Popup::ProjectConfig),
+                    IcedMessage::OpenPopup { curr: Popup::ProjectConfig, prev: None },
                     blue(),
                     context.zoom,
                 ),
@@ -683,19 +751,25 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             vec![
                 button(
                     "New (c)hat",
-                    IcedMessage::OpenPopup(Popup::NewChat),
+                    IcedMessage::OpenPopup { curr: Popup::NewChat, prev: None },
                     brown(),
                     context.zoom,
                 ),
                 button(
                     "Config",
-                    IcedMessage::OpenPopup(Popup::ChatConfig),
+                    IcedMessage::OpenPopup { curr: Popup::ChatConfig, prev: None },
+                    blue(),
+                    context.zoom,
+                ),
+                button(
+                    "System Prompts",
+                    IcedMessage::OpenPopup { curr: Popup::ChatSystemPrompts, prev: None },
                     blue(),
                     context.zoom,
                 ),
                 button(
                     "Find",
-                    IcedMessage::OpenPopup(Popup::FindInChats { error: None, job: None }),
+                    IcedMessage::OpenPopup { curr: Popup::FindInChats { error: None, job: None }, prev: None },
                     blue(),
                     context.zoom,
                 ),
@@ -774,12 +848,61 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 Column::from_vec(vec![
                     chat_config_ui1(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
                     chat_config_ui2(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig),
+                    chat_config_ui3(&context.new_chat_config, &context.system_prompts, context.zoom).map(IcedMessage::SetChatConfig),
                     button("Save", save_action, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
                     .align_x(Horizontal::Center)
                     .width(Length::Fill)
             ).id(context.popup_scroll_id.clone()).into(), context),
+        ]).into();
+    }
+
+    else if let Some(Popup::ChatSystemPrompts) = &context.curr_popup {
+        let mut column: Vec<Element<IcedMessage>> = context.system_prompts.iter().enumerate().map(
+            |(i, system_prompt)| Row::from_vec(vec![
+                Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).size(context.zoom * 14.0))
+                    .width(context.zoom * 500.0)
+                    .height(context.zoom * 100.0)
+                    .padding(context.zoom * 8.0)
+                    .style(move |_| set_round_bg(gray(0.2), context.zoom))
+                    .into(),
+                button("Edit", IcedMessage::OpenPopup {
+                    curr: Popup::EditChatSystemPrompt(i),
+                    prev: Some(Popup::ChatSystemPrompts),
+                }, blue(), context.zoom).into(),
+                button("Delete", IcedMessage::OpenPopup {
+                    curr: Popup::AskDeleteChatSystemPrompt(i),
+                    prev: Some(Popup::ChatSystemPrompts),
+                }, red(), context.zoom).into(),
+            ])
+                .spacing(context.zoom * 8.0)
+                .align_y(Vertical::Center)
+                .into()
+        ).collect();
+
+        column.push(button("Add", IcedMessage::AddChatSystemPrompt, green(), context.zoom).into());
+        column.push(Space::new().width(context.window_size.width).height(1.0).into());
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(Scrollable::new(Column::from_vec(column).spacing(context.zoom * 8.0).align_x(Horizontal::Center)).id(context.popup_scroll_id.clone()).into(), context),
+        ]).into();
+    }
+
+    else if let Some(Popup::EditChatSystemPrompt(i)) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(Scrollable::new(Column::from_vec(vec![
+                TextEditor::new(&context.long_text_editor_content)
+                    .size(context.zoom * 14.0)
+                    .width(context.window_size.width)
+                    .on_action(IcedMessage::EditLongText)
+                    .min_height(400)
+                    .id(context.long_text_editor_id.clone())
+                    .into(),
+                button("Save", IcedMessage::EditChatSystemPrompt(i), green(), context.zoom).into(),
+            ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center)).id(context.popup_scroll_id.clone()).into(), context),
         ]).into();
     }
 
@@ -822,6 +945,21 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 text!("Delete untitled chat?").size(context.zoom * 14.0).into()
             },
             button("(Y)es", IcedMessage::DeleteChat(*id), green(), context.zoom).into(),
+        ])
+            .spacing(context.zoom * 20.0)
+            .align_x(Horizontal::Center)
+            .width(Length::Fill);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(ask.into(), context).into(),
+        ]).into();
+    }
+
+    else if let Some(Popup::AskDeleteChatSystemPrompt(i)) = context.curr_popup {
+        let ask = Column::from_vec(vec![
+            text!("Are you sure to delete this system prompt?").size(context.zoom * 14.0).into(),
+            button("(Y)es", IcedMessage::DeleteChatSystemPrompt(i), green(), context.zoom).into(),
         ])
             .spacing(context.zoom * 20.0)
             .align_x(Horizontal::Center)
@@ -904,8 +1042,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut buttons = vec![
-        button("(M)odel Store", IcedMessage::OpenPopup(Popup::ModelStore), blue(), context.zoom),
-        button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom),
+        button("(M)odel Store", IcedMessage::OpenPopup {
+            curr: Popup::ModelStore,
+            prev: None,
+        }, blue(), context.zoom),
+        button("(H)elp", IcedMessage::OpenPopup {
+            curr: Popup::Help,
+            prev: None,
+        }, pink(), context.zoom),
     ];
 
     if context.curr_popup.is_some() {
@@ -937,17 +1081,26 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     button("Launch", IcedMessage::NewTab { tab: Tab::WorkingDir(project.working_dir.to_string()), force_new_tab: false }, green(), context.zoom)
                 },
                 button("Browse", IcedMessage::NewTab { tab: Tab::Browser { dir: project.working_dir.to_string(), file: None }, force_new_tab: false }, skyblue(), context.zoom),
-                button("Config", IcedMessage::OpenPopup(Popup::ExistingProjectConfig(project.neukgu_id)), blue(), context.zoom),
-                button("Instruction", IcedMessage::OpenPopup(Popup::Instruction { working_dir: project.working_dir.to_string() }), yellow(), context.zoom),
+                button("Config", IcedMessage::OpenPopup {
+                    curr: Popup::ExistingProjectConfig(project.neukgu_id),
+                    prev: None,
+                }, blue(), context.zoom),
+                button("Instruction", IcedMessage::OpenPopup {
+                    curr: Popup::Instruction { working_dir: project.working_dir.to_string() },
+                    prev: None,
+                }, yellow(), context.zoom),
             ];
 
             if project.is_in_global_index_dir {
                 buttons.push(button(
                     "Delete",
-                    IcedMessage::OpenPopup(Popup::AskDeleteProject {
-                        project_name: path.to_string(),
-                        working_dir: project.working_dir.to_string(),
-                    }),
+                    IcedMessage::OpenPopup {
+                        curr: Popup::AskDeleteProject {
+                            project_name: path.to_string(),
+                            working_dir: project.working_dir.to_string(),
+                        },
+                        prev: None,
+                    },
                     red(),
                     context.zoom,
                 ));
@@ -982,8 +1135,14 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         |chat| {
             let buttons = vec![
                 button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom),
-                button("Config", IcedMessage::OpenPopup(Popup::ExistingChatConfig(chat.id)), blue(), context.zoom),
-                button("Delete", IcedMessage::OpenPopup(Popup::AskDeleteChat { id: chat.id, title: chat.title.clone() }), red(), context.zoom),
+                button("Config", IcedMessage::OpenPopup {
+                    curr: Popup::ExistingChatConfig(chat.id),
+                    prev: None,
+                }, blue(), context.zoom),
+                button("Delete", IcedMessage::OpenPopup {
+                    curr: Popup::AskDeleteChat { id: chat.id, title: chat.title.clone() },
+                    prev: None,
+                }, red(), context.zoom),
             ];
 
             let buttons = if context.curr_popup.is_some() {
@@ -1079,7 +1238,7 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
     let short_text_editor = TextInput::new("Name of the project", &context.short_text_editor_content)
         .size(context.zoom * 14.0)
         .id(context.short_text_editor_id.clone())
-        .on_input(|input| IcedMessage::EditShortText(input))
+        .on_input(IcedMessage::EditShortText)
         .on_submit(IcedMessage::FocusLongTextEdit);
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
@@ -1087,7 +1246,7 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         .size(context.zoom * 14.0)
         .id(context.long_text_editor_id.clone())
         .min_height(400)
-        .on_action(|action| IcedMessage::EditLongText(action));
+        .on_action(IcedMessage::EditLongText);
 
     into_popup(
         Scrollable::new(
@@ -1119,6 +1278,7 @@ fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessag
                 short_text_editor.into(),
                 chat_config_ui1(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig).into(),
                 chat_config_ui2(&context.new_chat_config, context.zoom).map(IcedMessage::SetChatConfig).into(),
+                chat_config_ui3(&context.new_chat_config, &context.system_prompts, context.zoom).map(IcedMessage::SetChatConfig).into(),
                 button("Create", IcedMessage::NewChat, brown(), context.zoom).into(),
             ])
                 .spacing(context.zoom * 20.0)

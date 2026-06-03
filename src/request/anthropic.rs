@@ -65,7 +65,7 @@ impl Request {
 
         let thinking = match self.thinking {
             // TODO: make budget_tokens configurable
-            Thinking::Enabled => json!({ "type": "enabled", "budget_tokens": 1024, "display": "summarized" }),
+            Thinking::Enabled => json!({ "type": "enabled", "budget_tokens": 8192, "display": "summarized" }),
             Thinking::Disabled => json!({ "type": "disabled" }),
             Thinking::Adaptive => json!({ "type": "adaptive", "display": "summarized" }),
         };

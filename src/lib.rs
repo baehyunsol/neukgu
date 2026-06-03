@@ -56,6 +56,7 @@ pub use context::{
     Context,
     ContextJson,
     NeukguId,
+    RawResponse,
     SessionId,
     SessionSummary,
 };
@@ -64,12 +65,14 @@ pub use global::{
     Project,
     ProjectJson,
     clean_global_index_dir,
+    get_chat_system_prompts,
     get_global_chat_config,
     get_global_config,
     get_global_index_dir,
     init_global_index_dir,
     load_all_indexes,
     remove_global_index,
+    save_chat_system_prompts,
     save_global_chat_config,
     save_global_config,
     update_global_index,
@@ -186,29 +189,29 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     let mut user_interrupt = false;
     let mut turn_kind = TurnKind::Agent;
     let raw_response = match &context.curr_raw_response {
-        Some((r, _, _)) => r.to_string(),
+        Some(RawResponse { response, .. }) => response.to_string(),
         None => match context.get_fake_turn() {
             Some((r, kind)) => {
                 turn_kind = kind;
-                context.start_turn(r.to_string(), 0, ApiLog::new());
+                context.start_turn(None, r.to_string(), 0, ApiLog::new());
                 r
             },
             None => {
                 let llm_call_started_at = Instant::now();
                 let request = context.to_request(config)?;
-                let (response, api_log) = match request.request(&config.request_config(), &context.working_dir, &context.logger).await {
-                    Ok(response) => (response.response.to_string(), response.log.clone()),
+                let (thinking, response, api_log) = match request.request(&config.request_config(), &context.working_dir, &context.logger).await {
+                    Ok(response) => (response.thinking.clone(), response.response.to_string(), response.log.clone()),
                     Err(Error::UserInterrupt) => {
                         context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
                         user_interrupt = true;
-                        (String::new(), ApiLog::new())
+                        (None, String::new(), ApiLog::new())
                     },
                     Err(e) => {
                         return Err(e);
                     },
                 };
                 let llm_elapsed_ms = Instant::now().duration_since(llm_call_started_at).as_millis() as u64;
-                context.start_turn(response.to_string(), llm_elapsed_ms, api_log);
+                context.start_turn(thinking, response.to_string(), llm_elapsed_ms, api_log);
                 response
             },
         },

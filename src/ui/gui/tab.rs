@@ -87,13 +87,13 @@ impl IcedContext {
         match &self.local {
             LocalContext::Browser(c) => {
                 let title = match &c.curr_popup {
-                    Some(browser::Popup::PreviewFile { path } | browser::Popup::PreviewSymlink { path }) => format!("Reading {}", if full_path { path.to_string() } else { basename(path).unwrap() }),
-                    _ => format!("Browse {}/", if full_path { c.cwd.to_string() } else { basename(&c.cwd).unwrap() }),
+                    Some(browser::Popup::PreviewFile { path } | browser::Popup::PreviewSymlink { path }) => format!("Read: {}", if full_path { path.to_string() } else { basename(path).unwrap() }),
+                    _ => format!("Browse: {}/", if full_path { c.cwd.to_string() } else { basename(&c.cwd).unwrap() }),
                 };
                 (title, skyblue())
             },
             LocalContext::Chat(c) => (
-                format!("Chat {}", c.chat.title.as_ref().unwrap_or(&String::new())),
+                format!("Chat: {}", c.chat.title.as_ref().unwrap_or(&String::new())),
                 brown(),
             ),
             LocalContext::WorkingDir(c) => {
@@ -104,7 +104,7 @@ impl IcedContext {
                     _ => green(),
                 };
 
-                (format!("Working Dir {}/", if full_path { c.fe_context.working_dir.to_string() } else { basename(&c.fe_context.working_dir).unwrap() }), flag)
+                (format!("Working Dir: {}/", if full_path { c.fe_context.working_dir.to_string() } else { basename(&c.fe_context.working_dir).unwrap() }), flag)
             },
             LocalContext::Error(c) => (c.message.to_string(), red()),
         }

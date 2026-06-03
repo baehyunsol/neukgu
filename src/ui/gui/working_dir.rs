@@ -951,8 +951,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::BackPopup => {
             if let Some(prev_popup) = &context.prev_popup {
                 let prev_popup = prev_popup.clone();
-                context.open_popup(prev_popup)?;
                 context.prev_popup = None;
+                context.open_popup(prev_popup)?;
             }
         },
         IcedMessage::ClosePopup => {

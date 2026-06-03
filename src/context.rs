@@ -57,7 +57,7 @@ pub struct Context {
 
     // If we have this, that means we already have LLM's response,
     // so we just have to run tool-call (or throw a parse error).
-    pub curr_raw_response: Option<(String, u64, ApiLog)>,
+    pub curr_raw_response: Option<RawResponse>,
 
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
@@ -80,11 +80,19 @@ pub struct ContextJson {
     pub session_id: SessionId,
     pub history: Vec<TurnId>,
     pub summaries: Vec<TurnId>,
-    pub curr_raw_response: Option<(String, u64, ApiLog)>,
+    pub curr_raw_response: Option<RawResponse>,
     pub completed_questions_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RawResponse {
+    pub thinking: Option<String>,
+    pub response: String,
+    pub elapsed_ms: u64,
+    pub logs: ApiLog,
 }
 
 impl Context {
@@ -164,12 +172,13 @@ impl Context {
 
     pub fn start_turn(
         &mut self,
-        raw_response: String,
-        llm_elapsed_ms: u64,
-        api_log: ApiLog,
+        thinking: Option<String>,
+        response: String,
+        elapsed_ms: u64,
+        logs: ApiLog,
     ) {
         assert!(self.curr_raw_response.is_none());
-        self.curr_raw_response = Some((raw_response, llm_elapsed_ms, api_log));
+        self.curr_raw_response = Some(RawResponse { thinking, response, elapsed_ms, logs });
     }
 
     pub fn discard_current_turn(&mut self) {
@@ -185,12 +194,13 @@ impl Context {
         config: &Config,
         kind: TurnKind,
     ) -> Result<TurnId, Error> {
-        let (raw_response, llm_elapsed_ms, logs) = self.curr_raw_response.take().unwrap();
+        let RawResponse { thinking, response, elapsed_ms, logs } = self.curr_raw_response.take().unwrap();
         let new_turn = Turn::new(
-            raw_response,
+            thinking,
+            response,
             parse_result,
             turn_result,
-            llm_elapsed_ms,
+            elapsed_ms,
             tool_elapsed_ms,
             kind,
             config,
@@ -443,7 +453,12 @@ impl Context {
 </ask>
 ";
         // Let's make sure that the schema is correct.
-        self.curr_raw_response = Some((q.to_string(), 0, ApiLog::new()));
+        self.curr_raw_response = Some(RawResponse {
+            thinking: None,
+            response: q.to_string(),
+            elapsed_ms: 0,
+            logs: ApiLog::new(),
+        });
         let parse_result = crate::parse::parse(q.as_bytes(), &[ToolKind::Ask]).unwrap();
 
         let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: interrupt });

@@ -15,6 +15,7 @@ pub struct AnthropicResponse {
 
 #[derive(Deserialize, Serialize)]
 pub struct AnthropicUsage {
+    pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -82,7 +83,7 @@ impl Response {
             thinking,
             web_search_results,
             cached_input_tokens: raw_response.usage.cache_read_input_tokens,
-            input_tokens: raw_response.usage.input_tokens,
+            input_tokens: raw_response.usage.input_tokens + raw_response.usage.cache_creation_input_tokens,
             output_tokens: raw_response.usage.output_tokens,
             log: ApiLog::new(),
         })

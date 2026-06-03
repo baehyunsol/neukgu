@@ -114,7 +114,7 @@ impl Chat {
         );
         let request = Request {
             model: self.config.model,
-            system_prompt: String::from("You're a kind chatbot."),
+            system_prompt: self.config.system_prompt.to_string(),
             history: turns.into_iter().map(|turn| request::Turn { query: turn.user, response: turn.assistant }).collect(),
             query: query.clone(),
             enable_web_search: self.config.enable_web_search,
@@ -191,6 +191,7 @@ pub struct Config {
     pub thinking: Thinking,
     pub enable_web_search: bool,
     pub etc_models: EtcModels,
+    pub system_prompt: String,
 }
 
 impl Config {
@@ -210,6 +211,7 @@ impl Default for Config {
             thinking: Thinking::Enabled,
             enable_web_search: false,
             etc_models: EtcModels::default(),
+            system_prompt: String::from("You're a kind AI chatbot."),
         }
     }
 }

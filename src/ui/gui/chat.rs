@@ -570,7 +570,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
         },
         IcedMessage::SetChatConfig(c) => {
-            set_chat_config(&mut context.chat.config, c);
+            // NOTE: You can't change the system prompt in this ui.
+            set_chat_config(&mut context.chat.config, &[], c);
             context.chat.store(&context.global_index_dir)?;
         },
         IcedMessage::EditShortText(s) => {
@@ -1021,7 +1022,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
         .size(zoom * 14.0)
         .id(editor_id)
         .width(window_size.width * 0.75)
-        .height(zoom * if is_focused { 192.0 } else { 32.0 });
+        .height(zoom * if is_focused { 256.0 } else { 32.0 });
 
     if can_be_focused {
         text_editor = text_editor
@@ -1078,7 +1079,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
             .into();
     }
 
-    let container_height = if is_focused { zoom * 204.0 } else { zoom * 44.0 };
+    let container_height = if is_focused { zoom * 268.0 } else { zoom * 44.0 };
     let text_editor = Container::new(
         Row::from_vec(vec![
             Space::new().width(window_size.width * 0.05).into(),

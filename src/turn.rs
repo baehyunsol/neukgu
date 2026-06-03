@@ -103,6 +103,7 @@ pub enum TurnKind {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Turn {
     pub id: TurnId,
+    pub ai_thinking: Option<String>,
     pub raw_response: String,
     pub parse_result: Option<ParsedSegment>,
     pub turn_result: TurnResult,
@@ -117,6 +118,7 @@ pub struct Turn {
 
 impl Turn {
     pub fn new(
+        ai_thinking: Option<String>,
         raw_response: String,
         parse_result: Option<ParsedSegment>,
         turn_result: TurnResult,
@@ -128,6 +130,7 @@ impl Turn {
     ) -> Turn {
         let mut turn = Turn {
             id: TurnId::dummy(),
+            ai_thinking,
             raw_response,
             parse_result,
             turn_result,

@@ -1,5 +1,5 @@
 use super::{gray, set_round_bg};
-use crate::{Config, Model, Thinking, ToolKind};
+use crate::{Config, Model, Thinking, ToolKind, truncate_chars};
 use crate::chat::Config as ChatConfig;
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
@@ -136,6 +136,7 @@ pub enum SetChatConfig {
     Model(Model),
     Thinking(bool),
     WebSearch(bool),
+    ChooseSystemPrompt(usize),
     OpenaiEtc1BaseUrl(String),
     OpenaiEtc1Model(String),
     OpenaiEtc2BaseUrl(String),
@@ -144,7 +145,7 @@ pub enum SetChatConfig {
     OpenaiEtc3Model(String),
 }
 
-pub fn set_chat_config(config: &mut ChatConfig, set: SetChatConfig) {
+pub fn set_chat_config(config: &mut ChatConfig, system_prompts: &[String], set: SetChatConfig) {
     match set {
         SetChatConfig::Model(model) => {
             config.model = model;
@@ -162,6 +163,9 @@ pub fn set_chat_config(config: &mut ChatConfig, set: SetChatConfig) {
         },
         SetChatConfig::WebSearch(w) => {
             config.enable_web_search = w;
+        },
+        SetChatConfig::ChooseSystemPrompt(i) => {
+            config.system_prompt = system_prompts[i].to_string();
         },
         SetChatConfig::OpenaiEtc1BaseUrl(url) => {
             if url.is_empty() {
@@ -398,6 +402,32 @@ pub fn chat_config_ui2<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
             zoom,
         ), zoom),
     ]).spacing(zoom * 8.0).into()
+}
+
+pub fn chat_config_ui3<'c>(config: &'c ChatConfig, system_prompts: &[String], zoom: f32) -> Element<'c, SetChatConfig> {
+    let mut column: Vec<Element<SetChatConfig>> = vec![
+        text!("System prompt").size(zoom * 14.0).into(),
+    ];
+
+    for (i, system_prompt) in system_prompts.iter().enumerate() {
+        let selected = if system_prompt == &config.system_prompt { Some(i) } else { None };
+
+        column.push(Row::from_vec(vec![
+            Radio::new("", i, selected, SetChatConfig::ChooseSystemPrompt)
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+            Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).size(zoom * 14.0))
+                .width(zoom * 400.0)
+                .height(zoom * 80.0)
+                .padding(zoom * 8.0)
+                .style(move |_| set_round_bg(gray(0.2), zoom))
+                .into(),
+        ]).align_y(Vertical::Center).spacing(zoom * 8.0).into());
+    }
+
+    Column::from_vec(column).spacing(zoom * 8.0).into()
 }
 
 fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2: Fn(String) -> Message + 'c>(

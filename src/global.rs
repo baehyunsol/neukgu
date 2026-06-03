@@ -97,6 +97,14 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         )?;
     }
 
+    if !exists(&join(global_index_dir, "chat-system-prompts.json")?) {
+        write_string(
+            &join(global_index_dir, "chat-system-prompts.json")?,
+            "[\"You're a kind AI chatbot.\"]",
+            WriteMode::AlwaysCreate,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -172,7 +180,7 @@ pub fn remove_global_index(global_index_dir: &str, id: NeukguId) -> Result<(), E
 }
 
 pub fn get_global_config(global_index_dir: &str) -> Result<Config, Error> {
-    Ok(serde_json::from_str(&read_string(&join(global_index_dir, "config.json")?)?)?)
+    Ok(load_json(&join(global_index_dir, "config.json")?)?)
 }
 
 pub fn save_global_config(config: &Config, global_index_dir: &str) -> Result<(), Error> {
@@ -191,6 +199,18 @@ pub fn save_global_chat_config(config: &ChatConfig, global_index_dir: &str) -> R
     Ok(write_string(
         &join(global_index_dir, "chat-config.json")?,
         &serde_json::to_string_pretty(config)?,
+        WriteMode::CreateOrTruncate,
+    )?)
+}
+
+pub fn get_chat_system_prompts(global_index_dir: &str) -> Result<Vec<String>, Error> {
+    Ok(load_json(&join(global_index_dir, "chat-system-prompts.json")?)?)
+}
+
+pub fn save_chat_system_prompts(system_prompts: &[String], global_index_dir: &str) -> Result<(), Error> {
+    Ok(write_string(
+        &join(global_index_dir, "chat-system-prompts.json")?,
+        &serde_json::to_string_pretty(system_prompts)?,
         WriteMode::CreateOrTruncate,
     )?)
 }
