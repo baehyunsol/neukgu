@@ -270,21 +270,23 @@ pub struct MatchPreview {
 impl MatchPreview {
     pub fn new(s: &str, start: usize, end: usize) -> MatchPreview {
         let bytes = s.as_bytes();
+        let matched = String::from_utf8_lossy(&bytes[start..end]).replace("\n", " ").replace("�", "");
+        let context = if matched.len() > 20 { 5 } else { 30 };
 
         MatchPreview {
-            pre_truncated: start >= 20,
-            pre: if start < 20 {
+            pre_truncated: start >= context,
+            pre: if start < context {
                 String::from_utf8_lossy(&bytes[..start]).to_string()
             } else {
-                String::from_utf8_lossy(&bytes[(start - 16)..start]).to_string()
-            }.replace("\n", " "),
-            matched: String::from_utf8_lossy(&bytes[start..end]).replace("\n", " "),
-            post_truncated: end + 20 < s.len(),
-            post: if end + 20 >= s.len() {
+                String::from_utf8_lossy(&bytes[(start - (context - 3))..start]).to_string()
+            }.replace("\n", " ").replace("�", ""),
+            matched,
+            post_truncated: end + context < s.len(),
+            post: if end + context >= s.len() {
                 String::from_utf8_lossy(&bytes[end..]).to_string()
             } else {
-                String::from_utf8_lossy(&bytes[end..(end + 16)]).to_string()
-            }.replace("\n", " "),
+                String::from_utf8_lossy(&bytes[end..(end + (context - 3))]).to_string()
+            }.replace("\n", " ").replace("�", ""),
         }
     }
 }

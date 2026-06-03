@@ -222,6 +222,52 @@ impl IcedContext {
         }
     }
 
+    // 1. It selects an entry whose lower-cased name starts with `prefix`.
+    // 2. If there are multiple candidates,
+    //    - Directories are prefered than files.
+    //    - Names are sorted by alphabet and the first one will be selected.
+    //    - If a directory is already selected and the directory starts with `prefix`, a file will be selected.
+    // 3. It returns whether the function selected an entry or not.
+    pub fn select_entry_with_prefix(&mut self, prefix: &str) -> bool {
+        let mut is_dir_selected = false;
+        let mut file_candidate = None;
+        let mut dir_candidate = None;
+
+        if let Some(i) = self.selected_entry && self.entries[i].name.to_ascii_lowercase().starts_with(prefix) && self.entries[i].is_dir {
+            is_dir_selected = true;
+        }
+
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.name.to_ascii_lowercase().starts_with(prefix) {
+                if entry.is_dir && dir_candidate.is_none() {
+                    dir_candidate = Some(i);
+                }
+
+                else if !entry.is_dir && file_candidate.is_none() {
+                    file_candidate = Some(i);
+                }
+            }
+        }
+
+        match (file_candidate, dir_candidate, is_dir_selected) {
+            (Some(i), None, _) => {
+                self.selected_entry = Some(i);
+            },
+            (None, Some(i), _) => {
+                self.selected_entry = Some(i);
+            },
+            (Some(i), Some(_), true) => {
+                self.selected_entry = Some(i);
+            },
+            (Some(_), Some(i), false) => {
+                self.selected_entry = Some(i);
+            },
+            (None, None, _) => {},
+        }
+
+        file_candidate.is_some() || dir_candidate.is_some()
+    }
+
     pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
         self.close_popup();
         self.curr_popup = Some(popup.clone());
@@ -632,6 +678,27 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("="), true, false, false) => {
                 context.zoom = context.zoom.min(2.4) + 0.1;
+            },
+            // TODO: scroll to an entry that starts with this character
+            // TODO: what if there's a dir and a file that starts with the same character?
+            (
+                Key::Character(c @ (
+                    "a" | "b" | "c" | "d" | "e" |
+                    "f" | "g" | "h" | "i" | "j" |
+                    "k" | "l" | "m" | "n" | "o" |
+                    "p" | "q" | "r" | "s" | "t" |
+                    "u" | "v" | "w" | "x" | "y" | "z"
+                )),
+                false,
+                false,
+                false,
+            ) => {
+                if !context.can_close_popup() {
+                    if context.select_entry_with_prefix(c) {
+                        let scroll_offset = context.select_entry(0);
+                        return Ok(scroll_to(context.entry_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
+                    }
+                }
             },
             _ => {},
         },
@@ -1356,7 +1423,7 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
                 },
             };
 
-            dirs.push(FileEntry {
+            files.push(FileEntry {
                 name: basename(&e)?,
                 path: e.to_string(),
                 is_dir: false,
