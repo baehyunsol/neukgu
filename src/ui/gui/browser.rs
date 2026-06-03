@@ -113,6 +113,7 @@ You can create or initialize a neukgu working directory in file browser.
 - Alt+Num: switch tab
 - Enter: select file entry
 - Delete: delete selected file entry
+- A~Z: quick scroll
 "#;
 
 #[derive(Clone, Debug)]
@@ -141,6 +142,7 @@ pub struct IcedContext {
     pub long_preview: Option<(String, usize, String)>,
     pub popup_title: Option<String>,
     pub loaded_symlink: Option<SymlinkInfo>,
+    pub loaded_file_info: Option<FileInfo>,
     pub zoom: f32,
     pub new_project_config: Config,
     pub short_text_editor_content: String,
@@ -179,6 +181,7 @@ impl IcedContext {
             long_preview: None,
             popup_title: None,
             loaded_symlink: None,
+            loaded_file_info: None,
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
             short_text_editor_content: String::new(),
@@ -359,7 +362,27 @@ impl IcedContext {
             Popup::PreviewSymlink { path } => {
                 self.loaded_symlink = Some(SymlinkInfo::new(&path));
             },
-            Popup::FileInfo { is_dir, path } => todo!(),
+            Popup::FileInfo { is_dir, path } => if is_dir {
+                // I want to calc the size recursively... I guess I need a worker for that
+                todo!()
+            } else {
+                let is_symlink = is_symlink(&path);
+                let metadata = if is_symlink {
+                    std::fs::symlink_metadata(&path)
+                } else {
+                    std::fs::metadata(&path)
+                };
+                let metadata = metadata.map_err(|e| FileError::from_std(e, &path))?;
+
+                self.loaded_file_info = Some(FileInfo {
+                    name: basename(&path)?,
+                    path: path.to_string(),
+                    is_symlink,
+                    size: metadata.len(),
+                    modified: metadata.modified().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+                    created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+                });
+            },
             Popup::AskDelete { .. } => {},
             Popup::Find { .. } => {},
             Popup::FindResult { .. } => {},
@@ -382,6 +405,7 @@ impl IcedContext {
         self.long_preview = None;
         self.popup_title = None;
         self.loaded_symlink = None;
+        self.loaded_file_info = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
     }
@@ -518,6 +542,32 @@ impl SymlinkInfo {
             pointee,
             error: None,
         })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FileInfo {
+    pub name: String,
+    pub path: String,
+    pub is_symlink: bool,
+    pub size: u64,
+
+    // timedelta, in milliseconds
+    pub modified: Option<u64>,
+    pub created: Option<u64>,
+}
+
+impl FileInfo {
+    pub fn render(&self) -> String {
+        format!(
+            "name: {}\npath: {}\nis_symlink: {}\nsize: {}\nmodified: {}\ncreated: {}\n",
+            self.name,
+            self.path,
+            self.is_symlink,
+            prettify_bytes(self.size),
+            if let Some(t) = self.modified { format!("{} ago", prettify_time(t)) } else { String::from("N/A") },
+            if let Some(t) = self.created { format!("{} ago", prettify_time(t)) } else { String::from("N/A") },
+        )
     }
 }
 
@@ -1112,7 +1162,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         }
     }
 
-    else if let Some(Popup::PreviewSymlink { .. }) = &context.curr_popup {
+    else if let Some(Popup::PreviewSymlink { .. }) = context.curr_popup {
         let popup = match &context.loaded_symlink {
             Some(SymlinkInfo { pointer, error: Some(error), .. }) => Column::from_vec(vec![
                 text!("{pointer}").size(context.zoom * 18.0).width(context.window_size.width).into(),
@@ -1129,6 +1179,18 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     button("Open", IcedMessage::OpenPopup(Popup::PreviewFile { path: pointee.to_string() }), skyblue(), context.zoom).into()
                 },
             ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center),
+            None => unreachable!(),
+        };
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(popup.into(), context),
+        ]).into();
+    }
+
+    else if let Some(Popup::FileInfo { .. }) = context.curr_popup {
+        let popup = match &context.loaded_file_info {
+            Some(file_info) => text!("{}", file_info.render()).size(context.zoom * 14.0),
             None => unreachable!(),
         };
 

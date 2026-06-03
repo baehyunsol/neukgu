@@ -181,7 +181,6 @@
   - 외부에서 늑구한테 질문/요청할 때는 늑구가 대답할 방법이 없음. 그나마 할 수 있는 건 `logs/`에 파일을 작성하는 것 뿐
     - 그럼 슬랙이랑 늑구 사이에 작은 agent를 더 넣자.
     - 사용자가 늑구한테 대답을 요청했으면, agent가 늑구한테 "~에 대한 대답을 logs/XXX에 작성해줘"라고 전달하는 거임. 늑구가 해당 파일을 작성했으면 이 agent가 다시 슬랙으로 메시지를 보내는 거지
-111. browser에서 Up을 누르면 (혹은 alt+up), 이전 dir이 선택되어 있도록 하자!
 116. cron neukgu
   - 진짜 cron으로 띄우기 vs neukgu daemon이 돌고 있다가 띄우기
     - 주기적으로 떠야하는 작업만 생각하면 전자가 나을 거 같긴한데, 그럼 CLI 보강을 좀 해야할듯?
@@ -262,11 +261,7 @@
       - 이것도 config ui 안에다가 넣으면 됨!!
 152. browser에서 파일 미리보기 할 때, 방향키로 browse 가능케 하기!!
 154. neukgu가 zed를 대체하려면?
-  - git 관련된 기능이 훨씬 보강되어야 함
-    - git status 바로 보기
-    - `git diff --cached -U5 --diff-algorithm=patience` 바로 보기
-    - `git diff -U5 --diff-algorithm=patience` 바로 보기
-    - 최근 commit들 바로 보기
+  - git 관련된 기능이 훨씬 보강되어야 함 (issue 165)
   - 간단한 텍스트 파일은 즉시 수정이 가능해야함: text editor를 집어넣어??
 155. snapshot/sandbox를 git으로 관리하기??
   - 이게 잘되면 옛날처럼 모든 turn의 snapshot을 떠놓고 오류나면 즉시 롤백하면 됨
@@ -274,7 +269,6 @@
   - working-dir바깥에 `.git/`을 새로 만들고, working-dir에서는 해당 git이 아예 안 보이게 하면 됨
     - working-dir 안에 있는 `.gitignore`와 `.git/`을 일시적으로 비활성화 하고 snapshot을 만들고 다시 활성화해야함
     - 
-156. anthropic token 셀 때 cache_creation_input_tokens도 세야함
 157. openai-compatible-api에서 reasoning token 뽑아내기
   - openai 공식 문서에는 아예 언급이 없음
   - ollama 0.24.0 linux에서 쓰니까 message 안에 content/reasoning/role이 들어있거든? 셋다 string. 근데 또 웃긴건 ollama 문서에는 field 이름이 reasoning이 아니고 thinking이라고 돼 있음...
@@ -298,6 +292,16 @@
 163. claude code (혹은 다른 harness)의 session을 읽어서 늑구의 session으로 변환할 수 있으면...
   - 늑구에서 계속 실행하면 개이득이고, 늑구에서 볼 수만 있어도 엄청 좋지!!
 164. browser에도 scratch pad 버튼 붙이자 -> 현재 dir의 entry를 간단하게 string으로 바꿔서 띄우기!!
+165. more git!!
+  - pretty ui for `git diff --cached -U5 --diff-algorithm=patience`
+  - pretty ui for `git diff -U5 --diff-algorithm=patience`
+  - `git status`: it's not necessary when we have the above commands.
+  - pretty ui for `git log`
+  - I'll implement it once and use it in the browser ui (only if a git repo is detected) and the working-dir ui
+  - Do I need a separate worker that collects the git data?
+  - Is it a popup or a tab?
+    - If it's a tab, we can add a lot more interface
+    - If it's a tab, there are so many more things to implement...
 
 ## mock API
 

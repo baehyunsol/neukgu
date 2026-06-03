@@ -915,10 +915,21 @@ pub fn render_turn<'n, 'cn, 'cx>(
         context.zoom,
     ));
 
-    let buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
+    let mut buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
         buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
     } else {
         buttons.into_iter().map(|button| button.into()).collect()
+    };
+
+    // If it were `buttons.len() < 7`, it would be too ugly when there are 7 buttons.
+    let buttons: Element<IcedMessage> = if buttons.len() < 8 {
+        Row::from_vec(buttons).spacing(context.zoom * 8.0).into()
+    } else {
+        // Let's hope that there are less than 13 buttons...
+        Column::from_vec(vec![
+            Row::from_vec(buttons.drain(0..6).collect()).spacing(context.zoom * 8.0).into(),
+            Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
+        ]).spacing(context.zoom * 8.0).into()
     };
 
     Container::new(Column::from_vec(vec![
@@ -951,7 +962,7 @@ pub fn render_turn<'n, 'cn, 'cx>(
             .width(context.window_size.width)
             .align_x(Horizontal::Left)
             .into(),
-        Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
+        buttons,
     ]).spacing(context.zoom * 8.0))
         .padding(context.zoom * 8.0)
         .style(|_| set_round_bg(gray(0.25), context.zoom))
