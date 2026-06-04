@@ -1110,7 +1110,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::BackgroundJobResult(_) => todo!(),
         IcedMessage::Notify(_) => unreachable!(),
         IcedMessage::Focus => {
-            return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
+            let mut tasks = vec![scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled)];
+
+            if let Some(Popup::GetApiKeys) = context.curr_popup {
+                tasks.push(context.get_api_keys_context.focus().map(IcedMessage::GetApiKeys));
+            }
+
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::PrepareScratchPad => {
             let content = match (&context.loaded_image, &context.copy_buffer) {

@@ -261,7 +261,6 @@
       - question의 정답이 도착하면 자동으로 popup이 뜨게하는 거는... 쉬움!
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
-147. I want the api key input to be focused when the tab is open.
 148. 비슷한 neukgu-instruction을 복붙해서 쓰는 경우가 많아지고 있음
   - 지금 하고있는 반복작업: open source coding harness 몇개를 주고 "얘네를 git clone 한 다음에 feature XXX가 어떻게 구현되어 있는지를 분석해서 docs/YYY.md에 저장해줘"라고 시키기
     - feature XXX만 바꿔가면서 계속 시키는 중... 이걸 어떻게 자동화할 건덕지가 없을까?

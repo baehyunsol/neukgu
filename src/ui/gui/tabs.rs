@@ -381,6 +381,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 
             else {
                 let new_tab = TabContext::new(&context.home_dir, context.api_keys.clone(), tab, context.window_size);
+                let new_tab_id = new_tab.id;
                 let new_tab_index = match context.selected_tab {
                     Some(i) => i + 1,
                     None => 0,
@@ -390,9 +391,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 context.selected_tab = Some(new_tab_index);
 
                 if let Some(scroll_id) = scroll_id {
-                    scroll_to(scroll_id, AbsoluteOffset { x: 0.0, y: 0.0 })
+                    Task::batch(vec![
+                        scroll_to(scroll_id, AbsoluteOffset { x: 0.0, y: 0.0 }),
+                        Task::done(IcedMessage::Tab { id: new_tab_id, message: TabMessage::Focus }),
+                    ])
                 } else {
-                    Task::none()
+                    Task::done(IcedMessage::Tab { id: new_tab_id, message: TabMessage::Focus })
                 }
             }
         },

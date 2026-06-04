@@ -267,7 +267,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 },
             }
 
-            Task::none()
+            // So that the api key input is focused!
+            Task::done(IcedMessage::Focus)
         },
         (LocalContext::Browser(c), IcedMessage::Tick { frame, force_update }) => browser::update(c, BrowserMessage::Tick { frame, force_update }).map(IcedMessage::Browser),
         (LocalContext::Browser(c), IcedMessage::KeyPressed { key, modifiers }) => browser::update(c, BrowserMessage::KeyPressed { key, modifiers }).map(IcedMessage::Browser),

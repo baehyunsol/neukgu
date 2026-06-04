@@ -28,6 +28,28 @@ impl IcedContext {
             key4: String::new(),
         }
     }
+
+    pub fn focus(&self) -> Task<IcedMessage> {
+        if let Some(id) = self.text_input_ids.get(0) && self.key1.is_empty() {
+            focus(id.clone())
+        }
+
+        else if let Some(id) = self.text_input_ids.get(1) && self.key2.is_empty() {
+            focus(id.clone())
+        }
+
+        else if let Some(id) = self.text_input_ids.get(2) && self.key3.is_empty() {
+            focus(id.clone())
+        }
+
+        else if let Some(id) = self.text_input_ids.get(3) && self.key4.is_empty() {
+            focus(id.clone())
+        }
+
+        else {
+            Task::none()
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
