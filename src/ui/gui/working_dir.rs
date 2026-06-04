@@ -573,6 +573,7 @@ pub enum IcedMessage {
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
+    Notify(String),
     Focus,
     PrepareScratchPad,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
@@ -719,6 +720,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
                 else if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
+                }
+
+                else if context.llm_request.is_some() {
+                    return Ok(Task::done(IcedMessage::Notify(String::from("You can't close this popup."))));
                 }
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
@@ -1103,6 +1108,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(_) => todo!(),
+        IcedMessage::Notify(_) => unreachable!(),
         IcedMessage::Focus => {
             return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
         },
@@ -1753,6 +1759,8 @@ fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedC
                 Row::from_vec(vec![
                     button("▼", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
                     Space::new().width(context.zoom * 8.0).into(),
+                    button("Open", IcedMessage::OpenBrowser { dir: change.browser_path.0.to_string(), file: Some(change.browser_path.1.to_string()) }, skyblue(), context.zoom).into(),
+                    Space::new().width(context.zoom * 8.0).into(),
                     text!("{} (", change.path).size(context.zoom * 14.0).into(),
                     text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
                     text!(", ").size(context.zoom * 14.0).into(),
@@ -1765,6 +1773,8 @@ fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedC
             *all_expanded = false;
             Row::from_vec(vec![
                 button("▶", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
+                Space::new().width(context.zoom * 8.0).into(),
+                button("Open", IcedMessage::OpenBrowser { dir: change.browser_path.0.to_string(), file: Some(change.browser_path.1.to_string()) }, skyblue(), context.zoom).into(),
                 Space::new().width(context.zoom * 8.0).into(),
                 text!("{} (", change.path).size(context.zoom * 14.0).into(),
                 text!("+{add}").size(context.zoom * 14.0).color(green()).into(),

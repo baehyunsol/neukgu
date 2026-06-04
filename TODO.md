@@ -68,9 +68,7 @@
   - chat 안에서 검색하기
     - 생각해보니까 이거 결과를 highlight하는게 무지 빡셀 듯...
   - chat 목록에서 검색하기
-    - 이건 구현이랑 ui 만드는게 쉬움!!
-    - "New Chat" 버튼 옆에 search 버튼 붙이면 됨.
-    - 결과 보여주는 popup을 만들면 되고, 거기서 클릭하면 해당 chat으로 바로 연결되게 하면 됨!!
+    - complete!
 64. Remote 늑구
   - be랑 fe랑 별개의 컴퓨터에서 도는 거임... 지금 구조로는 구현하는게 아주아주 빡셈 ㅠㅠ
   - 아니면, 늑구를 engine/be/fe로 나눌 수도 있음
@@ -147,7 +145,6 @@
   - It provides github-like interface.
   - Neukgu will read the issues and tries to fix them, and close them.
 97. Custom tools
-  - 일단은 기본 툴 중에서 2개 (patch, chrome)을 configurable하게 바꿨고, 관련된 코드도 다 수정했음 (아직 실제 LLM으로 테스트는 안 해봄)
   - 지금 생각은 "어차피 나 혼자 쓸 건데 필요할 때마다 tool을 만들어서 neukgu에 built-in으로 추가하면 되는 거 아님?"이긴 한데, 그때그때 임시로 필요한 tool이 생길 확률이 높으니 script-able tool이 필요하기는 함!!
   - 포토샵으로 이것저것하려면 custom tool이 압도적으로 편리!!
   - harness와 tool은 json으로 소통
@@ -231,11 +228,37 @@
 136. "Favorites" button to the browser tab
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
 143. token usage 보면서 비용도 보고싶음... how?
-144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음. I can implement this in neukgu like:
-  - system prompt: answer the user question + don't say anything other than the answer
-  - turns
-    - the same turns that the big agent would see
-  - user question + instruction (answer the question according to the turns + don't say anything other than the answer)
+144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음.
+  - I can implement this in neukgu like:
+    - system prompt: answer the user question + don't say anything other than the answer
+    - turns
+      - the same turns that the big agent would see
+    - user question + instruction (answer the question according to the turns + don't say anything other than the answer)
+  - 이슈
+    - fe에서 worker로 처리하기 vs be가 처리하고 결과 보여주기
+      - be가 처리하려면 현재 진행 중인 turn을 강제종료해야하는데, 그건 너무 손해임 ㅠㅠ
+    - btw의 기록을 갖고 있기 vs popup으로 보여준 다음에 창 닫으면 영원히 사라지게 하기
+      - btw의 기록을 갖고 있는 주체는 누구임? 그럼 be가 갖고 있는게 맞긴한데...
+      - btw의 기록을 갖고 있으려면 이 btw가 어느 turn에 붙어있는지도 기억해야함!
+      - btw의 기록을 갖고 있으려면 그냥 turn으로 만들어버리고 hidden 붙이는게 나음!
+        - 기존의 ui에서 btw를 entry로 표시하려면 무조건 btw를 turn으로 만들어야함. 그렇게 안하면 무지무지 복잡해질 듯...
+        - btw를 entry로 표시 안하면 이 btw가 언제 물어본 btw인지 알 방법이 없음...
+  - 아니면 이건 ㅇㄸ?
+    - 지금도 채팅창에 instruction을 줄 수도 있고, question을 줄 수도 있잖아? 근데 사실 둘이 완전 다른 거임...
+    - instruction의 경우, 대답을 바라는게 아니고, 늑구를 제어하는게 목표임. 그래서 이 turn은 context 안에서 엄청 중요하지! 또, instruction이 오면 늑구가 tool-call을 계속 하는게 자연스러움
+    - question의 경우, 늑구가 tool-call을 하면 어색함. 그냥 자연어로 대답하는게 나음. 또, 이 turn은 context에 굳이 안 남겨도 됨. 남겨야하는 경우가 있을 거 같기도 하고...
+      - question의 경우, 늑구가 대답을 하면 대답을 바로 보여주는게 나음. 지금처럼 turn만 추가하면 열어서 보기 귀찮잖아... ㅋㅋ
+      - 이거는 쉽지. 걍 OpenPopup을 해버리면 됨! 현재 popup을 prev로 주면 금상첨화일 듯? 원래 prev는 날아가는 건데? ㅋㅋ
+  - draft 1
+    - working-dir-gui의 아래쪽 채팅창에 instruction/question을 고르는 radio를 추가. 중요한 기능이니까 hot-key도 추가
+      - 아니면 이걸 AI가 판별하게할까? 이정도는 충분히 판별할텐데...
+      - 아니다 이건 사람이 손으로 고르게 하자. 그게 늑구 철학에 더 맞음...
+    - instruction을 고르면 지금처럼 동작
+    - question을 고르면 system prompt를 갈아끼운 다음에 대답만 받아옴. 얘는 추가되자마자 자동으로 hidden_turns에 들어감
+      - 그대신 손으로 hide/pin을 바꿀 수는 있음
+      - 나머지는 전부 동일하고 `Tool::run()` 안에서 question을 처리하는 if문만 추가하는 거임
+      - 이러면 다 좋은데 현재 진행 중인 turn을 멈춰야함... -> 이게 제일 문제네
+      - question의 정답이 도착하면 자동으로 popup이 뜨게하는 거는... 쉬움!
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
 147. I want the api key input to be focused when the tab is open.
@@ -302,6 +325,9 @@
   - Is it a popup or a tab?
     - If it's a tab, we can add a lot more interface
     - If it's a tab, there are so many more things to implement...
+  - what if the working directory itself is not a git repository but its parent is?
+166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index (working-dir 만들 때 파일 추가)에 넣자
+167. Browser gui에서 file info 볼 때 directory size를 recursive하게 재려고 하잖아? 이거를 worker가 하게 만들자. 그거 만들면서 pdf rendering도 그냥 worker한테 던져버리자 ㅋㅋ
 
 ## mock API
 

@@ -328,6 +328,7 @@ pub enum IcedMessage {
     MainViewScrolled(AbsoluteOffset),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
+    Notify(String),
     Focus,
     PrepareScratchPad,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
@@ -657,6 +658,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             _ => {},
         },
+        IcedMessage::Notify(_) => unreachable!(),
         IcedMessage::Focus => {
             context.hovered_tab = None;
             return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));

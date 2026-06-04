@@ -333,8 +333,8 @@ impl IcedContext {
                         // hex dump's line is 84 bytes long (representation) and is 16 bytes long (actual data)
                         // there're no multi-byte chars in hex dumps
                         let preview_lines = (TEXT_EDITOR_CONTENT_LIMIT - 512) / 2 / 84;
-                        let pre = content.get(..(preview_lines * 84 - 1)).unwrap().to_string();
-                        let post = content.get((content.len() - preview_lines * 84)..).unwrap().to_string();
+                        let pre = String::from_utf8_lossy(&content.as_bytes()[..(preview_lines * 84 - 1)]).replace("�", "");
+                        let post = String::from_utf8_lossy(&content.as_bytes()[(content.len() - preview_lines * 84)..]).replace("�", "");
                         let trunc = if is_binary {
                             file_size - preview_lines * 16 * 2
                         } else {
@@ -464,6 +464,7 @@ pub enum IcedMessage {
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
+    Notify(String),
     Focus,
     PrepareScratchPad,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
@@ -902,9 +903,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
         },
-        IcedMessage::Focus => {
-            return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
-        },
         IcedMessage::PrepareScratchPad => {
             let content = match (context.image_buffer.get(0), &context.copy_buffer) {
                 (Some((_, ImageHandle::Path(_, path))), _) => ScratchPadContent::Image { path: path.clone().into_os_string().into_string().unwrap() },
@@ -951,6 +949,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 _ => {},
             },
             _ => {},
+        },
+        IcedMessage::Notify(_) => unreachable!(),
+        IcedMessage::Focus => {
+            return Ok(scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled));
         },
         IcedMessage::Kill => {
             return Ok(Task::done(IcedMessage::Dead));

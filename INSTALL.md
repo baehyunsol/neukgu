@@ -13,6 +13,7 @@ You need git to be in PATH in order to run neukgu. The agent can run git, and it
 https://rustup.rs/ -> You can download cargo here.
 
 Once you have cargo, run `cargo build --release` in the repository.
+Make sure to give the `--release` flag. Some features (e.g. pdf rendering) are extremely slow in debug mode.
 
 You need cargo to be in PATH.
 

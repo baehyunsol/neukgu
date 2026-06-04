@@ -181,9 +181,10 @@ pub enum IcedMessage {
     Error(ErrorMessage),
     Tick { frame: usize, force_update: bool },
     KeyPressed { key: Key, modifiers: Modifiers },
+    WindowResized(Size),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
-    WindowResized(Size),
+    Notify(String),
     Focus,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
 
@@ -251,6 +252,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (_, IcedMessage::Browser(BrowserMessage::BackgroundJob(job)) | IcedMessage::Chat(ChatMessage::BackgroundJob(job)) | IcedMessage::WorkingDir(WorkingDirMessage::BackgroundJob(job))) => {
             Task::done(IcedMessage::BackgroundJob(job))
+        },
+        (_, IcedMessage::Browser(BrowserMessage::Notify(note)) | IcedMessage::Chat(ChatMessage::Notify(note)) | IcedMessage::WorkingDir(WorkingDirMessage::Notify(note))) => {
+            Task::done(IcedMessage::Notify(note))
         },
         (local_context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable

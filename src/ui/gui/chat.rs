@@ -10,6 +10,7 @@ use super::{
     red,
     set_bg,
     set_round_bg,
+    skyblue,
     white,
     yellow,
 };
@@ -225,7 +226,9 @@ impl IcedContext {
                 self.set_long_text_editor_content(code.to_string());
                 self.syntax_highlight = ext;
             },
-            _ => todo!(),
+            Popup::Image(_) => todo!(),
+            Popup::Find { .. } => todo!(),
+            Popup::FileBrowser => todo!(),
         }
 
         Ok(())
@@ -345,6 +348,7 @@ pub enum IcedMessage {
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
+    Notify(String),
     Focus,
     PrepareScratchPad,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
@@ -393,6 +397,7 @@ pub enum Popup {
     CodeBlock { code: String, ext: Option<String> },
     Image(ImageId),
     Find { re: Option<String>, error: Option<String> },
+    FileBrowser,
 }
 
 impl Popup {
@@ -512,6 +517,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.chat_view_scrolled = o;
         },
         IcedMessage::OpenPopup { curr, prev } => {
+            if let Popup::Image(_) | Popup::Find { .. } | Popup::FileBrowser = &curr {
+                return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented yet"))));
+            }
+
             let mut tasks: Vec<Task<IcedMessage>> = vec![
                 scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled),
             ];
@@ -637,6 +646,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             _ => {},
         },
+        IcedMessage::Notify(_) => unreachable!(),
         IcedMessage::Focus => {
             return Ok(scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled));
         },
@@ -759,7 +769,15 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let full_view = Column::from_vec(full_view);
     let chat_config_ui_in_container = Container::new(
-        Column::from_vec(vec![chat_config_ui1(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig)])
+        Column::from_vec(vec![
+            Row::from_vec(vec![
+                button("Attach", IcedMessage::OpenPopup { curr: Popup::FileBrowser, prev: None }, skyblue(), context.zoom).into(),
+                chat_config_ui1(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig).into(),
+            ])
+                .spacing(context.zoom * 8.0)
+                .align_y(Vertical::Center)
+                .into(),
+        ])
             .padding(Padding { right: context.zoom * 8.0, ..Padding::ZERO })
             .width(context.window_size.width)
             .align_x(Horizontal::Right)

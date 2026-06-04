@@ -14,6 +14,7 @@ use crate::{
     ToolCallError,
     ToolCallSuccess,
     count_bytes_of_llm_tokens,
+    truncate_chars,
 };
 use flate2::Compression;
 use flate2::read::{GzDecoder, GzEncoder};
@@ -214,7 +215,10 @@ impl Turn {
                     } else {
                         String::from("???")
                     },
-                    TurnKind::UserQuestion => String::from("Interrupt from user"),
+                    TurnKind::UserQuestion => match &self.turn_result {
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Interrupt from user {:?}", truncate_chars(answer, 36)),
+                        _ => unreachable!(),
+                    },
                 }
             },
             _ => String::from("????"),

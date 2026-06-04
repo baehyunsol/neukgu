@@ -22,7 +22,7 @@ use super::worker::{JobResult, JobResultKind, Workers, init_workers};
 use super::working_dir::IcedMessage as WorkingDirMessage;
 use crate::{ChatId, get_neukgu_id};
 use iced::{Background, Color, Element, Length, Size, Task};
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::{Column, Row, Space, Stack, text};
@@ -49,6 +49,7 @@ pub struct IcedContext {
     pub index: IndexContext,
     pub tabs: Vec<TabContext>,
     pub scratch_pad: ScratchPadContext,
+    pub notes: Vec<(String, /* life_span: */ usize)>,
     pub workers: Workers,
 }
 
@@ -68,12 +69,26 @@ impl IcedContext {
             index: IndexContext::new(&home_dir),
             tabs: vec![],
             scratch_pad: ScratchPadContext::new(),
+            notes: vec![],
             workers: init_workers(8),
         }
     }
 
+    pub fn keep_scroll(&mut self) -> Task<IcedMessage> {
+        if let Some(i) = self.selected_tab {
+            let id = self.tabs[i].id;
+            tab::update(&mut self.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
+        } else {
+            index::update(&mut self.index, IndexMessage::Focus).map(IcedMessage::Index)
+        }
+    }
+
     pub fn notify(&mut self, note: String) {
-        todo!()
+        self.notes.push((note, 60));
+
+        if self.notes.len() > 3 {
+            self.notes = self.notes[1..].to_vec();
+        }
     }
 }
 
@@ -105,18 +120,17 @@ pub enum Tab {
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
+    // Whenever it changes UI, some scrollbars are reset. So it calls `keep_scroll` to prevent that.
     match message {
         IcedMessage::Index(IndexMessage::OpenScratchPad { title, content }) |
         IcedMessage::Tab { id: _, message: TabMessage::OpenScratchPad { title, content } } => {
             context.scratch_pad.open_content(title, content);
-
-            // Without this, the tab's scroll will be reset
-            if let Some(i) = context.selected_tab {
-                let id = context.tabs[i].id;
-                tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
-            } else {
-                index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
-            }
+            context.keep_scroll()
+        },
+        IcedMessage::Index(IndexMessage::Notify(note)) |
+        IcedMessage::Tab { id: _, message: TabMessage::Notify(note) } => {
+            context.notify(note);
+            context.keep_scroll()
         },
         IcedMessage::Index(IndexMessage::NewTab { tab, force_new_tab }) => Task::done(IcedMessage::NewTab { tab, force_new_tab }),
         IcedMessage::Index(IndexMessage::OpenTab { id, index }) => {
@@ -167,14 +181,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::ScratchPad(ScratchPadMessage::Close) => {
             context.scratch_pad.tab = ScratchPadTab::Hidden;
-
-            // Without this, the tab's scroll will be reset
-            if let Some(i) = context.selected_tab {
-                let id = context.tabs[i].id;
-                tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
-            } else {
-                index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
-            }
+            context.keep_scroll()
         },
         IcedMessage::ScratchPad(m) => scratch_pad::update(&mut context.scratch_pad, m).map(IcedMessage::ScratchPad),
         IcedMessage::Tick => {
@@ -216,6 +223,15 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.index.current_tabs = context.tabs.iter().enumerate().map(
                 |(i, t)| t.get_preview(i)
             ).collect();
+
+            for (_, life) in context.notes.iter_mut() {
+                *life -= 1;
+            }
+
+            context.notes = context.notes.drain(..).filter(
+                |(_, life)| *life > 0
+            ).collect();
+
             Task::batch(tasks)
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
@@ -270,27 +286,13 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                     focus(context.scratch_pad.text_editor_id.clone()),
                 ];
                 context.scratch_pad.toggle_text_editor();
-
-                // Without this, the tab's scroll will be reset
-                if let Some(i) = context.selected_tab {
-                    let id = context.tabs[i].id;
-                    tasks.push(tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message }));
-                } else {
-                    tasks.push(index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index));
-                }
+                tasks.push(context.keep_scroll());
 
                 Task::batch(tasks)
             },
             (Key::Character("p"), true, false, true) => {
                 context.scratch_pad.toggle_slide_rule();
-
-                // Without this, the tab's scroll will be reset
-                if let Some(i) = context.selected_tab {
-                    let id = context.tabs[i].id;
-                    tab::update(&mut context.tabs[i], TabMessage::Focus).map(move |message| IcedMessage::Tab { id, message })
-                } else {
-                    index::update(&mut context.index, IndexMessage::Focus).map(IcedMessage::Index)
-                }
+                context.keep_scroll()
             },
             (_, true, _, true) => {
                 if context.scratch_pad.tab != ScratchPadTab::Hidden {
@@ -475,6 +477,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
+    if !context.notes.is_empty() {
+        view = Stack::from_vec(vec![
+            view,
+            render_notes(&context.notes, &context),
+        ]).into();
+    }
+
     view
 }
 
@@ -635,4 +644,51 @@ fn render_tab_title<'t, 'm>(
         },
         ..ContainerStyle::default()
     }).into()
+}
+
+fn render_notes<'c>(notes: &'c [(String, usize)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    assert!(notes.len() <= 3);
+
+    Container::new(
+        Row::from_vec(vec![
+            Column::from_vec(notes.iter().map(
+                |(note, life)| {
+                    let alpha = match life {
+                        30.. => 1.0,
+                        ..30 => *life as f32 / 30.0,
+                    };
+
+                    Container::new(text!("{note}").color(Color::from_rgba(1.0, 1.0, 1.0, alpha)).size(14.0))
+                        .center_x(360.0)
+                        .center_y(90.0)
+                        .padding(8.0)
+                        .style(
+                            move |_| {
+                                ContainerStyle {
+                                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, alpha))),
+                                    border: Border {
+                                        color: Color::from_rgba(1.0, 1.0, 1.0, alpha),
+                                        width: 4.0,
+                                        radius: Radius::new(8.0),
+                                    },
+                                    ..ContainerStyle::default()
+                                }
+                            }
+                        )
+                        .into()
+                }
+            ).collect())
+                .width(context.window_size.width)
+                .align_x(Horizontal::Center)
+                .spacing(16.0)
+                .into()
+        ])
+            .width(context.window_size.width)
+            .height(context.window_size.height)
+            .align_y(Vertical::Bottom)
+    )
+        .padding(context.window_size.height * 0.1)
+        .width(context.window_size.width)
+        .height(context.window_size.height)
+        .into()
 }

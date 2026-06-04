@@ -2,12 +2,14 @@ use super::{IcedContext, IcedMessage, Popup, green, green_transparent, red, red_
 use crate::Error;
 use iced::{Element, Length};
 use iced::widget::{Column, Container, Row, text};
+use ragit_fs::{basename, join, parent};
 use similar::{Algorithm, ChangeTag, TextDiffConfig};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct FileChange {
     pub path: String,
+    pub browser_path: (String, String),  // (dir, file)
     pub udiff: String,
     pub expanded: bool,
 }
@@ -22,10 +24,12 @@ impl IcedContext {
 
                 for (file, original_content) in changed_files.iter() {
                     let udiff = self.fe_context.get_file_change(file, original_content)?;
+                    let abs_path = join(&self.fe_context.working_dir, &file)?;
 
                     if let Some(udiff) = udiff {
                         changes.push(FileChange {
                             path: file.to_string(),
+                            browser_path: (parent(&abs_path)?, basename(&abs_path)?),
                             udiff,
                             expanded: expanded.get(file).cloned().unwrap_or(false),
                         });

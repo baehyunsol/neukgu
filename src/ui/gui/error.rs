@@ -34,12 +34,8 @@ pub enum IcedMessage {
 pub fn update(_: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
-            (Key::Character("y"), false, false, false) => {
-                return Task::done(IcedMessage::Dead);
-            },
-            _ => {
-                return Task::none();
-            },
+            (Key::Character("y"), true, false, false) => Task::done(IcedMessage::Dead),
+            _ => Task::none(),
         },
         IcedMessage::Kill => Task::done(IcedMessage::Dead),
         IcedMessage::Dead => unreachable!(),
