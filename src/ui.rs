@@ -6,6 +6,7 @@ use crate::{
     ContextJson,
     DiffKind,
     Error,
+    InterruptKind,
     LineDiff,
     LogId,
     NeukguId,
@@ -68,7 +69,8 @@ pub enum MessageKind {
         answer: Option<UserResponse>,
     },
     User2LLM {
-        question: String,
+        interrupt_kind: InterruptKind,
+        interrupt: String,
         completed: bool,
     },
     UpdateConfig(Config),
@@ -372,7 +374,7 @@ impl FeContext {
     pub fn end_frame(
         &mut self,
         pause: Option<bool>,
-        question_from_user: Option<(u64, String)>,
+        interrupt_from_user: Option<(u64, InterruptKind, String)>,
         user_response: Option<(u64, UserResponse)>,
         has_to_update_config: bool,
     ) -> Result<(), Error> {
@@ -383,13 +385,14 @@ impl FeContext {
             fe2be.pause = pause;
         }
 
-        if let Some((id, question)) = question_from_user {
+        if let Some((id, interrupt_kind, interrupt)) = interrupt_from_user {
             fe2be.to_be.insert(
                 id,
                 Message {
                     id,
                     kind: MessageKind::User2LLM {
-                        question,
+                        interrupt_kind,
+                        interrupt,
                         completed: false,
                     },
                 },
@@ -769,7 +772,7 @@ impl Context {
         Ok(())
     }
 
-    pub fn check_question_from_user(&self) -> Result<Option<(u64, String)>, Error> {
+    pub fn check_interrupt_from_user(&self) -> Result<Option<(u64, InterruptKind, String)>, Error> {
         if !self.is_fe_alive()? {
             return Ok(None);
         }
@@ -777,9 +780,9 @@ impl Context {
         let be2fe: Be2Fe = load_json(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?;
 
         for message in be2fe.from_fe.values() {
-            if let Message { id, kind: MessageKind::User2LLM { question, .. }} = message {
-                if !self.completed_questions_from_user.contains(id) {
-                    return Ok(Some((*id, question.to_string())));
+            if let Message { id, kind: MessageKind::User2LLM { interrupt_kind, interrupt, .. }} = message {
+                if !self.completed_interrupts_from_user.contains(id) {
+                    return Ok(Some((*id, *interrupt_kind, interrupt.to_string())));
                 }
             }
         }

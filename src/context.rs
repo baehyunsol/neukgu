@@ -3,6 +3,7 @@ use crate::{
     AskTo,
     Config,
     Error,
+    InterruptKind,
     LLMToken,
     Logger,
     LogEntry,
@@ -59,7 +60,7 @@ pub struct Context {
     // so we just have to run tool-call (or throw a parse error).
     pub curr_raw_response: Option<RawResponse>,
 
-    pub completed_questions_from_user: HashSet<u64>,
+    pub completed_interrupts_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,  // never hidden
     pub is_in_global_index_dir: bool,
@@ -81,7 +82,7 @@ pub struct ContextJson {
     pub history: Vec<TurnId>,
     pub summaries: Vec<TurnId>,
     pub curr_raw_response: Option<RawResponse>,
-    pub completed_questions_from_user: HashSet<u64>,
+    pub completed_interrupts_from_user: HashSet<u64>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
@@ -114,7 +115,7 @@ impl Context {
             summaries: vec![],
             curr_raw_response: None,
             turns: HashMap::new(),
-            completed_questions_from_user: HashSet::new(),
+            completed_interrupts_from_user: HashSet::new(),
             hidden_turns: HashSet::new(),
             pinned_turns: HashSet::new(),
             is_in_global_index_dir,
@@ -138,7 +139,7 @@ impl Context {
             ).collect(),
             summaries: context_json.summaries.clone(),
             curr_raw_response: context_json.curr_raw_response.clone(),
-            completed_questions_from_user: context_json.completed_questions_from_user.clone(),
+            completed_interrupts_from_user: context_json.completed_interrupts_from_user.clone(),
             hidden_turns: context_json.hidden_turns.clone(),
             pinned_turns: context_json.pinned_turns.clone(),
             is_in_global_index_dir: context_json.is_in_global_index_dir,
@@ -163,7 +164,7 @@ impl Context {
             ).collect(),
             summaries: self.summaries.clone(),
             curr_raw_response: self.curr_raw_response.clone(),
-            completed_questions_from_user: self.completed_questions_from_user.clone(),
+            completed_interrupts_from_user: self.completed_interrupts_from_user.clone(),
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
             is_in_global_index_dir: self.is_in_global_index_dir,
@@ -445,7 +446,17 @@ impl Context {
         Ok((llm_turns, query))
     }
 
-    pub fn process_question_from_user(&mut self, id: u64, interrupt: String, config: &Config) -> Result<(), Error> {
+    pub fn process_interrupt_from_user(
+        &mut self,
+        id: u64,
+        interrupt_kind: InterruptKind,
+        interrupt: String,
+        config: &Config,
+    ) -> Result<(), Error> {
+        if interrupt_kind == InterruptKind::Question {
+            todo!();
+        }
+
         let q = "
 <ask>
 <to>user</to>
@@ -467,9 +478,9 @@ impl Context {
             turn_result,
             0,
             config,
-            TurnKind::UserQuestion,
+            interrupt_kind.into(),
         )?;
-        self.completed_questions_from_user.insert(id);
+        self.completed_interrupts_from_user.insert(id);
         Ok(())
     }
 

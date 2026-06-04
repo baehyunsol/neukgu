@@ -78,7 +78,7 @@ pub use global::{
     update_global_index,
 };
 pub use image::{ImageId, normalize_and_get_id};
-use interrupt::{check_interruption, interrupt_be};
+use interrupt::{InterruptKind, check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use model::{Agents, ApiProvider, EtcModels, Model};
 pub use parse::{ParseError, ParsedSegment};
@@ -175,8 +175,8 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
 
 // The returned boolean tells whether a new turn is added to the context or not.
 async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Error> {
-    if let Some((id, interrupt)) = context.check_question_from_user()? {
-        context.process_question_from_user(id, interrupt, config)?;
+    if let Some((id, interrupt_kind, interrupt)) = context.check_interrupt_from_user()? {
+        context.process_interrupt_from_user(id, interrupt_kind, interrupt, config)?;
         context.store()?;
         context.remove_done_mark()?;
     }

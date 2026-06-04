@@ -1,5 +1,5 @@
 use chrono::Local;
-use crate::Error;
+use crate::{Error, TurnKind};
 use ragit_fs::{
     WriteMode,
     basename,
@@ -9,6 +9,7 @@ use ragit_fs::{
     remove_file,
     write_bytes,
 };
+use serde::{Deserialize, Serialize};
 
 // How the interruption mechanism works.
 //
@@ -19,6 +20,30 @@ use ragit_fs::{
 //    halts the current turn.
 // 3. Whenever the backend checks the interruption directory, it empties
 //    the directory.
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum InterruptKind {
+    Question,
+    Instruction,
+}
+
+impl InterruptKind {
+    pub fn another(&self) -> Self {
+        match self {
+            InterruptKind::Question => InterruptKind::Instruction,
+            InterruptKind::Instruction => InterruptKind::Question,
+        }
+    }
+}
+
+impl From<InterruptKind> for TurnKind {
+    fn from(k: InterruptKind) -> TurnKind {
+        match k {
+            InterruptKind::Question => TurnKind::UserQuestion,
+            InterruptKind::Instruction => TurnKind::UserInstruction,
+        }
+    }
+}
 
 pub fn check_interruption(working_dir: &str) -> Result<bool, Error> {
     let interruption_dir = join3(working_dir, ".neukgu", "interruptions")?;

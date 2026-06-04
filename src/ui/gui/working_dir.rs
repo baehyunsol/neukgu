@@ -34,6 +34,7 @@ use crate::{
     Config,
     Error,
     ImageId,
+    InterruptKind,
     LLMToken,
     LogEntry,
     LogId,
@@ -57,11 +58,11 @@ use crate::{
     roll_back_working_dir,
     stringify_llm_tokens,
 };
-use iced::{Background, ContentFit, Element, Length, Size, Task};
+use iced::{Background, ContentFit, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::{Button, Column, Id, MouseArea, Radio, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
@@ -162,6 +163,7 @@ It doesn't rollback the configs, though.
 - Ctrl+F: find in page
 - Ctrl+G: see file changes
 - Ctrl+H: help message
+- Ctrl+I: toggle instruction/question
 - Ctrl+L: see logs
 - Ctrl+O: open browser
 - Ctrl+R: reset
@@ -230,7 +232,8 @@ pub struct IcedContext {
     // user interaction
     pub is_paused: bool,
     pub pause: Option<bool>,
-    pub question_from_user: Option<(u64, String)>,
+    pub interrupt_kind: InterruptKind,
+    pub interrupt_from_user: Option<(u64, InterruptKind, String)>,
     pub llm_request: Option<(u64, String)>,
     pub processed_llm_requests: HashSet<u64>,
     pub user_response: Option<(u64, UserResponse)>,
@@ -298,7 +301,8 @@ impl IcedContext {
             has_to_update_config: false,
             is_paused: fe_context.is_paused()?,
             pause: None,
-            question_from_user: None,
+            interrupt_kind: InterruptKind::Instruction,
+            interrupt_from_user: None,
             llm_request: None,
             processed_llm_requests: HashSet::new(),
             user_response: None,
@@ -555,6 +559,7 @@ pub enum IcedMessage {
     PauseNeukgu,
     ResumeNeukgu,
     RespawnBeProcess,
+    SetInterruptKind(InterruptKind),
     InterruptNeukgu,
     ResetNeukgu,
     RollBackNeukgu(TurnId),
@@ -657,7 +662,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             if frame % 4 == 0 || force_update {
                 context.fe_context.end_frame(
                     context.pause.take(),
-                    context.question_from_user.take(),
+                    context.interrupt_from_user.take(),
                     context.user_response.take(),
                     context.has_to_update_config,
                 )?;
@@ -818,6 +823,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             (Key::Character("h"), true, false, false) => {
                 if context.can_click_turn_entry() {
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Help, prev: None }));
+                }
+            },
+            (Key::Character("i"), true, false, false) => {
+                if context.can_click_turn_entry() {
+                    return Ok(Task::done(IcedMessage::SetInterruptKind(context.interrupt_kind.another())));
                 }
             },
             (Key::Character("l"), true, false, false) => {
@@ -998,12 +1008,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::RespawnBeProcess => {
             context.spawn_be_process()?;
         },
+        IcedMessage::SetInterruptKind(k) => {
+            context.interrupt_kind = k;
+        },
         IcedMessage::InterruptNeukgu => {
-            let question = context.interrupt_text_editor_content.text();
+            let interrupt = context.interrupt_text_editor_content.text();
             context.is_interrupt_button_hovered = false;
 
-            if !question.is_empty() {
-                context.question_from_user = Some((rand::random::<u64>(), question));
+            if !interrupt.is_empty() {
+                context.interrupt_from_user = Some((rand::random::<u64>(), context.interrupt_kind, interrupt));
                 context.set_interrupt_text_editor_content(String::new());
                 context.fe_context.interrupt_be()?;
                 return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
@@ -1189,6 +1202,32 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     ).style(|_| set_bg(black())).into());
 
     let full_view = Column::from_vec(full_view);
+    let interrupt_kind_config_ui = Container::new(
+        Column::from_vec(vec![
+            Row::from_vec(vec![
+                Radio::new("instruction", InterruptKind::Instruction, Some(context.interrupt_kind), IcedMessage::SetInterruptKind)
+                    .spacing(context.zoom * 8.0)
+                    .text_size(context.zoom * 14.0)
+                    .size(context.zoom * 14.0)
+                    .into(),
+                Radio::new("question", InterruptKind::Question, Some(context.interrupt_kind), IcedMessage::SetInterruptKind)
+                    .spacing(context.zoom * 8.0)
+                    .text_size(context.zoom * 14.0)
+                    .size(context.zoom * 14.0)
+                    .into(),
+            ])
+                .spacing(context.zoom * 4.0)
+                .height(context.zoom * 48.0)
+                .align_y(Vertical::Center)
+                .into(),
+        ])
+            .padding(Padding { right: context.zoom * 20.0, ..Padding::ZERO })
+            .width(context.window_size.width)
+            .align_x(Horizontal::Right)
+    )
+        .height(context.zoom * 48.0)
+        .style(|_| set_bg(gray(0.35)))
+        .into();
     let full_view_with_text_input = Stack::from_vec(vec![
         full_view.into(),
         chat_ui(
@@ -1197,9 +1236,9 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             context.is_interrupt_button_hovered,
             context.interrupt_text_editor_id.clone(),
             &context.interrupt_text_editor_content,
-            "Interrupt",
-            Space::new().into(),
-            0.0,
+            "Send",
+            interrupt_kind_config_ui,
+            context.zoom * 48.0,
             context.window_size,
             context.zoom,
         ),

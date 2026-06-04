@@ -34,9 +34,9 @@ use std::sync::LazyLock;
 pub struct TurnId(pub String);
 
 // TODO: now that `from_str` uses this regex, it needs to be more strict.
-pub static TURN_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+\-(pe|tce|tcs)\-(ag|ss|uq)\-(\d{6,})\-(\d{6,})$").unwrap());
+pub static TURN_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+\-(pe|tce|tcs)\-(ag|ss|uq|ui)\-(\d{6,})\-(\d{6,})$").unwrap());
 
-pub static TURN_TIMESTAMP_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+)\-(?:pe|tce|tcs)\-(?:ag|ss|uq)\-.+").unwrap());
+pub static TURN_TIMESTAMP_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+)\-(?:pe|tce|tcs)\-(?:ag|ss|uq|ui)\-.+").unwrap());
 
 impl TurnId {
     pub fn dummy() -> TurnId {
@@ -65,6 +65,7 @@ impl TurnId {
             "ag" => TurnKind::Agent,
             "ss" => TurnKind::SessionStart,
             "uq" => TurnKind::UserQuestion,
+            "ui" => TurnKind::UserInstruction,
             _ => unreachable!(),
         };
         let llm_len_short = cap.get(3).unwrap().as_str().parse::<u64>().unwrap();
@@ -99,6 +100,7 @@ pub enum TurnKind {
     SessionStart,
 
     UserQuestion,
+    UserInstruction,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -216,7 +218,11 @@ impl Turn {
                         String::from("???")
                     },
                     TurnKind::UserQuestion => match &self.turn_result {
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Interrupt from user {:?}", truncate_chars(answer, 36)),
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Question from user {:?}", truncate_chars(answer, 36)),
+                        _ => unreachable!(),
+                    },
+                    TurnKind::UserInstruction => match &self.turn_result {
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Instruction from user {:?}", truncate_chars(answer, 36)),
                         _ => unreachable!(),
                     },
                 }
@@ -277,6 +283,7 @@ impl Turn {
             },
             TurnKind::SessionStart => String::from("Auto-generated"),
             TurnKind::UserQuestion => String::from("User question"),
+            TurnKind::UserInstruction => String::from("User instruction"),
         }
     }
 }
@@ -336,6 +343,7 @@ pub fn get_turn_id(summary: TurnSummary) -> TurnId {
             TurnKind::Agent => "ag",
             TurnKind::SessionStart => "ss",
             TurnKind::UserQuestion => "uq",
+            TurnKind::UserInstruction => "ui",
         },
         summary.llm_len_short,
         summary.llm_len_full,
