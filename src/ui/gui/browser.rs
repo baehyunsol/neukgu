@@ -375,9 +375,31 @@ impl IcedContext {
             Popup::PreviewSymlink { path } => {
                 self.loaded_symlink = Some(SymlinkInfo::new(&path));
             },
-            Popup::FileInfo { is_dir, path } => if is_dir {
-                // I want to calc the size recursively... I guess I need a worker for that
-                todo!()
+            Popup::FileInfo { is_dir, path, .. } => if is_dir {
+                let job_id = JobId::new();
+                let metadata = std::fs::metadata(&path).map_err(|e| FileError::from_std(e, &path))?;
+
+                self.loaded_file_info = Some(FileInfo {
+                    name: basename(&path)?,
+                    path: path.to_string(),
+                    is_symlink: false,
+
+                    // will be updated later
+                    size: 0,
+
+                    modified: metadata.modified().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+                    created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+                });
+                self.curr_popup = Some(Popup::FileInfo {
+                    is_dir,
+                    path: path.to_string(),
+                    job_id: Some(job_id),
+                    error: None,
+                });
+                return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                    id: job_id,
+                    kind: JobKind::CalcDirectorySize { path: path.to_string() },
+                })));
             } else {
                 let is_symlink = is_symlink(&path);
                 let metadata = if is_symlink {
@@ -427,6 +449,24 @@ impl IcedContext {
         self.long_text_editor_content.perform(TextEditorAction::SelectAll);
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
+    }
+
+    pub fn zoom_in(&mut self) -> Task<IcedMessage> {
+        if self.zoom < 2.4 {
+            self.zoom += 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom in anymore.")))
+        }
+    }
+
+    pub fn zoom_out(&mut self) -> Task<IcedMessage> {
+        if self.zoom > 0.4 {
+            self.zoom -= 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom out anymore.")))
+        }
     }
 }
 
@@ -572,13 +612,18 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
-    pub fn render(&self) -> String {
+    pub fn render(&self, is_calculating_size: bool, error_calculating_size: bool) -> String {
         format!(
-            "name: {}\npath: {}\nis_symlink: {}\nsize: {}\nmodified: {}\ncreated: {}\n",
+            "name: {}\nis_symlink: {}\nsize: {}\nmodified: {}\ncreated: {}\n",
             self.name,
-            self.path,
             self.is_symlink,
-            prettify_bytes(self.size),
+            if is_calculating_size {
+                String::from("calculating...")
+            } else if error_calculating_size {
+                String::from("???")
+            } else {
+                prettify_bytes(self.size)
+            },
             if let Some(t) = self.modified { format!("{} ago", prettify_time(t)) } else { String::from("N/A") },
             if let Some(t) = self.created { format!("{} ago", prettify_time(t)) } else { String::from("N/A") },
         )
@@ -593,13 +638,28 @@ pub enum Popup {
     EntryError(String),
     PreviewFile { path: String },
     PreviewSymlink { path: String },
-    FileInfo { is_dir: bool, path: String },
+
+    // if !is_dir, there's nothing to do with job_id
+    // if is_dir, when the popup is open, it'll spawn a background job that calculates the size
+    //     of the directory (recursively) and sets `job_id` to `Some(_)`. `context.loaded_file_info`
+    //     is all set but the size field.
+    // when the background job is complete, it'll set `job_id` to `None` and fill the size field.
+    FileInfo {
+        is_dir: bool,
+        path: String,
+        job_id: Option<JobId>,
+
+        // if the background job fails, `job_id` will be set to None and this field will be filled
+        error: Option<String>,
+    },
+
     AskDelete { is_dir: bool, path: String },
     Find {
-        error: Option<String>,
-
         // It'll be set when the background worker starts working.
-        job: Option<JobId>,
+        job_id: Option<JobId>,
+
+        // if the background job fails, `job_id` will be set to None and this field will be filled
+        error: Option<String>,
     },
     FindResult {
         regex: String,
@@ -703,7 +763,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("f"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Find { error: None, job: None })));
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::Find { error: None, job_id: None })));
                 }
             },
             (Key::Character("h"), true, false, false) => {
@@ -738,10 +798,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Character("-"), true, false, false) => {
-                context.zoom = context.zoom.max(0.2) - 0.1;
+                return Ok(context.zoom_out());
             },
             (Key::Character("="), true, false, false) => {
-                context.zoom = context.zoom.min(2.4) + 0.1;
+                return Ok(context.zoom_in());
             },
             // TODO: scroll to an entry that starts with this character
             // TODO: what if there's a dir and a file that starts with the same character?
@@ -841,14 +901,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Launch { .. } => unreachable!(),
         IcedMessage::NewBrowser { .. } => unreachable!(),
         IcedMessage::Find => {
-            let job_id = JobId::new();
+            let new_job_id = JobId::new();
 
-            if let Some(Popup::Find { job, .. }) = &mut context.curr_popup {
-                *job = Some(job_id);
+            if let Some(Popup::Find { job_id, .. }) = &mut context.curr_popup {
+                *job_id = Some(new_job_id);
             }
 
             return Ok(Task::done(IcedMessage::BackgroundJob(Job {
-                id: job_id,
+                id: new_job_id,
                 kind: JobKind::Rg {
                     path: context.cwd.to_string(),
                     regex: context.short_text_editor_content.to_string(),
@@ -920,14 +980,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
             JobResultKind::RgTimeout => match &mut context.curr_popup {
-                Some(Popup::Find { error, job }) if *job == job_result.id => {
-                    *job = None;
+                Some(Popup::Find { error, job_id }) if *job_id == job_result.id => {
+                    *job_id = None;
                     *error = Some(String::from("ripgrep timeout"));
                 },
                 _ => {},
             },
             JobResultKind::Rg { regex, matches, count } => match &context.curr_popup {
-                Some(Popup::Find { job, .. }) if *job == job_result.id => {
+                Some(Popup::Find { job_id, .. }) if *job_id == job_result.id => {
                     let (matches, truncate) = if matches.len() < 512 {
                         (matches.to_vec(), None)
                     } else {
@@ -947,6 +1007,20 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             JobResultKind::InvalidCommand { error: err, .. } | JobResultKind::RunError(err) => match &mut context.curr_popup {
                 Some(Popup::RunResult { job_id, error, .. }) if Some(*job_id) == job_result.id => {
                     *error = Some(err.to_string());
+                },
+                _ => {},
+            },
+            JobResultKind::CalcDirectorySize(size) => match &mut context.curr_popup {
+                Some(Popup::FileInfo { job_id, .. }) if *job_id == job_result.id => {
+                    *job_id = None;
+                    context.loaded_file_info.as_mut().unwrap().size = *size;
+                },
+                _ => {},
+            },
+            JobResultKind::CalcDirectorySizeError(e) => match &mut context.curr_popup {
+                Some(Popup::FileInfo { job_id, error, .. }) if *job_id == job_result.id => {
+                    *job_id = None;
+                    *error = Some(e.to_string());
                 },
                 _ => {},
             },
@@ -1054,12 +1128,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     // NOTE: It's a copy-paste of the same popup in ui/gui/index.rs
-    else if let Some(Popup::Find { error, job }) = &context.curr_popup {
+    else if let Some(Popup::Find { job_id, error }) = &context.curr_popup {
         let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
             .size(context.zoom * 14.0)
             .id(context.short_text_editor_id.clone());
 
-        if job.is_none() {
+        if job_id.is_none() {
             text_editor = text_editor.on_input(IcedMessage::EditShortText).on_submit(IcedMessage::Find);
         }
 
@@ -1068,7 +1142,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             into_popup(
                 Column::from_vec(vec![
                     text_editor.into(),
-                    if job.is_some() {
+                    if job_id.is_some() {
                         text!("Finding...").size(context.zoom * 14.0).into()
                     } else {
                         Space::new().into()
@@ -1078,7 +1152,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     } else {
                         Space::new().into()
                     },
-                    if job.is_some() {
+                    if job_id.is_some() {
                         disabled_button("Find", gray(0.4), context.zoom).padding(context.zoom * 20.0).into()
                     } else {
                         button("Find", IcedMessage::Find, green(), context.zoom).padding(context.zoom * 20.0).into()
@@ -1192,15 +1266,37 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::FileInfo { .. }) = context.curr_popup {
-        let popup = match &context.loaded_file_info {
-            Some(file_info) => text!("{}", file_info.render()).size(context.zoom * 14.0),
-            None => unreachable!(),
+    else if let Some(Popup::FileInfo { is_dir, job_id, error, .. }) = &context.curr_popup {
+        let (is_working, error) = match (is_dir, job_id, error) {
+            (false, _, _) => (false, None),
+            (true, Some(_), _) => (true, None),
+            (true, None, Some(e)) => (false, Some(e.to_string())),
+            (true, None, _) => (false, None),
         };
+
+        let file_info = context.loaded_file_info.as_ref().unwrap();
+        let content = file_info.render(is_working, error.is_some());
+        let mut column = vec![
+            text!("{}", file_info.path).size(context.zoom * 18.0).into(),
+            text!("{content}").size(context.zoom * 14.0).into(),
+        ];
+
+        if let Some(e) = error {
+            column.push(text!("{e}").color(red()).size(context.zoom * 14.0).into());
+        }
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(popup.into(), context),
+            into_popup(
+                Scrollable::new(
+                    Column::from_vec(column)
+                        .padding(context.zoom * 8.0)
+                        .spacing(context.zoom * 8.0)
+                )
+                    .id(context.popup_scroll_id.clone())
+                    .into(),
+                context,
+            ),
         ]).into();
     }
 
@@ -1230,13 +1326,6 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Help) = &context.curr_popup {
-        full_view_stacked = Stack::from_vec(vec![
-            full_view_stacked,
-            into_popup(Scrollable::new(text!("{HELP_MESSAGE}").size(context.zoom * 14.0)).id(context.popup_scroll_id.clone()).into(), context).into(),
-        ]).into();
-    }
-
     full_view_stacked.into()
 }
 
@@ -1263,7 +1352,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     }
 
     buttons_row2.push(button("Home", IcedMessage::ChDir { new: context.home_dir.to_string(), old: Some(context.cwd.to_string()), going_up: false }, blue(), context.zoom).into());
-    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup(Popup::Find { error: None, job: None }), blue(), context.zoom).into());
+    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup(Popup::Find { error: None, job_id: None }), blue(), context.zoom).into());
 
     let buttons_row1 = if context.curr_popup.is_some() {
         buttons_row1.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
@@ -1292,7 +1381,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     if context.curr_popup.is_some() {
         row.push(disabled_button("Info", yellow(), context.zoom).into());
     } else {
-        row.push(button("Info", IcedMessage::OpenPopup(Popup::FileInfo { is_dir: entry.is_dir, path: entry.path.to_string() }), yellow(), context.zoom).into());
+        row.push(button("Info", IcedMessage::OpenPopup(Popup::FileInfo { is_dir: entry.is_dir, path: entry.path.to_string(), job_id: None, error: None }), yellow(), context.zoom).into());
     }
 
     if context.curr_popup.is_some() {

@@ -268,6 +268,24 @@ impl IcedContext {
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
     }
+
+    pub fn zoom_in(&mut self) -> Task<IcedMessage> {
+        if self.zoom < 2.4 {
+            self.zoom += 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom in anymore.")))
+        }
+    }
+
+    pub fn zoom_out(&mut self) -> Task<IcedMessage> {
+        if self.zoom > 0.4 {
+            self.zoom -= 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom out anymore.")))
+        }
+    }
 }
 
 impl PopupContext for IcedContext {
@@ -364,10 +382,10 @@ pub enum Popup {
     },
     AskDeleteChatSystemPrompt(usize),
     FindInChats {
-        error: Option<String>,
-
         // It'll be set when the background worker starts working.
-        job: Option<JobId>,
+        job_id: Option<JobId>,
+
+        error: Option<String>,
     },
     FindInChatsResult {
         regex: String,
@@ -471,10 +489,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Character("-"), true, false, false) => {
-                context.zoom = context.zoom.max(0.2) - 0.1;
+                return Ok(context.zoom_out());
             },
             (Key::Character("="), true, false, false) => {
-                context.zoom = context.zoom.min(2.4) + 0.1;
+                return Ok(context.zoom_in());
             },
             _ => {},
         },
@@ -604,14 +622,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
         },
         IcedMessage::FindInChats => {
-            let job_id = JobId::new();
+            let new_job_id = JobId::new();
 
-            if let Some(Popup::FindInChats { job, .. }) = &mut context.curr_popup {
-                *job = Some(job_id);
+            if let Some(Popup::FindInChats { job_id, .. }) = &mut context.curr_popup {
+                *job_id = Some(new_job_id);
             }
 
             return Ok(Task::done(IcedMessage::BackgroundJob(Job {
-                id: job_id,
+                id: new_job_id,
                 kind: JobKind::FindInChats {
                     regex: context.short_text_editor_content.to_string(),
                 },
@@ -641,14 +659,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
             JobResultKind::FindInChatsError(e) => match &mut context.curr_popup {
-                Some(Popup::FindInChats { error, job }) if *job == job_result.id => {
-                    *job = None;
+                Some(Popup::FindInChats { error, job_id }) if *job_id == job_result.id => {
+                    *job_id = None;
                     *error = Some(e.to_string());
                 },
                 _ => {},
             },
             JobResultKind::FindInChats { regex, matches } => match &context.curr_popup {
-                Some(Popup::FindInChats { job, .. }) if *job == job_result.id => {
+                Some(Popup::FindInChats { job_id, .. }) if *job_id == job_result.id => {
                     return Ok(Task::done(IcedMessage::OpenPopup {
                         curr: Popup::FindInChatsResult { regex: regex.to_string(), matches: matches.to_vec() },
                         prev: None,
@@ -772,7 +790,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 ),
                 button(
                     "Find",
-                    IcedMessage::OpenPopup { curr: Popup::FindInChats { error: None, job: None }, prev: None },
+                    IcedMessage::OpenPopup { curr: Popup::FindInChats { error: None, job_id: None }, prev: None },
                     blue(),
                     context.zoom,
                 ),
@@ -975,12 +993,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     // NOTE: It's a copy-paste of the same popup in ui/gui/browser.rs
-    else if let Some(Popup::FindInChats { error, job }) = &context.curr_popup {
+    else if let Some(Popup::FindInChats { job_id, error }) = &context.curr_popup {
         let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
             .size(context.zoom * 14.0)
             .id(context.short_text_editor_id.clone());
 
-        if job.is_none() {
+        if job_id.is_none() {
             text_editor = text_editor.on_input(IcedMessage::EditShortText).on_submit(IcedMessage::FindInChats);
         }
 
@@ -989,7 +1007,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             into_popup(
                 Column::from_vec(vec![
                     text_editor.into(),
-                    if job.is_some() {
+                    if job_id.is_some() {
                         text!("Finding...").size(context.zoom * 14.0).into()
                     } else {
                         Space::new().into()
@@ -999,7 +1017,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     } else {
                         Space::new().into()
                     },
-                    if job.is_some() {
+                    if job_id.is_some() {
                         disabled_button("Find", gray(0.4), context.zoom).padding(context.zoom * 20.0).into()
                     } else {
                         button("Find", IcedMessage::FindInChats, green(), context.zoom).padding(context.zoom * 20.0).into()

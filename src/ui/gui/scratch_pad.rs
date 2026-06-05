@@ -147,6 +147,24 @@ impl IcedContext {
             self.tab = Tab::SlideRule;
         }
     }
+
+    pub fn zoom_in(&mut self) -> Task<IcedMessage> {
+        if self.zoom < 2.4 {
+            self.zoom += 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom in anymore.")))
+        }
+    }
+
+    pub fn zoom_out(&mut self) -> Task<IcedMessage> {
+        if self.zoom > 0.4 {
+            self.zoom -= 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom out anymore.")))
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +177,7 @@ pub enum IcedMessage {
     EditText(TextEditorAction),
     ZoomIn,
     ZoomOut,
+    Notify(String),
     Close,
 }
 
@@ -237,11 +256,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.text_editor_content.perform(a);
         },
         IcedMessage::ZoomIn => {
-            context.zoom = context.zoom.min(2.4) + 0.1;
+            return context.zoom_in();
         },
         IcedMessage::ZoomOut => {
-            context.zoom = context.zoom.max(0.2) - 0.1;
+            return context.zoom_out();
         },
+        IcedMessage::Notify(_) => unreachable!(),
         IcedMessage::Close => {
             context.tab = Tab::Hidden;
         },

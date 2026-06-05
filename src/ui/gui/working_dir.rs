@@ -521,6 +521,24 @@ impl IcedContext {
     pub fn can_click_turn_entry(&self) -> bool {
         self.curr_popup.is_none() && self.llm_request.is_none() && !self.is_interrupt_text_editor_focused
     }
+
+    pub fn zoom_in(&mut self) -> Task<IcedMessage> {
+        if self.zoom < 2.4 {
+            self.zoom += 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom in anymore.")))
+        }
+    }
+
+    pub fn zoom_out(&mut self) -> Task<IcedMessage> {
+        if self.zoom > 0.4 {
+            self.zoom -= 0.1;
+            Task::none()
+        } else {
+            Task::done(IcedMessage::Notify(String::from("Cannot zoom out anymore.")))
+        }
+    }
 }
 
 impl PopupContext for IcedContext {
@@ -924,10 +942,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Character("-"), true, false, false) => {
-                context.zoom = context.zoom.max(0.2) - 0.1;
+                return Ok(context.zoom_out());
             },
             (Key::Character("="), true, false, false) => {
-                context.zoom = context.zoom.min(2.4) + 0.1;
+                return Ok(context.zoom_in());
             },
             _ => {},
         },

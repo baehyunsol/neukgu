@@ -128,7 +128,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.keep_scroll()
         },
         IcedMessage::Index(IndexMessage::Notify(note)) |
-        IcedMessage::Tab { id: _, message: TabMessage::Notify(note) } => {
+        IcedMessage::Tab { id: _, message: TabMessage::Notify(note) } |
+        IcedMessage::ScratchPad(ScratchPadMessage::Notify(note)) => {
             context.notify(note);
             context.keep_scroll()
         },

@@ -11,6 +11,12 @@ use crate::{
 };
 use crate::subprocess::{self, Output};
 use crate::tool::parse_command;
+use ragit_fs::{
+    file_size,
+    is_dir,
+    is_symlink,
+    read_dir,
+};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -49,6 +55,9 @@ pub enum JobKind {
     FindInChats {
         regex: String,
     },
+    CalcDirectorySize {
+        path: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +77,8 @@ pub enum JobResultKind {
     AddChatTurnError(String),
     FindInChats { regex: String, matches: Vec<(ChatId, Vec<MatchPreview>)> },
     FindInChatsError(String),
+    CalcDirectorySize(u64),
+    CalcDirectorySizeError(String),
     WorkerError(String),
 }
 
@@ -187,6 +198,14 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::FindInChatsError(format!("{e:?}")) }).unwrap();
                 },
             },
+            Job { id, kind: JobKind::CalcDirectorySize { path } } => match calc_directory_size(&path) {
+                Ok(s) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::CalcDirectorySize(s) }).unwrap();
+                },
+                Err(e) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::CalcDirectorySizeError(format!("{e:?}")) }).unwrap();
+                },
+            },
         }
     }
 
@@ -299,4 +318,24 @@ fn add_chat_turn_blocked(chat_id: ChatId, api_keys: HashMap<String, String>, que
     let global_index_dir = get_global_index_dir()?;
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(add_chat_turn(chat_id, api_keys, query, &global_index_dir))
+}
+
+fn calc_directory_size(path: &str) -> Result<u64, Error> {
+    let mut result: u64 = 0;
+
+    for entry in read_dir(path, false)? {
+        if is_symlink(&entry) {
+            continue;
+        }
+
+        else if is_dir(&entry) {
+            result += calc_directory_size(&entry)?;
+        }
+
+        else {
+            result += file_size(&entry)?;
+        }
+    }
+
+    Ok(result)
 }
