@@ -219,6 +219,8 @@
   - serve라는 tool을 만들까?
   - 아니면, 이런 건 ㅇㄸ? 서버 프로세스를 띄우고, 특정 url (아마 localhost겠지)로 request를 날리고, response를 기억한 다음에, 서버 프로세스를 죽이고 response만 반환 -> 이렇게를 통째로 tool로 묶는 거임!!
     - "서버 프로세스"라는 건 어떻게 표현?? binary를 만들어야 하나? 지금은 binary를 만드는 능력이 너무 떨어짐 ㅠㅠ
+  - 지금도 구현은 가능: server program, test program, manage program을 각각 만들 거임. test program은 server에 요청을 보내고 응답이 제대로 왔는지 확인. manage program은 server program과 test program을 각각 띄운 다음에 test가 끝날 때까지 기다리고 (timeout 걸어도 되고), 끝나면 server program을 죽임
+    - 이렇게 시키면 너무 복잡하잖아? 그럼 이걸 SKILL로 만들자!!
 132. web search tool -> 이거 내가 만들어버리면 안됨??
   - built-in web search가 있으면 그걸 쓰고, 없으면 내가 만든 걸 쓰는 거지
   - 구글에 http로 직접 요청 날린 다음에 결과물 분석하면 됨 -> 이거는 걍 늑구한테 만들어달라고 하면 바로 될 듯?
@@ -228,37 +230,6 @@
 136. "Favorites" button to the browser tab
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
 143. token usage 보면서 비용도 보고싶음... how?
-144. claude code의 btw: agent한테 질문을 하는데, context에는 안 남음.
-  - I can implement this in neukgu like:
-    - system prompt: answer the user question + don't say anything other than the answer
-    - turns
-      - the same turns that the big agent would see
-    - user question + instruction (answer the question according to the turns + don't say anything other than the answer)
-  - 이슈
-    - fe에서 worker로 처리하기 vs be가 처리하고 결과 보여주기
-      - be가 처리하려면 현재 진행 중인 turn을 강제종료해야하는데, 그건 너무 손해임 ㅠㅠ
-    - btw의 기록을 갖고 있기 vs popup으로 보여준 다음에 창 닫으면 영원히 사라지게 하기
-      - btw의 기록을 갖고 있는 주체는 누구임? 그럼 be가 갖고 있는게 맞긴한데...
-      - btw의 기록을 갖고 있으려면 이 btw가 어느 turn에 붙어있는지도 기억해야함!
-      - btw의 기록을 갖고 있으려면 그냥 turn으로 만들어버리고 hidden 붙이는게 나음!
-        - 기존의 ui에서 btw를 entry로 표시하려면 무조건 btw를 turn으로 만들어야함. 그렇게 안하면 무지무지 복잡해질 듯...
-        - btw를 entry로 표시 안하면 이 btw가 언제 물어본 btw인지 알 방법이 없음...
-  - 아니면 이건 ㅇㄸ?
-    - 지금도 채팅창에 instruction을 줄 수도 있고, question을 줄 수도 있잖아? 근데 사실 둘이 완전 다른 거임...
-    - instruction의 경우, 대답을 바라는게 아니고, 늑구를 제어하는게 목표임. 그래서 이 turn은 context 안에서 엄청 중요하지! 또, instruction이 오면 늑구가 tool-call을 계속 하는게 자연스러움
-    - question의 경우, 늑구가 tool-call을 하면 어색함. 그냥 자연어로 대답하는게 나음. 또, 이 turn은 context에 굳이 안 남겨도 됨. 남겨야하는 경우가 있을 거 같기도 하고...
-      - question의 경우, 늑구가 대답을 하면 대답을 바로 보여주는게 나음. 지금처럼 turn만 추가하면 열어서 보기 귀찮잖아... ㅋㅋ
-      - 이거는 쉽지. 걍 OpenPopup을 해버리면 됨! 현재 popup을 prev로 주면 금상첨화일 듯? 원래 prev는 날아가는 건데? ㅋㅋ
-  - draft 1
-    - working-dir-gui의 아래쪽 채팅창에 instruction/question을 고르는 radio를 추가. 중요한 기능이니까 hot-key도 추가
-      - 아니면 이걸 AI가 판별하게할까? 이정도는 충분히 판별할텐데...
-      - 아니다 이건 사람이 손으로 고르게 하자. 그게 늑구 철학에 더 맞음...
-    - instruction을 고르면 지금처럼 동작
-    - question을 고르면 system prompt를 갈아끼운 다음에 대답만 받아옴. 얘는 추가되자마자 자동으로 hidden_turns에 들어감
-      - 그대신 손으로 hide/pin을 바꿀 수는 있음
-      - 나머지는 전부 동일하고 `Tool::run()` 안에서 question을 처리하는 if문만 추가하는 거임
-      - 이러면 다 좋은데 현재 진행 중인 turn을 멈춰야함... -> 이게 제일 문제네
-      - question의 정답이 도착하면 자동으로 popup이 뜨게하는 거는... 쉬움!
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
 148. 비슷한 neukgu-instruction을 복붙해서 쓰는 경우가 많아지고 있음
@@ -311,6 +282,32 @@
   - https://agentclientprotocol.com/get-started/introduction
   - Agent랑 IDE랑 이걸로 통신한대.
   - 늑구에 이거 잘 구현해놓으면 1) Zed랑 늑구랑 붙일 수 있음 2) 늑구에서 다른 agent (CC, Codex) 볼 수 있음...!! 근데 둘다 엄청 빡세겠지? ㅠㅠ
+  - 일단 draft를 해보자, 이게 되면 너무 좋은게 많거든!!
+    - Agent
+    - Client
+      - `src/ui/gui/working_dir.rs`
+        - `Turn::load`
+        - `load_logs_tail`
+        - `load_log`
+        - `FeContext.get_system_prompt`
+        - `FeContext.get_instruction`
+        - `FeContext.iter_previews`
+          - turn history를 fe가 들고 있어야함. 그리고 주기적으로 최신화를 하는 거지...
+        - `be_process.kill`
+        - `logger.log`
+        - `spawn_be_process`
+          - 이거 할 때 env var도 넘겨야 함!!
+        - `FeContext.end_frame`
+        - `FeContext.get_token_usage`
+        - `FeContext.start_frame`
+        - `FeContext.get_llm_request`
+        - `FeContext.is_paused`
+        - `FeContext.interrupt_be`
+        - `FeContext::load`
+        - `check_snapshot`
+        - `rollback_working_dir`
+        - `set_project_config`
+      - `src/ui.rs`
 163. claude code (혹은 다른 harness)의 session을 읽어서 늑구의 session으로 변환할 수 있으면...
   - 늑구에서 계속 실행하면 개이득이고, 늑구에서 볼 수만 있어도 엄청 좋지!!
 164. browser에도 scratch pad 버튼 붙이자 -> 현재 dir의 entry를 간단하게 string으로 바꿔서 띄우기!!
@@ -326,7 +323,8 @@
     - If it's a tab, there are so many more things to implement...
   - what if the working directory itself is not a git repository but its parent is?
 166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index (working-dir 만들 때 파일 추가)에 넣자
-167. Browser gui에서 file info 볼 때 directory size를 recursive하게 재려고 하잖아? 이거를 worker가 하게 만들자. 그거 만들면서 pdf rendering도 그냥 worker한테 던져버리자 ㅋㅋ
+167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
+  - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
 
 ## mock API
 
