@@ -38,3 +38,7 @@ Even if you don't have chrome, neukgu will run fine as long as it does not try t
 ## 5. rg (ripgrep)
 
 Run `cargo install ripgrep`. `rg` must be in your PATH.
+
+## 6. cc
+
+In order for cargo to work, there must be cc in your PATH.

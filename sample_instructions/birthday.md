@@ -16,4 +16,4 @@ fn collision_prob(
 
 For example, let's say I have 100_000 elements, and add 64-bit hash to each element. Then the probability that there's at least 1 hash collision is `collision_prob(64, 100_000)`.
 
-Assume that the has function is perfectly well-distributed.
+Assume that the hash function is perfectly well-distributed.
