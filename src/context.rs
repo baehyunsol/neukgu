@@ -1,17 +1,13 @@
 use crate::{
     ApiLog,
-    AskTo,
     Config,
     Error,
-    InterruptKind,
     LLMToken,
     Logger,
     LogEntry,
     ParsedSegment,
     Request,
     Thinking,
-    ToolCallSuccess,
-    ToolKind,
     Turn,
     TurnId,
     TurnKind,
@@ -319,11 +315,13 @@ impl Context {
     // 4. If there are too many turns, we have to omit less important turns. But how do we know which turn is important?
     //    - Recent turns are likely to be more relevant than old turns.
     //    - The LLM is likely to gather important information in early turns (e.g. reading `neukgu-instruction.md`).
-    fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
+    pub(crate) fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
+        // NOTE: User questions never go into the context.
+
         let chosen_turns = 'b: {
             // Candidate 1: Full-render every turn.
             let candidate: Vec<(TurnSummary, bool)> = self.history.iter()
-                .filter(|s| !self.hidden_turns.contains(&s.id))
+                .filter(|s| !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion)
                 .map(|s| (s.clone(), true))
                 .collect();
 
@@ -337,7 +335,7 @@ impl Context {
             // Candidate 2: Full-render the last 2 turns and short-render the other turns.
             let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)]
                 .iter()
-                .filter(|s| !self.hidden_turns.contains(&s.id))
+                .filter(|s| !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion)
                 .map(|s| (s.clone(), false))
                 .collect();
 
@@ -350,7 +348,7 @@ impl Context {
 
             // Candidate 3: Full-render the last 2 turns. Filter out pasre-error turns in the other turns and short-render them.
             let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)].iter().filter(
-                |s| s.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&s.id)
+                |s| s.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion
             ).map(
                 |s| (s.clone(), false)
             ).collect();
@@ -380,19 +378,24 @@ impl Context {
                     break;
                 }
 
-                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) {
+                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) && turn.kind != TurnKind::UserQuestion {
                     pre_turns.push((turn.clone(), false));
                     pre_len -= turn.llm_len_short;
                 }
             }
 
             post_len += pre_len;
+            let mut most_recent_2_turns = 2;
 
-            for (i, turn) in self.history.iter().rev().enumerate() {
+            for turn in self.history.iter().rev() {
                 // The most recent 2 turns are always full-rendered.
-                if i < 2 {
-                    post_turns.push((turn.clone(), true));
-                    post_len = post_len.max(turn.llm_len_full) - turn.llm_len_full;
+                if most_recent_2_turns > 0 {
+                    if turn.kind != TurnKind::UserQuestion {
+                        post_turns.push((turn.clone(), true));
+                        post_len = post_len.max(turn.llm_len_full) - turn.llm_len_full;
+                        most_recent_2_turns -= 1;
+                    }
+
                     continue;
                 }
 
@@ -400,7 +403,7 @@ impl Context {
                     break;
                 }
 
-                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) {
+                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) && turn.kind != TurnKind::UserQuestion {
                     post_turns.push((turn.clone(), false));
                     post_len -= turn.llm_len_short;
                 }
@@ -444,44 +447,6 @@ impl Context {
 
         let query = llm_turns.pop().unwrap().query;
         Ok((llm_turns, query))
-    }
-
-    pub fn process_interrupt_from_user(
-        &mut self,
-        id: u64,
-        interrupt_kind: InterruptKind,
-        interrupt: String,
-        config: &Config,
-    ) -> Result<(), Error> {
-        if interrupt_kind == InterruptKind::Question {
-            todo!();
-        }
-
-        let q = "
-<ask>
-<to>user</to>
-<question>Do you have any feedbacks?</question>
-</ask>
-";
-        // Let's make sure that the schema is correct.
-        self.curr_raw_response = Some(RawResponse {
-            thinking: None,
-            response: q.to_string(),
-            elapsed_ms: 0,
-            logs: ApiLog::new(),
-        });
-        let parse_result = crate::parse::parse(q.as_bytes(), &[ToolKind::Ask]).unwrap();
-
-        let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: interrupt });
-        self.finish_turn(
-            Some(parse_result),
-            turn_result,
-            0,
-            config,
-            interrupt_kind.into(),
-        )?;
-        self.completed_interrupts_from_user.insert(id);
-        Ok(())
     }
 
     pub fn is_marked_done(&self) -> Result<bool, Error> {

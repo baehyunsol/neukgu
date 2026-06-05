@@ -29,6 +29,7 @@ use crate::{
     prettify_bytes,
     prettify_time,
     system_prompt,
+    truncate_chars,
 };
 use ragit_fs::{
     FileError,
@@ -165,6 +166,8 @@ pub struct FeContext {
     pub summaries: Vec<SessionSummary>,
     pub curr_tool_call: Option<ToolCall>,
     pub curr_tool_call_elapsed: Option<u64>,
+    pub question_from_user: Option<String>,
+    pub question_from_user_elapsed: Option<u64>,
     pub config: Config,
     pub initialized_at: Instant,
 
@@ -181,6 +184,10 @@ pub struct FeContext {
     pub truncation: HashMap<TurnId, Truncation>,
 
     pub previews: HashMap<TurnId, TurnPreview>,
+
+    // If `self.start_frame()` has loaded a new turn, this flag is set.
+    // This flag is reset at `self.end_frame()`.
+    pub has_new_turn: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -198,6 +205,8 @@ pub static TOOL_CALL_END_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.
 pub static BACKEND_ERROR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+backend_error\((\d+\-\d+)\).*").unwrap());
 pub static INTERRUPT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+user_interrupt.+").unwrap());
 pub static KILL_BACKEND_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+kill_backend.*").unwrap());
+pub static QUESTION_FROM_USER_START_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+question_from_user_start\((\d+\-\d+)\).*").unwrap());
+pub static QUESTION_FROM_USER_END_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+question_from_user_end.*").unwrap());
 
 impl FeContext {
     pub fn sync_with_be(&self) -> Result<(), Error> {
@@ -248,12 +257,15 @@ impl FeContext {
 
         let mut curr_tool_call = None;
         let mut curr_tool_call_elapsed = None;
+        let mut question_from_user = None;
+        let mut question_from_user_elapsed = None;
         let mut snapshots = HashSet::new();
         let mut truncated_context = None;
         let mut last_api_error = None;
         let mut last_backend_error = None;
         let mut in_turn = true;
         let mut in_session = true;
+        let mut maybe_question = true;
 
         for log_line in log_lines.iter().rev() {
             // This is the end of a turn.
@@ -263,6 +275,10 @@ impl FeContext {
 
             else if INIT_LOGGER_RE.is_match(log_line) || KILL_BACKEND_RE.is_match(log_line) {
                 in_session = false;
+            }
+
+            else if QUESTION_FROM_USER_END_RE.is_match(log_line) {
+                maybe_question = false;
             }
 
             else if in_session && in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
@@ -290,6 +306,13 @@ impl FeContext {
                 if status < 200 || status >= 300 {
                     last_api_error = Some(status);
                 }
+            }
+
+            else if maybe_question && in_session && in_turn && let Some(cap) = QUESTION_FROM_USER_START_RE.captures(log_line) {
+                let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
+                let (e, _) = load_log(&log_id, &log_dir)?;
+                question_from_user = Some(e);
+                question_from_user_elapsed = Some(calc_elapsed_ms(log_line));
             }
         }
 
@@ -323,6 +346,8 @@ impl FeContext {
             summaries,
             curr_tool_call,
             curr_tool_call_elapsed,
+            question_from_user,
+            question_from_user_elapsed,
             last_api_error,
             last_backend_error,
             hidden_turns: be_context.hidden_turns.clone(),
@@ -332,6 +357,7 @@ impl FeContext {
             initialized_at: Instant::now(),
             truncation,
             previews: HashMap::new(),
+            has_new_turn: false,
         })
     }
 
@@ -365,7 +391,13 @@ impl FeContext {
     }
 
     pub fn start_frame(&mut self) -> Result<(), Error> {
+        let turn_count = self.history.len();
         self.update()?;
+
+        // There are some edge cases (e.g. rollback + new turn),
+        // but the chances are nearly zero.
+        self.has_new_turn = turn_count != self.history.len();
+
         Ok(())
     }
 
@@ -424,6 +456,7 @@ impl FeContext {
             WriteMode::Atomic,
         )?;
         self.sync_with_be()?;
+        self.has_new_turn = false;
         Ok(())
     }
 
@@ -462,6 +495,8 @@ impl FeContext {
     pub fn curr_status(&self) -> String {
         if self.is_paused().unwrap_or(false) {
             format!("Paused")
+        } else if let Some(question_from_user) = &self.question_from_user {
+            format!("Question from user {:?} (processing, elapsed {})", truncate_chars(&question_from_user, 36), prettify_time(self.question_from_user_elapsed.unwrap()))
         } else if self.is_marked_done().unwrap_or(false) {
             format!("Neukgu has completed his job and is proud of his work!")
         } else if self.get_llm_request().unwrap_or(None).is_some() {

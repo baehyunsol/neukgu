@@ -474,19 +474,15 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         curr_tab,
     ]).into();
 
-    if context.scratch_pad.tab != ScratchPadTab::Hidden {
-        view = Stack::from_vec(vec![
-            view,
-            scratch_pad::view(&context.scratch_pad).map(IcedMessage::ScratchPad).into(),
-        ]).into();
-    }
+    view = Stack::from_vec(vec![
+        view,
+        scratch_pad::view(&context.scratch_pad).map(IcedMessage::ScratchPad).into(),
+    ]).into();
 
-    if !context.notes.is_empty() {
-        view = Stack::from_vec(vec![
-            view,
-            render_notes(&context.notes, &context),
-        ]).into();
-    }
+    view = Stack::from_vec(vec![
+        view,
+        render_notes(&context.notes, &context),
+    ]).into();
 
     view
 }

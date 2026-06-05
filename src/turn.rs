@@ -217,15 +217,17 @@ impl Turn {
                     } else {
                         String::from("???")
                     },
-                    TurnKind::UserQuestion => match &self.turn_result {
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Question from user {:?}", truncate_chars(answer, 36)),
-                        _ => unreachable!(),
-                    },
                     TurnKind::UserInstruction => match &self.turn_result {
                         TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Instruction from user {:?}", truncate_chars(answer, 36)),
                         _ => unreachable!(),
                     },
+                    // I don't make `parse_result` in this case.
+                    TurnKind::UserQuestion => unreachable!(),
                 }
+            },
+            _ if self.kind == TurnKind::UserQuestion => match &self.turn_result {
+                TurnResult::ToolCallSuccess(ToolCallSuccess::QuestionFromUser { q, .. }) => format!("Question from user {:?}", truncate_chars(q, 36)),
+                _ => unreachable!(),
             },
             _ => String::from("????"),
         };

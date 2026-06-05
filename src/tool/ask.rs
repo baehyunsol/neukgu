@@ -26,7 +26,7 @@ pub async fn ask_question_to_web(q: &str, config: &Config, working_dir: &str, lo
     };
 
     logger.log(LogEntry::AskQuestionToWebBegin(q.to_string()))?;
-    let response = request.request(&config.request_config(), working_dir, logger).await?;
+    let response = request.request(&config.request_config(), working_dir, false, logger).await?;
     logger.log(LogEntry::AskQuestionToWebEnd)?;
     Ok(response.response.to_string())
 }

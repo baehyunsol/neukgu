@@ -45,6 +45,7 @@ use crate::{
     ToolCallSuccess,
     Turn,
     TurnId,
+    TurnKind,
     TurnPreview,
     TurnResult,
     TurnResultSummary,
@@ -316,7 +317,21 @@ impl IcedContext {
         self.zoom * (new_selection.max(3) - 3) as f32 * 61.0
     }
 
-    pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
+    pub fn open_popup(&mut self, popup: Popup) -> Result<Task<IcedMessage>, Error> {
+        let mut tasks = vec![];
+
+        if popup.has_long_text_input() {
+            tasks.push(focus(self.long_text_editor_id.clone()));
+        }
+
+        else if popup.has_short_text_input() {
+            tasks.push(focus(self.short_text_editor_id.clone()));
+        }
+
+        if let Popup::Logs = popup {
+            tasks.push(snap_to(self.popup_scroll_id.clone(), RelativeOffset::END));
+        }
+
         self.close_popup();
         self.curr_popup = Some(popup.clone());
 
@@ -325,21 +340,26 @@ impl IcedContext {
             Popup::Turn(index, turn_id) => {
                 let turn = Turn::load(&turn_id, &self.fe_context.working_dir)?;
 
-                if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { diff: Some(diff), .. }) = &turn.turn_result {
-                    self.text_diff = Some(diff.to_string());
-                }
-
-                else if let TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { diff, .. }) = &turn.turn_result {
-                    self.text_diff = Some(diff.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"));
+                if turn.kind == TurnKind::UserQuestion {
+                    tasks.push(Task::done(IcedMessage::OpenPopup { curr: Popup::UserQuestion(index, turn_id), prev: None }));
                 }
 
                 else {
-                    self.text_diff = None;
-                }
+                    if let TurnResult::ToolCallSuccess(ToolCallSuccess::Write { diff: Some(diff), .. }) = &turn.turn_result {
+                        self.text_diff = Some(diff.to_string());
+                    }
 
-                self.turn_result_path = turn.get_result_path()?;
-                self.turn_result_path = self.turn_result_path.as_ref().map(|(dir, file)| (join(&self.fe_context.working_dir, dir).unwrap(), file.clone()));
-                self.copy_buffer = Some(format!(
+                    else if let TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { diff, .. }) = &turn.turn_result {
+                        self.text_diff = Some(diff.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"));
+                    }
+
+                    else {
+                        self.text_diff = None;
+                    }
+
+                    self.turn_result_path = turn.get_result_path()?;
+                    self.turn_result_path = self.turn_result_path.as_ref().map(|(dir, file)| (join(&self.fe_context.working_dir, dir).unwrap(), file.clone()));
+                    self.copy_buffer = Some(format!(
 "# {index}. {}
 
 <|LLM|>
@@ -351,12 +371,20 @@ impl IcedContext {
 {}
 
 {}",
-                    turn.preview().preview_title,
-                    turn.render_llm_response(true),
-                    stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
-                    turn.introduce_agents(),
-                ));
-                self.loaded_turn = Some((index, turn));
+                        turn.preview().preview_title,
+                        turn.render_llm_response(true),
+                        stringify_llm_tokens(&turn.turn_result.to_llm_tokens(&self.fe_context.config)),
+                        turn.introduce_agents(),
+                    ));
+                    self.loaded_turn = Some((index, turn));
+                }
+            },
+            Popup::UserQuestion(index, turn_id) => {
+                let turn = Turn::load(&turn_id, &self.fe_context.working_dir)?;
+                let TurnResult::ToolCallSuccess(ToolCallSuccess::QuestionFromUser { q, a }) = turn.turn_result else { unreachable!() };
+                self.copy_buffer = Some(format!("# {index}. {q}\n\n{a}"));
+                self.set_long_text_editor_content(a);
+                self.popup_title = Some(format!("# {index}. {q}"));
             },
             Popup::Logs => {
                 let logs = load_logs_tail(&self.log_dir)?;
@@ -427,7 +455,7 @@ impl IcedContext {
             Popup::AskQuit => {},
         }
 
-        Ok(())
+        Ok(Task::batch(tasks))
     }
 
     pub fn close_popup(&mut self) {
@@ -621,6 +649,7 @@ impl ChatMessage for IcedMessage {
 pub enum Popup {
     GetApiKeys,
     Turn(usize, TurnId),
+    UserQuestion(usize, TurnId),
     Logs,
     Log((String, LogId)),
     Summaries,
@@ -659,6 +688,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick { frame, force_update } => {
+            let mut tasks = vec![
+                is_focused(context.interrupt_text_editor_id.clone()).map(IcedMessage::IsInterruptTextEditorFocused),
+            ];
+
             if frame % 4 == 0 || force_update {
                 context.fe_context.end_frame(
                     context.pause.take(),
@@ -708,9 +741,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
                 context.is_paused = context.fe_context.is_paused()?;
                 context.fe_context.start_frame()?;
+
+                if context.fe_context.has_new_turn && let Some(new_turn) = context.fe_context.history.last() {
+                    if new_turn.kind == TurnKind::UserQuestion {
+                        tasks.push(Task::done(IcedMessage::OpenPopup { curr: Popup::UserQuestion(context.fe_context.history.len() - 1, new_turn.id.clone()), prev: None }));
+                    }
+                }
             }
 
-            return Ok(is_focused(context.interrupt_text_editor_id.clone()).map(|is_focused| IcedMessage::IsInterruptTextEditorFocused(is_focused)));
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Backspace), false, false, false) => {
@@ -752,13 +791,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             },
             (Key::Named(NamedKey::ArrowLeft), false, false, false) => {
-                if let Some(Popup::Turn(index @ 1.., _)) = context.curr_popup {
+                if let Some(Popup::Turn(index @ 1.., _) | Popup::UserQuestion(index @ 1.., _)) = context.curr_popup {
                     let new_index = index - 1;
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::Turn(new_index, context.fe_context.history[new_index].id.clone()), prev: None }));
                 }
             },
             (Key::Named(NamedKey::ArrowRight), false, false, false) => {
-                if let Some(Popup::Turn(index, _)) = context.curr_popup {
+                if let Some(Popup::Turn(index, _) | Popup::UserQuestion(index, _)) = context.curr_popup {
                     let new_index = index + 1;
 
                     if new_index < context.fe_context.history.len() {
@@ -946,20 +985,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let mut tasks: Vec<Task<IcedMessage>> = vec![
                 scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled),
             ];
-
-            if curr.has_long_text_input() {
-                tasks.push(focus(context.long_text_editor_id.clone()));
-            }
-
-            else if curr.has_short_text_input() {
-                tasks.push(focus(context.short_text_editor_id.clone()));
-            }
-
-            if let Popup::Logs = &curr {
-                tasks.push(snap_to(context.popup_scroll_id.clone(), RelativeOffset::END));
-            }
-
-            context.open_popup(curr)?;
+            tasks.push(context.open_popup(curr)?);
             context.prev_popup = prev;
             return Ok(Task::batch(tasks));
         },
@@ -967,7 +993,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             if let Some(prev_popup) = &context.prev_popup {
                 let prev_popup = prev_popup.clone();
                 context.prev_popup = None;
-                context.open_popup(prev_popup)?;
+                return context.open_popup(prev_popup);
             }
         },
         IcedMessage::ClosePopup => {
@@ -984,6 +1010,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         // "" -> "hidden" -> "pinned"
         IcedMessage::ToggleTurnVisibility(id) => {
+            let summary = id.get_turn_summary();
+
+            if summary.kind == TurnKind::UserQuestion {
+                return Ok(Task::done(IcedMessage::Notify(String::from("User question turn is always hidden!"))));
+            }
+
             match (context.fe_context.hidden_turns.remove(&id), context.fe_context.pinned_turns.remove(&id)) {
                 (true, _) => {
                     context.fe_context.pinned_turns.insert(id);
@@ -1409,7 +1441,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Log(_) | Popup::Help | Popup::Prompt | Popup::Instruction) = &context.curr_popup {
+    else if let Some(Popup::UserQuestion(_, _) | Popup::Log(_) | Popup::Help | Popup::Prompt | Popup::Instruction) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
@@ -1421,10 +1453,14 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(
-                Scrollable::new(Column::from_vec(vec![
-                    title.into(),
-                    text_editor.into(),
-                ]).spacing(context.zoom * 8.0))
+                Scrollable::new(
+                    Column::from_vec(vec![
+                        title.into(),
+                        text_editor.into(),
+                    ])
+                        .padding(context.zoom * 8.0)
+                        .spacing(context.zoom * 8.0)
+                )
                     .width(Length::Fill)
                     .id(context.popup_scroll_id.clone())
                     .into(),
@@ -1586,7 +1622,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
 
 fn render_turn<'t, 'c>(index: usize, turn: &'t Turn, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut turn_content = vec![
-        text!("# {index}. {}", turn.preview().preview_title).size(context.zoom * 14.0).into(),
+        text!("# {index}. {}", turn.preview().preview_title).size(context.zoom * 18.0).into(),
         text!("<|LLM|>").size(context.zoom * 14.0).into(),
         Container::new(
             render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], &context.fe_context.working_dir, context.zoom, context)

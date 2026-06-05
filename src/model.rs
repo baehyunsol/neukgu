@@ -229,7 +229,7 @@ impl fmt::Display for Model {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Agents {
     pub big: Model,
-    pub small: Model,  // WIP
+    pub small: Model,
     pub search: Model,
     pub summary: Model,  // WIP
     pub image_edit: Model,

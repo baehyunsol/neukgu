@@ -251,6 +251,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 }
 
 pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    if context.tab == Tab::Hidden {
+        return Space::new().into();
+    }
+
     let x = match context.alignment {
         Horizontal::Left => context.window_size.width * 0.05,
         Horizontal::Center => context.window_size.width * 0.3,

@@ -85,7 +85,13 @@ impl Request {
     }
 
     // VIBE NOTE: gemini 3.1 pro (via perplexity) taught me how to use `tokio::select` macro.
-    pub async fn request(&self, config: &Config, working_dir: &str, logger: &Logger) -> Result<Response, Error> {
+    pub async fn request(
+        &self,
+        config: &Config,
+        working_dir: &str,
+        ignore_interruptions: bool,
+        logger: &Logger,
+    ) -> Result<Response, Error> {
         let request_future = self.request_inner(config, working_dir, logger);
         tokio::pin!(request_future);
         let mut interval = tokio::time::interval(Duration::from_millis(200));
@@ -96,11 +102,11 @@ impl Request {
                     return result;
                 },
                 _ = interval.tick() => {
-                    match check_interruption(working_dir) {
-                        Ok(true) => {
+                    match (ignore_interruptions, check_interruption(working_dir)) {
+                        (false, Ok(true)) => {
                             return Err(Error::UserInterrupt);
                         },
-                        Err(e) => {
+                        (false, Err(e)) => {
                             return Err(e);
                         },
                         _ => {},

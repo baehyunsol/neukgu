@@ -904,6 +904,13 @@ pub enum ToolCallSuccess {
         requested_size: Option<(u64, u64)>,
         generated_size: (u64, u64),
     },
+
+    // User instructions are converted to the below turns.
+    QuestionFromUser {
+        q: String,
+        a: String,
+    },
+    InstructionFromUser(String),
 }
 
 impl ToolCallSuccess {
@@ -1022,6 +1029,21 @@ impl ToolCallSuccess {
                 LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
                 LLMToken::Image(*output_image),
             ],
+
+            // LLM shouldn't be able to see this.
+            ToolCallSuccess::QuestionFromUser { q, a } => vec![LLMToken::String(format!("
+Answered a user question. NOTE: this QA has nothing to do with the current work and you should ignore this.
+
+<question>
+{q}
+</question>
+
+<answer>
+{a}
+</answer>
+"))],
+
+            ToolCallSuccess::InstructionFromUser(i) => vec![LLMToken::String(i.to_string())],
         }
     }
 

@@ -192,7 +192,8 @@ impl IcedContext {
         };
 
         if let Some(file) = &file {
-            context.open_popup(Popup::PreviewFile { path: join(cwd, file)? })?;
+            // TODO: I want a mechanism that `IcedContext::new` can create Tasks.
+            let _ = context.open_popup(Popup::PreviewFile { path: join(cwd, file)? })?;
         }
 
         Ok(context)
@@ -271,7 +272,19 @@ impl IcedContext {
         file_candidate.is_some() || dir_candidate.is_some()
     }
 
-    pub fn open_popup(&mut self, popup: Popup) -> Result<(), Error> {
+    pub fn open_popup(&mut self, popup: Popup) -> Result<Task<IcedMessage>, Error> {
+        let mut tasks = vec![];
+
+        match &popup {
+            Popup::CreateWorkingDir { .. } | Popup::CreateDir { .. } | Popup::Find { .. } => {
+                tasks.push(focus(self.short_text_editor_id.clone()));
+            },
+            Popup::Init { .. } => {
+                tasks.push(focus(self.long_text_editor_id.clone()));
+            },
+            _ => {},
+        }
+
         self.close_popup();
         self.curr_popup = Some(popup.clone());
 
@@ -394,7 +407,7 @@ impl IcedContext {
             },
         }
 
-        Ok(())
+        Ok(Task::batch(tasks))
     }
 
     pub fn close_popup(&mut self) {
@@ -763,18 +776,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let mut tasks: Vec<Task<IcedMessage>> = vec![
                 scroll_to(context.entry_view_id.clone(), context.entry_view_scrolled),
             ];
-
-            match &popup {
-                Popup::CreateWorkingDir { .. } | Popup::CreateDir { .. } | Popup::Find { .. } => {
-                    tasks.push(focus(context.short_text_editor_id.clone()));
-                },
-                Popup::Init { .. } => {
-                    tasks.push(focus(context.long_text_editor_id.clone()));
-                },
-                _ => {},
-            }
-
-            context.open_popup(popup)?;
+            tasks.push(context.open_popup(popup)?);
             return Ok(Task::batch(tasks));
         },
         IcedMessage::ClosePopup => {

@@ -176,9 +176,12 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
 // The returned boolean tells whether a new turn is added to the context or not.
 async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Error> {
     if let Some((id, interrupt_kind, interrupt)) = context.check_interrupt_from_user()? {
-        context.process_interrupt_from_user(id, interrupt_kind, interrupt, config)?;
+        context.process_interrupt_from_user(id, interrupt_kind, interrupt, config).await?;
         context.store()?;
-        context.remove_done_mark()?;
+
+        if interrupt_kind == InterruptKind::Instruction {
+            context.remove_done_mark()?;
+        }
     }
 
     if context.is_marked_done()? {
@@ -199,7 +202,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
             None => {
                 let llm_call_started_at = Instant::now();
                 let request = context.to_request(config)?;
-                let (thinking, response, api_log) = match request.request(&config.request_config(), &context.working_dir, &context.logger).await {
+                let (thinking, response, api_log) = match request.request(&config.request_config(), &context.working_dir, false, &context.logger).await {
                     Ok(response) => (response.thinking.clone(), response.response.to_string(), response.log.clone()),
                     Err(Error::UserInterrupt) => {
                         context.logger.log(LogEntry::UserInterruptWhileLLMRequest)?;
