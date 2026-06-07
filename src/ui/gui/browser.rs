@@ -19,6 +19,7 @@ use super::{
 };
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
+use super::file_editor::{self, IcedContext as FileEditorContext, IcedMessage as FileEditorMessage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
 use super::worker::{
@@ -103,6 +104,7 @@ You can create or initialize a neukgu working directory in file browser.
 - (Ctrl)+Up/Down: prev/next file entry (Ctrl to move faster)
 - Ctrl+Plus/Minus: zoom
 - Ctrl+D: create new dir
+- Ctrl+E: edit file (in file preview popup)
 - Ctrl+H: help message
 - Ctrl+I: init working dir
 - Ctrl+L: launch working dir
@@ -143,6 +145,7 @@ pub struct IcedContext {
     pub popup_title: Option<String>,
     pub loaded_symlink: Option<SymlinkInfo>,
     pub loaded_file_info: Option<FileInfo>,
+    pub file_editor_context: Option<FileEditorContext>,
     pub zoom: f32,
     pub new_project_config: Config,
     pub short_text_editor_content: String,
@@ -182,6 +185,7 @@ impl IcedContext {
             popup_title: None,
             loaded_symlink: None,
             loaded_file_info: None,
+            file_editor_context: None,
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
             short_text_editor_content: String::new(),
@@ -375,6 +379,12 @@ impl IcedContext {
             Popup::PreviewSymlink { path } => {
                 self.loaded_symlink = Some(SymlinkInfo::new(&path));
             },
+            Popup::FileEditor { path } => {
+                let c = FileEditorContext::new(&path, self.popup_scroll_id.clone(), self.window_size, self.zoom)?;
+                let editor_id = c.text_editor_id.clone();
+                self.file_editor_context = Some(c);
+                return Ok(focus(editor_id));
+            },
             Popup::FileInfo { is_dir, path, .. } => if is_dir {
                 let job_id = JobId::new();
                 let metadata = std::fs::metadata(&path).map_err(|e| FileError::from_std(e, &path))?;
@@ -441,6 +451,7 @@ impl IcedContext {
         self.popup_title = None;
         self.loaded_symlink = None;
         self.loaded_file_info = None;
+        self.file_editor_context = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
     }
@@ -514,6 +525,7 @@ pub enum IcedMessage {
     UnhoverRunButton,
     FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
+    FileEditorMessage(FileEditorMessage),
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
@@ -638,6 +650,7 @@ pub enum Popup {
     EntryError(String),
     PreviewFile { path: String },
     PreviewSymlink { path: String },
+    FileEditor { path: String },
 
     // if !is_dir, there's nothing to do with job_id
     // if is_dir, when the popup is open, it'll spawn a background job that calculates the size
@@ -692,6 +705,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     context.entries = load_entries(&context.cwd)?;
                     context.has_neukgu_index = check_neukgu_index(&context.cwd)?;
                 }
+            }
+
+            if let Some(c) = &mut context.file_editor_context {
+                c.window_size = context.window_size;
+                c.zoom = context.zoom;
             }
 
             return Ok(is_focused(context.command_editor_id.clone()).map(|is_focused| IcedMessage::IsCommandEditorFocused(is_focused)));
@@ -758,7 +776,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("d"), true, false, false) => {
                 if context.curr_popup.is_none() {
-                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() })));
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.to_string() })));
+                }
+            },
+            (Key::Character("e"), true, false, false) => {
+                if let Some(Popup::PreviewFile { path }) = &context.curr_popup && context.long_preview.is_none() && context.image_buffer.is_empty() {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::FileEditor { path: path.to_string() })));
                 }
             },
             (Key::Character("f"), true, false, false) => {
@@ -964,6 +987,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::SetProjectConfig(c) => {
             set_project_config(&mut context.new_project_config, c);
+        },
+        IcedMessage::FileEditorMessage(m) => {
+            if let Some(c) = &mut context.file_editor_context {
+                match m {
+                    FileEditorMessage::Notify(m) => return Ok(Task::done(IcedMessage::Notify(m))),
+                    m => return Ok(file_editor::update(c, m)?.map(IcedMessage::FileEditorMessage)),
+                }
+            }
         },
         IcedMessage::PrepareScratchPad => {
             let content = match (context.image_buffer.get(0), &context.copy_buffer) {
@@ -1232,10 +1263,25 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
-                into_popup(Scrollable::new(Column::from_vec(vec![
-                    title.into(),
-                    text_editor.into(),
-                ]).spacing(context.zoom * 20.0).width(Length::Fill)).id(context.popup_scroll_id.clone()).width(Length::Fill).into(), context),
+                into_popup(
+                    Scrollable::new(
+                        Column::from_vec(vec![
+                            title.into(),
+                            text_editor.into(),
+                            if let Some(Popup::PreviewFile { path }) = &context.curr_popup {
+                                button("Edit", IcedMessage::OpenPopup(Popup::FileEditor { path: path.to_string() }), blue(), context.zoom).into()
+                            } else {
+                                Space::new().into()
+                            },
+                        ])
+                            .spacing(context.zoom * 20.0)
+                            .width(Length::Fill)
+                    )
+                        .id(context.popup_scroll_id.clone())
+                        .width(Length::Fill)
+                        .into(),
+                    context,
+                ),
             ]).into();
         }
     }
@@ -1323,6 +1369,16 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(ask.into(), context),
+        ]).into();
+    }
+
+    else if let Some(c) = &context.file_editor_context {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                file_editor::view(c).map(IcedMessage::FileEditorMessage).into(),
+                context,
+            ),
         ]).into();
     }
 

@@ -253,9 +253,6 @@
     - skill 등록하는 ui를 만들어야겠네...
       - 이것도 config ui 안에다가 넣으면 됨!!
 152. browser에서 파일 미리보기 할 때, 방향키로 browse 가능케 하기!!
-154. neukgu가 zed를 대체하려면?
-  - git 관련된 기능이 훨씬 보강되어야 함 (issue 165)
-  - 간단한 텍스트 파일은 즉시 수정이 가능해야함: text editor를 집어넣어??
 155. snapshot/sandbox를 git으로 관리하기??
   - 이게 잘되면 옛날처럼 모든 turn의 snapshot을 떠놓고 오류나면 즉시 롤백하면 됨
   - 롤백도 지금처럼 6 turn 씩 자르는게 아니고 모든 turn으로 다 할 수 있음.

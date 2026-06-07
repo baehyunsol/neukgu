@@ -58,7 +58,15 @@ mod write;
 pub use ask::{AskTo, ask_question_to_web};
 pub use chrome::WebOrFile;
 pub use image_edit::ImageRequest;
-pub use patch::{DiffKind, LineDiff, PatchError, parse_line_diff, patch_diff, patch_file};
+pub use patch::{
+    DiffKind,
+    LineDiff,
+    PatchError,
+    parse_line_diff,
+    patch_diff,
+    patch_file,
+    revert_hunks,
+};
 pub use read::{
     FileEntry,
     RangeType,

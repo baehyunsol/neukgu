@@ -14,6 +14,8 @@ mod browser;
 mod chat;
 mod config;
 mod error;
+mod file_change;
+mod file_editor;
 mod index;
 mod logs;
 mod model_store;

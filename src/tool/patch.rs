@@ -156,6 +156,37 @@ pub fn parse_line_diff(lines: &str) -> Result<Vec<LineDiff>, ParseError> {
     Ok(diff)
 }
 
+pub fn revert_hunks(udiff: &str) -> Vec<Vec<LineDiff>> {
+    let mut hunks = vec![];
+    let mut curr_hunk = vec![];
+
+    for line in udiff.lines() {
+        if line.starts_with("+") {
+            // revert the diff
+            curr_hunk.push(LineDiff { kind: DiffKind::Remove, line: line.get(1..).unwrap().to_string() });
+        } else if line.starts_with("-") {
+            // revert the diff
+            curr_hunk.push(LineDiff { kind: DiffKind::Add, line: line.get(1..).unwrap().to_string() });
+        } else if line.starts_with(" ") {
+            curr_hunk.push(LineDiff { kind: DiffKind::Context, line: line.get(1..).unwrap().to_string() });
+        } else if line.starts_with("@") {
+            if !curr_hunk.is_empty() {
+                hunks.push(curr_hunk);
+            }
+
+            curr_hunk = vec![];
+        } else {
+            panic!("TODO: {line:?}");
+        }
+    }
+
+    if !curr_hunk.is_empty() {
+        hunks.push(curr_hunk);
+    }
+
+    hunks
+}
+
 /*
 ```
 pub struct Person {

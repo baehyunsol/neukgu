@@ -4,7 +4,6 @@ use crate::{
     Config,
     Context,
     ContextJson,
-    DiffKind,
     Error,
     InterruptKind,
     LineDiff,
@@ -28,6 +27,7 @@ use crate::{
     patch_diff,
     prettify_bytes,
     prettify_time,
+    revert_hunks,
     system_prompt,
     truncate_chars,
 };
@@ -606,32 +606,7 @@ impl FeContext {
                     let (path, original_content) = match turn.turn_result {
                         TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Create, .. }) => (path, String::new()),
                         TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: _, diff: Some(diff), mut content, .. }) => {
-                            let mut hunks = vec![];
-                            let mut curr_hunk = vec![];
-
-                            for line in diff.lines() {
-                                if line.starts_with("+") {
-                                    // revert the diff
-                                    curr_hunk.push(LineDiff { kind: DiffKind::Remove, line: line.get(1..).unwrap().to_string() });
-                                } else if line.starts_with("-") {
-                                    // revert the diff
-                                    curr_hunk.push(LineDiff { kind: DiffKind::Add, line: line.get(1..).unwrap().to_string() });
-                                } else if line.starts_with(" ") {
-                                    curr_hunk.push(LineDiff { kind: DiffKind::Context, line: line.get(1..).unwrap().to_string() });
-                                } else if line.starts_with("@") {
-                                    if !curr_hunk.is_empty() {
-                                        hunks.push(curr_hunk);
-                                    }
-
-                                    curr_hunk = vec![];
-                                } else {
-                                    panic!("TODO: {line:?}");
-                                }
-                            }
-
-                            if !curr_hunk.is_empty() {
-                                hunks.push(curr_hunk);
-                            }
+                            let hunks = revert_hunks(&diff);
 
                             for hunk in hunks.iter() {
                                 // TODO: Practically, `patch_diff(..).unwrap()` will not fail, but what if...

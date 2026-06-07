@@ -1,61 +1,20 @@
-use super::{IcedContext, IcedMessage, Popup, green, green_transparent, red, red_transparent, set_bg, white, yellow};
-use crate::Error;
+use super::{green, green_transparent, red, red_transparent, set_bg, white, yellow};
 use iced::{Element, Length};
 use iced::widget::{Column, Container, Row, text};
-use ragit_fs::{basename, join, parent};
 use similar::{Algorithm, ChangeTag, TextDiffConfig};
-use std::collections::HashMap;
 
-#[derive(Clone, Debug)]
-pub struct FileChange {
-    pub path: String,
-    pub browser_path: (String, String),  // (dir, file)
-    pub udiff: String,
-    pub expanded: bool,
-}
-
-impl IcedContext {
-    pub fn update_file_changes(&mut self) -> Result<(), Error> {
-        match &self.curr_popup {
-            Some(Popup::FileChanges(changes)) => {
-                let expanded: HashMap<String, bool> = changes.iter().map(|c| (c.path.to_string(), c.expanded)).collect();
-                let changed_files = self.fe_context.get_changed_files()?;
-                let mut changes = Vec::with_capacity(changed_files.len());
-
-                for (file, original_content) in changed_files.iter() {
-                    let udiff = self.fe_context.get_file_change(file, original_content)?;
-                    let abs_path = join(&self.fe_context.working_dir, &file)?;
-
-                    if let Some(udiff) = udiff {
-                        changes.push(FileChange {
-                            path: file.to_string(),
-                            browser_path: (parent(&abs_path)?, basename(&abs_path)?),
-                            udiff,
-                            expanded: expanded.get(file).cloned().unwrap_or(false),
-                        });
-                    }
-                }
-
-                self.curr_popup = Some(Popup::FileChanges(changes));
-                Ok(())
-            },
-            _ => Ok(()),
-        }
-    }
-}
-
-pub fn render_udiff<'c, 'd>(
+pub fn render_udiff<'d, Message: 'd>(
     udiff: &'d str,
     width: impl Into<Length>,
-    context: &'c IcedContext,
-) -> Element<'c, IcedMessage> {
-    fn render_context<'a, 'b, 'c, 'd>(context: &'a mut Vec<&'b str>, lines: &'c mut Vec<Element<'d, IcedMessage>>, zoom: f32) {
+    zoom: f32,
+) -> Element<'d, Message> {
+    fn render_context<'a, 'b, 'c, 'd, Message: 'd>(context: &'a mut Vec<&'b str>, lines: &'c mut Vec<Element<'d, Message>>, zoom: f32) {
         for line in context.drain(..) {
             lines.push(text!("{line}").size(zoom * 14.0).color(white()).into());
         }
     }
 
-    fn render_hunk<'a, 'b, 'c, 'd, 'e, 'f>(add: &'a mut Vec<&'b str>, remove: &'c mut Vec<&'d str>, lines: &'e mut Vec<Element<'f, IcedMessage>>, zoom: f32) {
+    fn render_hunk<'a, 'b, 'c, 'd, 'e, 'f, Message: 'f>(add: &'a mut Vec<&'b str>, remove: &'c mut Vec<&'d str>, lines: &'e mut Vec<Element<'f, Message>>, zoom: f32) {
         match (add.len(), remove.len()) {
             (0, _) => {
                 for line in remove.drain(..) {
@@ -146,7 +105,7 @@ pub fn render_udiff<'c, 'd>(
     for line in udiff.lines() {
         if line.starts_with(" ") {
             if !curr_add.is_empty() || !curr_remove.is_empty() {
-                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, context.zoom);
+                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, zoom);
             }
 
             curr_context.push(line);
@@ -154,7 +113,7 @@ pub fn render_udiff<'c, 'd>(
 
         else if line.starts_with("+") || line.starts_with("-") {
             if !curr_context.is_empty() {
-                render_context(&mut curr_context, &mut lines, context.zoom);
+                render_context(&mut curr_context, &mut lines, zoom);
             }
 
             if line.starts_with("+") {
@@ -166,23 +125,23 @@ pub fn render_udiff<'c, 'd>(
 
         else {
             if !curr_context.is_empty() {
-                render_context(&mut curr_context, &mut lines, context.zoom);
+                render_context(&mut curr_context, &mut lines, zoom);
             }
 
             else if !curr_add.is_empty() || !curr_remove.is_empty() {
-                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, context.zoom);
+                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, zoom);
             }
 
-            lines.push(text!("{line}").size(context.zoom * 14.0).color(yellow()).into());
+            lines.push(text!("{line}").size(zoom * 14.0).color(yellow()).into());
         }
     }
 
     if !curr_context.is_empty() {
-        render_context(&mut curr_context, &mut lines, context.zoom);
+        render_context(&mut curr_context, &mut lines, zoom);
     }
 
     else if !curr_add.is_empty() || !curr_remove.is_empty() {
-        render_hunk(&mut curr_add, &mut curr_remove, &mut lines, context.zoom);
+        render_hunk(&mut curr_add, &mut curr_remove, &mut lines, zoom);
     }
 
     Column::from_vec(lines).width(width).into()

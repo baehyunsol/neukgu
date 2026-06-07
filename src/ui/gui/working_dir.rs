@@ -8,10 +8,8 @@ use super::{
     disabled_button,
     gray,
     green,
-    green_transparent,
     pink,
     red,
-    red_transparent,
     set_bg,
     skyblue,
     spawn_be_process,
@@ -26,6 +24,7 @@ use super::api_key::{
 };
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
+use super::file_change::render_udiff;
 use super::logs::{LogsContext, render_logs, render_token_usage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
@@ -75,17 +74,13 @@ use iced::widget::text_editor::{
     KeyPress,
     TextEditor,
 };
-use ragit_fs::{join, join3};
+use ragit_fs::{basename, join, join3, parent};
 use regex::Regex;
 use std::collections::HashSet;
 use std::collections::hash_map::{Entry, HashMap};
 use std::process::Child;
 use std::sync::Arc;
 use std::time::Instant;
-
-mod file_change;
-
-use file_change::{FileChange, render_udiff};
 
 const HELP_MESSAGE: &str = r#"
 This is a neukgu's working directory.
@@ -518,6 +513,34 @@ impl IcedContext {
         Ok(())
     }
 
+    pub fn update_file_changes(&mut self) -> Result<(), Error> {
+        match &self.curr_popup {
+            Some(Popup::FileChanges(changes)) => {
+                let expanded: HashMap<String, bool> = changes.iter().map(|c| (c.path.to_string(), c.expanded)).collect();
+                let changed_files = self.fe_context.get_changed_files()?;
+                let mut changes = Vec::with_capacity(changed_files.len());
+
+                for (file, original_content) in changed_files.iter() {
+                    let udiff = self.fe_context.get_file_change(file, original_content)?;
+                    let abs_path = join(&self.fe_context.working_dir, &file)?;
+
+                    if let Some(udiff) = udiff {
+                        changes.push(FileChange {
+                            path: file.to_string(),
+                            browser_path: Some((parent(&abs_path)?, basename(&abs_path)?)),
+                            udiff,
+                            expanded: expanded.get(file).cloned().unwrap_or(false),
+                        });
+                    }
+                }
+
+                self.curr_popup = Some(Popup::FileChanges(changes));
+                Ok(())
+            },
+            _ => Ok(()),
+        }
+    }
+
     pub fn can_click_turn_entry(&self) -> bool {
         self.curr_popup.is_none() && self.llm_request.is_none() && !self.is_interrupt_text_editor_focused
     }
@@ -694,6 +717,14 @@ impl Popup {
     pub fn has_long_text_input(&self) -> bool {
         matches!(self, Popup::Reset)
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct FileChange {
+    pub path: String,
+    pub browser_path: Option<(String, String)>,  // (dir, file)
+    pub udiff: String,
+    pub expanded: bool,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -1358,7 +1389,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     else if let Some(Popup::Diff) = context.curr_popup {
-        let diff_view = Scrollable::new(render_udiff(context.text_diff.as_ref().unwrap(), context.window_size.width, context)).id(context.popup_scroll_id.clone());
+        let diff_view = Scrollable::new(render_udiff(context.text_diff.as_ref().unwrap(), context.window_size.width, context.zoom)).id(context.popup_scroll_id.clone());
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(diff_view.into(), context).into(),
@@ -1841,8 +1872,8 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
     )
 }
 
-fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedContext) -> Element<'co, IcedMessage> {
-    fn render_file_change<'ch, 'co, 'ae>(change: &'ch FileChange, context: &'co IcedContext, all_expanded: &'ae mut bool) -> Element<'co, IcedMessage> {
+fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    fn render_file_change<'c, 'a>(change: &'c FileChange, context: &'c IcedContext, all_expanded: &'a mut bool) -> Element<'c, IcedMessage> {
         let (mut add, mut remove) = (0, 0);
 
         for line in change.udiff.lines() {
@@ -1858,7 +1889,11 @@ fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedC
                 Row::from_vec(vec![
                     button("▼", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
                     Space::new().width(context.zoom * 8.0).into(),
-                    button("Open", IcedMessage::OpenBrowser { dir: change.browser_path.0.to_string(), file: Some(change.browser_path.1.to_string()) }, skyblue(), context.zoom).into(),
+                    if let Some((dir, file)) = change.browser_path.clone() {
+                        button("Open", IcedMessage::OpenBrowser { dir, file: Some(file) }, skyblue(), context.zoom).into()
+                    } else {
+                        Space::new().into()
+                    },
                     Space::new().width(context.zoom * 8.0).into(),
                     text!("{} (", change.path).size(context.zoom * 14.0).into(),
                     text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
@@ -1866,14 +1901,18 @@ fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedC
                     text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
                     text!(")").size(context.zoom * 14.0).into(),
                 ]).align_y(Vertical::Center).into(),
-                render_udiff(&change.udiff, context.window_size.width, context),
+                render_udiff(&change.udiff, context.window_size.width, context.zoom),
             ]).into()
         } else {
             *all_expanded = false;
             Row::from_vec(vec![
                 button("▶", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
                 Space::new().width(context.zoom * 8.0).into(),
-                button("Open", IcedMessage::OpenBrowser { dir: change.browser_path.0.to_string(), file: Some(change.browser_path.1.to_string()) }, skyblue(), context.zoom).into(),
+                if let Some((dir, file)) = change.browser_path.clone() {
+                    button("Open", IcedMessage::OpenBrowser { dir, file: Some(file) }, skyblue(), context.zoom).into()
+                } else {
+                    Space::new().into()
+                },
                 Space::new().width(context.zoom * 8.0).into(),
                 text!("{} (", change.path).size(context.zoom * 14.0).into(),
                 text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
@@ -1896,7 +1935,7 @@ fn render_file_changes<'ch, 'co>(changes: &'ch [FileChange], context: &'co IcedC
                 ..Style::default()
             })
             .into()
-        }
+    }
 
     let mut all_files_expanded = true;
     let file_changes: Vec<&FileChange> = changes.iter().filter(|change| !change.path.starts_with("logs/")).collect();

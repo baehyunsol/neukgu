@@ -113,6 +113,7 @@ pub use tool::{
     WriteMode,
     load_available_binaries,
     patch_diff,
+    revert_hunks,
 };
 pub use turn::{
     Turn,
