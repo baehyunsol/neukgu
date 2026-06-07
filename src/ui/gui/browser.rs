@@ -20,6 +20,7 @@ use super::{
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
 use super::file_editor::{self, IcedContext as FileEditorContext, IcedMessage as FileEditorMessage};
+use super::git::{self, IcedContext as GitInfoContext, IcedMessage as GitInfoMessage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
 use super::worker::{
@@ -124,6 +125,7 @@ pub struct IcedContext {
     pub cwd: String,
     pub entries: Vec<FileEntry>,
     pub has_neukgu_index: bool,
+    pub has_git_index: bool,
     pub window_size: Size,
     pub entry_view_id: Id,
     pub popup_scroll_id: Id,
@@ -145,6 +147,7 @@ pub struct IcedContext {
     pub popup_title: Option<String>,
     pub loaded_symlink: Option<SymlinkInfo>,
     pub loaded_file_info: Option<FileInfo>,
+    pub loaded_git_info: Option<GitInfoContext>,
     pub file_editor_context: Option<FileEditorContext>,
     pub zoom: f32,
     pub new_project_config: Config,
@@ -168,6 +171,7 @@ impl IcedContext {
             cwd: cwd.to_string(),
             entries: load_entries(cwd)?,
             has_neukgu_index: check_neukgu_index(cwd)?,
+            has_git_index: check_git_index(cwd)?,
             window_size,
             entry_view_id: Id::unique(),
             popup_scroll_id: Id::unique(),
@@ -185,6 +189,7 @@ impl IcedContext {
             popup_title: None,
             loaded_symlink: None,
             loaded_file_info: None,
+            loaded_git_info: None,
             file_editor_context: None,
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
@@ -428,6 +433,14 @@ impl IcedContext {
                     created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
                 });
             },
+            Popup::GitInfo { path } => {
+                let job_id = JobId::new();
+                self.loaded_git_info = Some(GitInfoContext::new(&path, job_id));
+                return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                    id: job_id,
+                    kind: JobKind::GetGitInfo { path: path.to_string() },
+                })));
+            },
             Popup::AskDelete { .. } => {},
             Popup::Find { .. } => {},
             Popup::FindResult { .. } => {},
@@ -451,6 +464,7 @@ impl IcedContext {
         self.popup_title = None;
         self.loaded_symlink = None;
         self.loaded_file_info = None;
+        self.loaded_git_info = None;
         self.file_editor_context = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
@@ -526,6 +540,7 @@ pub enum IcedMessage {
     FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
     FileEditorMessage(FileEditorMessage),
+    GitInfoMessage(GitInfoMessage),
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
@@ -666,6 +681,7 @@ pub enum Popup {
         error: Option<String>,
     },
 
+    GitInfo { path: String },
     AskDelete { is_dir: bool, path: String },
     Find {
         // It'll be set when the background worker starts working.
@@ -789,6 +805,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Find { error: None, job_id: None })));
                 }
             },
+            (Key::Character("g"), true, false, false) => {
+                if context.curr_popup.is_none() && context.has_git_index {
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::GitInfo { path: context.cwd.to_string() })));
+                }
+            },
             (Key::Character("h"), true, false, false) => {
                 if context.curr_popup.is_none() {
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::Help)));
@@ -877,6 +898,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.cwd = new.to_string();
             context.entries = load_entries(&new)?;
             context.has_neukgu_index = check_neukgu_index(&new)?;
+            context.has_git_index = check_git_index(&new)?;
 
             if let (Some(old), true) = (&old, going_up) {
                 context.select_entry_by_name(&basename(old)?);
@@ -994,6 +1016,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     FileEditorMessage::Notify(m) => return Ok(Task::done(IcedMessage::Notify(m))),
                     m => return Ok(file_editor::update(c, m)?.map(IcedMessage::FileEditorMessage)),
                 }
+            }
+        },
+        IcedMessage::GitInfoMessage(m) => {
+            if let Some(c) = &mut context.loaded_git_info {
+                return Ok(git::update(c, m)?.map(IcedMessage::GitInfoMessage));
             }
         },
         IcedMessage::PrepareScratchPad => {
@@ -1346,6 +1373,16 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(git_info_context) = &context.loaded_git_info {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                git::view(git_info_context).map(IcedMessage::GitInfoMessage),
+                context,
+            ),
+        ]).into();
+    }
+
     else if let Some(Popup::EntryError(e)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1388,27 +1425,31 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
     let mut buttons_row1: Vec<Button<IcedMessage>> = if context.has_neukgu_index {
         vec![
-            button("New (p)roject", IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() }), green(), context.zoom).into(),
-            button("New (d)irectory", IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() }), green(), context.zoom).into(),
-            button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom).into(),
+            button("New (p)roject", IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() }), green(), context.zoom),
+            button("New (d)irectory", IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() }), green(), context.zoom),
+            button("(L)aunch", IcedMessage::Launch { path: context.cwd.clone() }, green(), context.zoom),
         ]
     } else {
         vec![
-            button("New (p)roject", IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() }), green(), context.zoom).into(),
-            button("New (d)irectory", IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() }), green(), context.zoom).into(),
-            button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom).into(),
+            button("New (p)roject", IcedMessage::OpenPopup(Popup::CreateWorkingDir { path: context.cwd.clone() }), green(), context.zoom),
+            button("New (d)irectory", IcedMessage::OpenPopup(Popup::CreateDir { path: context.cwd.clone() }), green(), context.zoom),
+            button("(I)nit here", IcedMessage::OpenPopup(Popup::Init { path: context.cwd.clone() }), green(), context.zoom),
         ]
     };
     let mut buttons_row2: Vec<Button<IcedMessage>> = vec![];
 
-    buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom).into());
+    buttons_row1.push(button("(H)elp", IcedMessage::OpenPopup(Popup::Help), pink(), context.zoom));
 
     if let Ok(parent) = parent(&context.cwd) && !parent.is_empty() {
-        buttons_row2.push(button("Up", IcedMessage::ChDir { new: parent, old: Some(context.cwd.to_string()), going_up: true }, blue(), context.zoom).into());
+        buttons_row2.push(button("Up", IcedMessage::ChDir { new: parent, old: Some(context.cwd.to_string()), going_up: true }, blue(), context.zoom));
     }
 
-    buttons_row2.push(button("Home", IcedMessage::ChDir { new: context.home_dir.to_string(), old: Some(context.cwd.to_string()), going_up: false }, blue(), context.zoom).into());
-    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup(Popup::Find { error: None, job_id: None }), blue(), context.zoom).into());
+    buttons_row2.push(button("Home", IcedMessage::ChDir { new: context.home_dir.to_string(), old: Some(context.cwd.to_string()), going_up: false }, blue(), context.zoom));
+    buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup(Popup::Find { error: None, job_id: None }), blue(), context.zoom));
+
+    if context.has_git_index {
+        buttons_row2.push(button("(G)it", IcedMessage::OpenPopup(Popup::GitInfo { path: context.cwd.to_string() }), black(), context.zoom));
+    }
 
     let buttons_row1 = if context.curr_popup.is_some() {
         buttons_row1.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
@@ -1679,6 +1720,18 @@ fn check_neukgu_index(path: &str) -> Result<bool, Error> {
     Ok(is_dir(path) && {
         for child in read_dir(path, false)? {
             if basename(&child)? == ".neukgu" && is_dir(&child) {
+                return Ok(true);
+            }
+        }
+
+        false
+    })
+}
+
+fn check_git_index(path: &str) -> Result<bool, Error> {
+    Ok(is_dir(path) && {
+        for child in read_dir(path, false)? {
+            if basename(&child)? == ".git" && is_dir(&child) {
                 return Ok(true);
             }
         }
