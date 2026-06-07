@@ -309,16 +309,12 @@
   - 늑구에서 계속 실행하면 개이득이고, 늑구에서 볼 수만 있어도 엄청 좋지!!
 164. browser에도 scratch pad 버튼 붙이자 -> 현재 dir의 entry를 간단하게 string으로 바꿔서 띄우기!!
 165. more git!!
-  - pretty ui for `git diff --cached -U5 --diff-algorithm=patience`
-  - pretty ui for `git diff -U5 --diff-algorithm=patience`
-  - `git status`: it's not necessary when we have the above commands.
+  - I'll implement it as a popup, like `src/ui/gui/file_editor.rs`
+  - It shows hunks: `git diff --cached -U5 --diff-algorithm=patience` and `git diff -U5 --diff-algorithm=patience`
+    - You can revert/stage/unstage each hunk
   - pretty ui for `git log`
   - I'll implement it once and use it in the browser ui (only if a git repo is detected) and the working-dir ui
-  - Do I need a separate worker that collects the git data?
-  - Is it a popup or a tab?
-    - If it's a tab, we can add a lot more interface
-    - If it's a tab, there are so many more things to implement...
-  - what if the working directory itself is not a git repository but its parent is?
+  - I have to implement a worker for git
 166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index (working-dir 만들 때 파일 추가)에 넣자
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
