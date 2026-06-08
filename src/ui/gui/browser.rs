@@ -9,6 +9,7 @@ use super::{
     gray,
     green,
     pink,
+    purple,
     red,
     set_bg,
     set_round_bg,
@@ -1917,6 +1918,19 @@ fn render_run_result<'cm, 'o, 'e, 'cn>(
         let title = Row::from_vec(vec![
             text!("{title}").size(context.zoom * 14.0).into(),
             button("Copy", IcedMessage::CopyString(s.to_string()), blue(), context.zoom).into(),
+            if s.len() > TEXT_EDITOR_CONTENT_LIMIT {
+                Space::new().into()
+            } else {
+                button(
+                    "Scratch Pad",
+                    IcedMessage::OpenScratchPad {
+                        title: None,
+                        content: ScratchPadContent::Text { content: s.to_string(), extension: None },
+                    },
+                    purple(),
+                    context.zoom,
+                ).into()
+            },
         ]).spacing(context.zoom * 8.0).align_y(Vertical::Center);
         let text_box = Container::new(
             if s.len() > TEXT_EDITOR_CONTENT_LIMIT {
