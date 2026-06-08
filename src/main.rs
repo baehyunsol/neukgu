@@ -237,11 +237,12 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             tui::run(no_backend, &working_dir)
         },
         Some("gui") => {
-            ArgParser::new()
-                .args(ArgType::String, ArgCount::None)
+            let parsed_args = ArgParser::new()
+                .args(ArgType::String, ArgCount::Leq(1))
                 .parse(&args, 2)?;
 
-            gui::run()
+            let cwd = parsed_args.get_args().get(0).cloned();
+            gui::run(cwd)
         },
         Some("help") => {
             println!("{HELP_MESSAGE}");
