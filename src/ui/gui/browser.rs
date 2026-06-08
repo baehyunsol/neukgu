@@ -147,8 +147,8 @@ pub struct IcedContext {
     pub popup_title: Option<String>,
     pub loaded_symlink: Option<SymlinkInfo>,
     pub loaded_file_info: Option<FileInfo>,
-    pub loaded_git_info: Option<GitInfoContext>,
     pub file_editor_context: Option<FileEditorContext>,
+    pub git_info_context: Option<GitInfoContext>,
     pub zoom: f32,
     pub new_project_config: Config,
     pub short_text_editor_content: String,
@@ -189,8 +189,8 @@ impl IcedContext {
             popup_title: None,
             loaded_symlink: None,
             loaded_file_info: None,
-            loaded_git_info: None,
             file_editor_context: None,
+            git_info_context: None,
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
             short_text_editor_content: String::new(),
@@ -435,7 +435,7 @@ impl IcedContext {
             },
             Popup::GitInfo { path } => {
                 let job_id = JobId::new();
-                self.loaded_git_info = Some(GitInfoContext::new(&path, job_id));
+                self.git_info_context = Some(GitInfoContext::new(&path, self.window_size, self.popup_scroll_id.clone(), job_id, self.zoom));
                 return Ok(Task::done(IcedMessage::BackgroundJob(Job {
                     id: job_id,
                     kind: JobKind::GetGitInfo { path: path.to_string() },
@@ -464,8 +464,8 @@ impl IcedContext {
         self.popup_title = None;
         self.loaded_symlink = None;
         self.loaded_file_info = None;
-        self.loaded_git_info = None;
         self.file_editor_context = None;
+        self.git_info_context = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
     }
@@ -716,6 +716,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick { frame, force_update } => {
+            let mut tasks = vec![
+                is_focused(context.command_editor_id.clone()).map(|is_focused| IcedMessage::IsCommandEditorFocused(is_focused)),
+            ];
+
             if frame % 4 == 0 || force_update {
                 if context.curr_popup.is_none() {
                     context.entries = load_entries(&context.cwd)?;
@@ -728,7 +732,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 c.zoom = context.zoom;
             }
 
-            return Ok(is_focused(context.command_editor_id.clone()).map(|is_focused| IcedMessage::IsCommandEditorFocused(is_focused)));
+            if let Some(c) = &mut context.git_info_context {
+                c.window_size = context.window_size;
+                c.zoom = context.zoom;
+                tasks.push(git::update(c, GitInfoMessage::Tick { frame })?.map(IcedMessage::GitInfoMessage));
+            }
+
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
@@ -1019,8 +1029,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             }
         },
         IcedMessage::GitInfoMessage(m) => {
-            if let Some(c) = &mut context.loaded_git_info {
-                return Ok(git::update(c, m)?.map(IcedMessage::GitInfoMessage));
+            if let Some(c) = &mut context.git_info_context {
+                match m {
+                    GitInfoMessage::BackgroundJob(job) => return Ok(Task::done(IcedMessage::BackgroundJob(job))),
+                    GitInfoMessage::Notify(note) => return Ok(Task::done(IcedMessage::Notify(note))),
+                    m => return Ok(git::update(c, m)?.map(IcedMessage::GitInfoMessage)),
+                }
             }
         },
         IcedMessage::PrepareScratchPad => {
@@ -1081,6 +1095,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     *error = Some(e.to_string());
                 },
                 _ => {},
+            },
+            JobResultKind::GetGitInfo(_) | JobResultKind::GetGitInfoError(_) => match &mut context.git_info_context {
+                Some(c) => {
+                    return Ok(git::update(c, GitInfoMessage::BackgroundJobResult(job_result))?.map(IcedMessage::GitInfoMessage));
+                },
+                None => {},
             },
             _ => {},
         },
@@ -1373,7 +1393,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(git_info_context) = &context.loaded_git_info {
+    else if let Some(git_info_context) = &context.git_info_context {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(

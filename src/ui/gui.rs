@@ -28,7 +28,7 @@ mod tabs;
 mod worker;
 mod working_dir;
 
-use tabs::{IcedContext as TabsContext, IcedMessage as TabsMessage};
+use tabs::IcedMessage as TabsMessage;
 
 // widget::TextEditor is very heavy, especially with syntax highlighting, so we have to limit the size of the content.
 // NOTE: The limit must never be less than 680.
@@ -41,8 +41,8 @@ const MEMORY_LOAD_LIMIT: usize = 33554432;
 
 const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
 
-pub fn run() -> Result<(), Error> {
-    iced::application(TabsContext::new, tabs::update, tabs::view)
+pub fn run(cwd: Option<String>) -> Result<(), Error> {
+    iced::application(move || tabs::boot(&cwd), tabs::update, tabs::view)
         .theme(Theme::Dark)
         .font(include_bytes!("../../resources/SpaceMono-Bold.ttf"))
         .font(include_bytes!("../../resources/SpaceMono-BoldItalic.ttf"))

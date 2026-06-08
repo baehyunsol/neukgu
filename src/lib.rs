@@ -105,6 +105,7 @@ use snapshot::{Snapshot, check_snapshot, clean_dangling_snapshots};
 pub use tool::{
     AskTo,
     DiffKind,
+    Hunk,
     LineDiff,
     ToolCall,
     ToolCallError,

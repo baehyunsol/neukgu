@@ -60,6 +60,7 @@ pub use chrome::WebOrFile;
 pub use image_edit::ImageRequest;
 pub use patch::{
     DiffKind,
+    Hunk,
     LineDiff,
     PatchError,
     parse_line_diff,

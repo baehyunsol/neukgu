@@ -3,11 +3,11 @@ use iced::{Element, Length};
 use iced::widget::{Column, Container, Row, text};
 use similar::{Algorithm, ChangeTag, TextDiffConfig};
 
-pub fn render_udiff<'d, Message: 'd>(
+pub fn render_udiff<'d, 'm, Message: 'm>(
     udiff: &'d str,
     width: impl Into<Length>,
     zoom: f32,
-) -> Element<'d, Message> {
+) -> Element<'m, Message> {
     fn render_context<'a, 'b, 'c, 'd, Message: 'd>(context: &'a mut Vec<&'b str>, lines: &'c mut Vec<Element<'d, Message>>, zoom: f32) {
         for line in context.drain(..) {
             lines.push(text!("{line}").size(zoom * 14.0).color(white()).into());

@@ -1,3 +1,4 @@
+use super::git::{GitInfo, get_git_info};
 use super::tab::TabId;
 use base64::Engine;
 use crate::{
@@ -82,6 +83,8 @@ pub enum JobResultKind {
     FindInChatsError(String),
     CalcDirectorySize(u64),
     CalcDirectorySizeError(String),
+    GetGitInfo(GitInfo),
+    GetGitInfoError(String),
     WorkerError(String),
 }
 
@@ -210,7 +213,12 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 },
             },
             Job { id, kind: JobKind::GetGitInfo { path } } => match get_git_info(&path) {
-                _ => todo!(),
+                Ok(i) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GetGitInfo(i) }).unwrap();
+                },
+                Err(e) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GetGitInfoError(format!("{e:?}")) }).unwrap();
+                },
             },
         }
     }
@@ -344,70 +352,4 @@ fn calc_directory_size(path: &str) -> Result<u64, Error> {
     }
 
     Ok(result)
-}
-
-fn get_git_info(path: &str) -> Result<(), Error> {
-    fn parse_git_diff(output: subprocess::Output) -> () {
-        // 1. If I use `String::from_utf8(_)?`,
-        //    - The user can't see the diffs if the files are broken.
-        // 2. If I use `String::from_utf8_lossy()`,
-        //    - The user can see the diffs even if the files are broken.
-        //    - The user cannot stage/revert a broken file, but the program
-        //      will not crash and it won't break git.
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut hunks = vec![];
-        let mut curr_hunk = vec![];
-
-        for line in stdout.lines() {
-            if line.starts_with("@") || line.starts_with("diff") {}
-
-            else if line.starts_with("+") {}
-
-            else if line.starts_with("-") {}
-
-            else if line.starts_with(" ") {}
-
-            else {
-                unreachable!()
-            }
-        }
-
-        todo!()
-    }
-
-    let unstaged_changes = subprocess::run(
-        String::from("git"),
-        &[
-            String::from("diff"),
-            String::from("-U5"),
-            String::from("--diff-algorithm=patience"),
-            String::from("--no-color"),
-        ],
-        false,
-        &[],
-        path,
-        3,
-        "",
-        false,
-    )?;
-    let unstaged_changes = parse_git_diff(unstaged_changes);
-
-    let staged_changes = subprocess::run(
-        String::from("git"),
-        &[
-            String::from("diff"),
-            String::from("--cached"),
-            String::from("-U5"),
-            String::from("--diff-algorithm=patience"),
-            String::from("--no-color"),
-        ],
-        false,
-        &[],
-        path,
-        3,
-        "",
-        false,
-    )?;
-    let staged_changes = parse_git_diff(staged_changes);
-    todo!()
 }

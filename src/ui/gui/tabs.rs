@@ -30,7 +30,7 @@ use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle}
 use iced::widget::container::{Container, Style as ContainerStyle};
 use iced::widget::operation::{focus, scroll_to};
 use iced::widget::scrollable::AbsoluteOffset;
-use ragit_fs::{basename, current_dir};
+use ragit_fs::{basename, current_dir, is_dir, parent};
 use std::collections::hash_map::{Entry, HashMap};
 
 pub struct IcedContext {
@@ -117,6 +117,18 @@ pub enum Tab {
     Browser { dir: String, file: Option<String> },
     Chat(ChatId),
     WorkingDir(String),
+}
+
+pub fn boot(cwd: &Option<String>) -> (IcedContext, Task<IcedMessage>) {
+    let initial_task = match cwd {
+        Some(cwd) => match (is_dir(cwd), parent(cwd), basename(cwd)) {
+            (false, Ok(dir), Ok(file)) => Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir, file: Some(file) }, force_new_tab: true }),
+            _ => Task::done(IcedMessage::NewTab { tab: Tab::Browser { dir: cwd.to_string(), file: None }, force_new_tab: true }),
+        },
+        None => Task::none(),
+    };
+
+    (IcedContext::new(), initial_task)
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {

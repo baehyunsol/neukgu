@@ -25,10 +25,17 @@ use super::api_key::{
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
 use super::file_change::render_udiff;
+use super::git::{self, IcedContext as GitInfoContext, IcedMessage as GitInfoMessage};
 use super::logs::{LogsContext, render_logs, render_token_usage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
-use super::worker::{Job, JobResult};
+use super::worker::{
+    Job,
+    JobId,
+    JobKind,
+    JobResult,
+    JobResultKind,
+};
 use crate::{
     Config,
     Error,
@@ -205,6 +212,7 @@ pub struct IcedContext {
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
+    pub git_info_context: Option<GitInfoContext>,
     pub zoom: f32,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
@@ -283,6 +291,7 @@ impl IcedContext {
             curr_popup,
             prev_popup: None,
             copy_buffer: None,
+            git_info_context: None,
             zoom,
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
@@ -407,6 +416,14 @@ impl IcedContext {
             Popup::FileChanges(_) => {
                 self.update_file_changes()?;
             },
+            Popup::GitInfo { path } => {
+                let job_id = JobId::new();
+                self.git_info_context = Some(GitInfoContext::new(&path, self.window_size, self.popup_scroll_id.clone(), job_id, self.zoom));
+                return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                    id: job_id,
+                    kind: JobKind::GetGitInfo { path: path.to_string() },
+                })));
+            },
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
@@ -461,6 +478,7 @@ impl IcedContext {
         self.loaded_image = None;
         self.curr_popup = None;
         self.copy_buffer = None;
+        self.git_info_context = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
         self.syntax_highlight = None;
@@ -637,6 +655,7 @@ pub enum IcedMessage {
     Find,
     AnswerLLMRequest,
     DismissLLMRequest,
+    GitInfoMessage(GitInfoMessage),
     EditShortText(String),
     EditLongText(TextEditorAction),
     EditInterruptText(TextEditorAction),
@@ -696,6 +715,7 @@ pub enum Popup {
     Summaries,
     Summary(SessionSummary),
     FileChanges(Vec<FileChange>),
+    GitInfo { path: String },
     Help,
     Image(ImageId),
     Diff,
@@ -796,6 +816,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                         tasks.push(Task::done(IcedMessage::OpenPopup { curr: Popup::UserQuestion(context.fe_context.history.len() - 1, new_turn.id.clone()), prev: None }));
                     }
                 }
+            }
+
+            if let Some(c) = &mut context.git_info_context {
+                c.window_size = context.window_size;
+                c.zoom = context.zoom;
+                tasks.push(git::update(c, GitInfoMessage::Tick { frame })?.map(IcedMessage::GitInfoMessage));
             }
 
             return Ok(Task::batch(tasks));
@@ -1177,6 +1203,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.user_response = Some((id, UserResponse::Reject));
             context.long_text_editor_content = TextEditorContent::with_text("");
         },
+        IcedMessage::GitInfoMessage(m) => {
+            if let Some(c) = &mut context.git_info_context {
+                match m {
+                    GitInfoMessage::BackgroundJob(job) => return Ok(Task::done(IcedMessage::BackgroundJob(job))),
+                    GitInfoMessage::Notify(note) => return Ok(Task::done(IcedMessage::Notify(note))),
+                    m => return Ok(git::update(c, m)?.map(IcedMessage::GitInfoMessage)),
+                }
+            }
+        },
         IcedMessage::EditShortText(s) => {
             context.short_text_editor_content = s;
         },
@@ -1201,7 +1236,15 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::OpenBrowser { .. } => unreachable!(),
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
-        IcedMessage::BackgroundJobResult(_) => todo!(),
+        IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
+            JobResultKind::GetGitInfo(_) | JobResultKind::GetGitInfoError(_) => match &mut context.git_info_context {
+                Some(c) => {
+                    return Ok(git::update(c, GitInfoMessage::BackgroundJobResult(job_result))?.map(IcedMessage::GitInfoMessage));
+                },
+                None => {},
+            },
+            _ => {},
+        },
         IcedMessage::Notify(_) => unreachable!(),
         IcedMessage::Focus => {
             let mut tasks = vec![scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled)];
@@ -1403,6 +1446,16 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(git_info_context) = &context.git_info_context {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                git::view(git_info_context).map(IcedMessage::GitInfoMessage),
+                context,
+            ),
+        ]).into();
+    }
+
     else if let Some(Popup::Config) = context.curr_popup {
         let config_popup = Scrollable::new(
             Column::from_vec(vec![
@@ -1544,6 +1597,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row2.push(button("Br(o)wser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom));
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom));
+    buttons_row2.push(button("Git", IcedMessage::OpenPopup { curr: Popup::GitInfo { path: context.fe_context.working_dir.to_string() }, prev: None }, black(), context.zoom));
 
     let buttons_row1 = if !context.can_click_turn_entry() {
         buttons_row1.into_iter().map(|button| button.on_press_maybe(None).into()).collect()

@@ -44,6 +44,64 @@ impl DiffKind {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Hunk {
+    pub lines: Vec<LineDiff>,
+    pub add: usize,
+    pub remove: usize,
+}
+
+impl Hunk {
+    pub fn from_lines(lines: &[&str]) -> Hunk {
+        let mut add = 0;
+        let mut remove = 0;
+        let mut result = Vec::with_capacity(lines.len());
+
+        for line in lines.iter() {
+            if line.starts_with("+") {
+                add += 1;
+                result.push(LineDiff {
+                    kind: DiffKind::Add,
+                    line: line.get(1..).unwrap().to_string(),
+                });
+            }
+
+            else if line.starts_with("-") {
+                remove += 1;
+                result.push(LineDiff {
+                    kind: DiffKind::Remove,
+                    line: line.get(1..).unwrap().to_string(),
+                });
+            }
+
+            else if line.starts_with(" ") {
+                result.push(LineDiff {
+                    kind: DiffKind::Context,
+                    line: line.get(1..).unwrap().to_string(),
+                });
+            }
+
+            else if line.starts_with("\\ No newline") {
+                // nop
+            }
+
+            else {
+                unreachable!();
+            }
+        }
+
+        Hunk {
+            lines: result,
+            add,
+            remove,
+        }
+    }
+
+    pub fn to_udiff(&self) -> String {
+        self.lines.iter().map(|line| line.to_string()).collect::<Vec<_>>().join("\n")
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum PatchError {
     NoMatch { missing_context_marker: Option<String> },
