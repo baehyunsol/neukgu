@@ -242,7 +242,10 @@
 149. SKILL 구현
   - `<skill>`이라는 tool을 만들고, tool description에다가 skill 목록을 쭉 적으면 됨!!
   - 특정 skill을 보여달라고 하면 걍 보여주면됨... easy!
-  - skill을 어디에 등록?? global skill store가 필요함. 이건 걍 global index dir 안에다가 만들면 됨
+  - skill을 어디에 등록??
+    - 1, global index dir에 skill도 관리. index tab에서도 여기 있는 skill들을 관리할 수 있음
+    - 2, working dir을 만드는 순간 global index dir에 있는 skill의 목록을 복사해서 working dir의 index dir에 넣어둠.
+      - 앞으로 이 세션에서는 local skills만 볼 수 있음
   - skill에 tool-dependency 등록하기?
     - 이렇게 하려면 각 skill을 json 파일로 만들어야 함.
     - 생각해보니 어차피 이름/설명/내용 적으려면 json object로 만들어야 하네
@@ -309,15 +312,17 @@
   - 늑구에서 계속 실행하면 개이득이고, 늑구에서 볼 수만 있어도 엄청 좋지!!
 164. browser에도 scratch pad 버튼 붙이자 -> 현재 dir의 entry를 간단하게 string으로 바꿔서 띄우기!!
 165. more git!!
-  - I'll implement it as a popup, like `src/ui/gui/file_editor.rs`
-  - It shows hunks: `git diff --cached -U5 --diff-algorithm=patience` and `git diff -U5 --diff-algorithm=patience`
-    - You can revert/stage/unstage each hunk
-  - pretty ui for `git log`
-  - I'll implement it once and use it in the browser ui (only if a git repo is detected) and the working-dir ui
-  - I have to implement a worker for git
+  - search (like I did with hgit)
+    - author/file-glob/content로 검색 (and 조건)
+      - content로 검색할 경우 diff 안에 등장하는 line들에 대해서 regex로 검색함... -> 이거 cache를 잘해야할 듯! timeout은 적당히 10초로 걸자!!
 166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index (working-dir 만들 때 파일 추가)에 넣자
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
+168. ask permissions
+  - tool 실행하기 전에 fake turn으로 ask-to-user를 넣으면 되지 않음?? ask-to-user는 context에서 숨기면 되지
+  - 지금은 ask-to-user가 string-question, string-answer인데 이거를 choice-answer도 가능하게 하자!!
+  - `<run>`, `<write>`, `<patch>`만 하면 되려나? "Deny", "Allow Once", "Allow Always (this tool)", "Allow Always (everything)"... run에서는 binary마다 따로 권한을 관리하고, write랑 patch는 동시에 관리하자
+  - config에서 저걸 미리 deny/allow 할 수 있게 하자!!
 
 ## mock API
 

@@ -1200,6 +1200,23 @@ impl ToolCallError {
         let s = match self {
             ToolCallError::NoSuchFile { path } => format!("There's no such file: `{path}`."),
             ToolCallError::NoPermissionToRead { path } => format!("You don't have a permission to read: `{path}`."),
+            ToolCallError::InvalidRange { r#type: range_type, length, given: (start, end) } => format!(
+                "{}..{} is an invalid range. The {} only has {length} {}.",
+                if let Some(start) = start { format!("{start}") } else { String::new() },
+                if let Some(end) = end { format!("{end}") } else { String::new() },
+                match range_type {
+                    RangeType::Line | RangeType::PdfPage => "file",
+                    RangeType::FileEntry => "directory",
+                },
+                match (range_type, *length == 1) {
+                    (RangeType::Line, true) => "line",
+                    (RangeType::Line, false) => "lines",
+                    (RangeType::PdfPage, true) => "page",
+                    (RangeType::PdfPage, false) => "pages",
+                    (RangeType::FileEntry, true) => "entry",
+                    (RangeType::FileEntry, false) => "entries",
+                },
+            ),
             ToolCallError::TextTooLongToRead { path, length, limit } => format!(
                 "The file `{path}` is too long to read at once. The file is {}, and the environment won't allow you to open a file that is larger than {}. You can read the first 100 lines with <read><end>100</end><path>{path}</path></read>, or use search tools like ripgrep.",
                 prettify_bytes(*length),
