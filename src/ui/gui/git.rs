@@ -16,16 +16,18 @@ use super::worker::{
     JobResult,
     JobResultKind,
 };
-use crate::{Error, Hunk, subprocess, truncate_chars};
+use chrono::DateTime;
+use crate::{Error, Hunk, prettify_timestamp, subprocess, truncate_chars};
 use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
 use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Space, text};
 use iced::widget::container::{Container, Style};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 #[derive(Clone, Debug)]
@@ -105,6 +107,7 @@ impl fmt::Display for GitHash {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CommitInfo {
     pub commit_hash: GitHash,
@@ -117,8 +120,10 @@ pub struct CommitInfo {
     pub message: Option<String>,
     pub author_name: String,
     pub author_email: String,
+    pub author_timestamp: i64,
     pub committer_name: String,
     pub committer_email: String,
+    pub committer_timestamp: i64,
 
     // vs parent
     pub diff: Option<Vec<FileDiff>>,
@@ -372,15 +377,30 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
                             text!("-{}", commit.remove).color(red()).size(context.zoom * 14.0).into(),
                             text!(")").size(context.zoom * 14.0).into(),
                         ]).into(),
-
-                        // TODO: display timestamp
-                        text!("{} <{}>", commit.author_name, commit.author_email).size(context.zoom * 14.0).into(),
+                        text!(
+                            "{:09x} {} <{}> ({})",
+                            commit.commit_hash.0 >> 28,
+                            commit.author_name,
+                            commit.author_email,
+                            prettify_timestamp(commit.author_timestamp),
+                        )
+                            .size(context.zoom * 14.0)
+                            .into(),
                     ]).into(),
                 ])
                     .width(context.window_size.width)
                     .spacing(context.zoom * 4.0)
                     .align_y(Vertical::Center);
                 let mut column: Vec<Element<IcedMessage>> = vec![title.into()];
+
+                if is_expanded && let Some(message) = &commit.message {
+                    column.push(
+                        Container::new(text!("{message}").size(context.zoom * 14.0))
+                            .padding(context.zoom * 8.0)
+                            .style(|_| set_round_bg(black(), context.zoom))
+                            .into()
+                    );
+                }
 
                 if is_expanded && let Some(diff) = &commit.diff {
                     column.push(render_changes_unit(
@@ -583,8 +603,9 @@ pub fn get_git_info(path: &str) -> Result<GitInfo, Error> {
         for commit in commit_hashes.into_iter() {
             recent_commits.push(load_commit_info(path, commit)?);
 
-            // We're not gonna spend more than 10 seconds here.
-            if Instant::now().duration_since(started_at.clone()).as_millis() > 10_000 {
+            // We don't spend more than 2 seconds per each `get_git_info`.
+            // It's fine because thanks to the cache, it'll gradually load more and more commits.
+            if Instant::now().duration_since(started_at.clone()).as_millis() > 2_000 {
                 break;
             }
         }
@@ -683,12 +704,36 @@ fn parse_git_diff(diff: &str) -> Vec<FileDiff> {
     files
 }
 
-// TODO: cache `load_commit_info`.
-
 // If a commit has multiple parents, it only takes the first one and ignores the rest.
-static COMMIT_INFO_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)tree ([0-9a-f]{16})[0-9a-f]+\n(?:parent ([0-9a-f]{16})[0-9a-f]+\n)?(?:parent [0-9a-f]+\n)*author (.+) <(.+)> (\d+) (.+)\ncommitter (.+) <(.+)> (\d+) (.+)\n([^\n]+)(?:\n(.+))?").unwrap());
+static COMMIT_INFO_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)tree ([0-9a-f]{16})[0-9a-f]+\n(?:parent ([0-9a-f]{16})[0-9a-f]+\n)?(?:parent [0-9a-f]+\n)*author (.+) <(.+)> ([ 0-9Z+-]+)\ncommitter (.+) <(.+)> ([ 0-9Z+-]+)\n+([^\n]+)(?:\n\n(.+))?").unwrap());
+
+static GPGSIG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)gpgsig -----BEGIN (PGP|SSH) SIGNATURE-----.+-----END (PGP|SSH) SIGNATURE-----\n \n").unwrap());
+
+// VIBE NOTE: `COMMIT_INFO_CACHE` and related stuffs are implemented by claude-opus (via claude-code).
+const COMMIT_INFO_CACHE_LIMIT: usize = 2048;
+static COMMIT_INFO_CACHE: LazyLock<Mutex<HashMap<(String, GitHash), CommitInfo>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+// Tracks the last time each cache key was used. The value is a monotonic
+// counter: the smaller the value, the older (less recently used) the entry.
+// `COMMIT_INFO_CACHE_USAGE` always has the exact same set of keys as
+// `COMMIT_INFO_CACHE`, and is read to decide which entries to evict.
+static COMMIT_INFO_CACHE_USAGE: LazyLock<Mutex<HashMap<(String, GitHash), u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static COMMIT_INFO_CACHE_CLOCK: AtomicU64 = AtomicU64::new(0);
 
 fn load_commit_info(path: &str, commit: GitHash) -> Result<CommitInfo, Error> {
+    let cache_key = (path.to_string(), commit);
+
+    if let Ok(cache) = COMMIT_INFO_CACHE.lock() {
+        if let Some(commit_info) = cache.get(&cache_key) {
+            // Mark this entry as the most recently used.
+            if let Ok(mut usage) = COMMIT_INFO_CACHE_USAGE.lock() {
+                usage.insert(cache_key.clone(), COMMIT_INFO_CACHE_CLOCK.fetch_add(1, Ordering::Relaxed));
+            }
+
+            return Ok(commit_info.clone());
+        }
+    }
+
     let commit_info = subprocess::run(
         String::from("git"),
         &[
@@ -704,22 +749,26 @@ fn load_commit_info(path: &str, commit: GitHash) -> Result<CommitInfo, Error> {
         false,
     )?;
 
-    let mut commit_info = match COMMIT_INFO_RE.captures(&String::from_utf8_lossy(&commit_info.stdout)) {
+    let commit_info = String::from_utf8_lossy(&commit_info.stdout);
+    let commit_info = GPGSIG_RE.replace(&commit_info, "");
+    let mut commit_info = match COMMIT_INFO_RE.captures(&commit_info) {
         Some(cap) => CommitInfo {
             commit_hash: commit,
             tree_hash: GitHash(u64::from_str_radix(cap.get(1).unwrap().as_str(), 16).unwrap()),
             parent: cap.get(2).map(|cap| GitHash(u64::from_str_radix(cap.as_str(), 16).unwrap())),
-            title: cap.get(11).unwrap().as_str().to_string(),
-            message: cap.get(12).map(|cap| cap.as_str().to_string()),
+            title: cap.get(9).unwrap().as_str().to_string(),
+            message: cap.get(10).map(|cap| cap.as_str().to_string()),
             author_name: cap.get(3).unwrap().as_str().to_string(),
             author_email: cap.get(4).unwrap().as_str().to_string(),
-            committer_name: cap.get(7).unwrap().as_str().to_string(),
-            committer_email: cap.get(8).unwrap().as_str().to_string(),
+            author_timestamp: DateTime::parse_from_str(cap.get(5).unwrap().as_str(), "%s %z").unwrap().timestamp_millis(),
+            committer_name: cap.get(6).unwrap().as_str().to_string(),
+            committer_email: cap.get(7).unwrap().as_str().to_string(),
+            committer_timestamp: DateTime::parse_from_str(cap.get(8).unwrap().as_str(), "%s %z").unwrap().timestamp_millis(),
             diff: None,
             add: 0,
             remove: 0,
         },
-        None => panic!("TODO: {}", String::from_utf8_lossy(&commit_info.stdout)),
+        None => panic!("TODO: {commit_info}"),
     };
 
     if let Some(parent) = commit_info.parent {
@@ -744,6 +793,27 @@ fn load_commit_info(path: &str, commit: GitHash) -> Result<CommitInfo, Error> {
         commit_info.add = diff.iter().map(|diff| diff.add).sum();
         commit_info.remove = diff.iter().map(|diff| diff.remove).sum();
         commit_info.diff = Some(diff);
+    }
+
+    if let (Ok(mut cache), Ok(mut usage)) = (COMMIT_INFO_CACHE.lock(), COMMIT_INFO_CACHE_USAGE.lock()) {
+        // Evict the least recently used entries when the cache grows too large.
+        // We drop down to half the limit so eviction is amortized rather than
+        // happening on every subsequent insert.
+        if cache.len() >= COMMIT_INFO_CACHE_LIMIT {
+            let mut by_age: Vec<(&(String, GitHash), &u64)> = usage.iter().collect();
+            by_age.sort_by_key(|(_, tick)| **tick);
+
+            let evict_count = cache.len() + 1 - COMMIT_INFO_CACHE_LIMIT / 2;
+            let to_evict: Vec<(String, GitHash)> = by_age.iter().take(evict_count).map(|(key, _)| (*key).clone()).collect();
+
+            for key in to_evict {
+                cache.remove(&key);
+                usage.remove(&key);
+            }
+        }
+
+        usage.insert(cache_key.clone(), COMMIT_INFO_CACHE_CLOCK.fetch_add(1, Ordering::Relaxed));
+        cache.insert(cache_key, commit_info.clone());
     }
 
     Ok(commit_info)
