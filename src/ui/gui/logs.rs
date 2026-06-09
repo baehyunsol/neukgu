@@ -53,18 +53,27 @@ pub fn render_token_usage<'u, 'c, Context: PopupContext, Message: Clone + PopupM
     scroll_id: Id,
     zoom: f32,
 ) -> Element<'c, Message> {
-    let total = token_usage.total();
-    let recent = token_usage.recent();
+    if token_usage.is_empty() {
+        into_popup(
+            text!("You haven't used any tokens.").size(zoom * 14.0).into(),
+            context,
+        )
+    }
 
-    into_popup(
-        Scrollable::new(
-            Column::from_vec(vec![
-                render_each_token_usage("Total", total, zoom),
-                render_each_token_usage("Recent 6 hours", recent, zoom),
-            ]).spacing(zoom * 12.0)
-        ).id(scroll_id).into(),
-        context,
-    ).into()
+    else {
+        let total = token_usage.total();
+        let recent = token_usage.recent();
+
+        into_popup(
+            Scrollable::new(
+                Column::from_vec(vec![
+                    render_each_token_usage("Total", total, zoom),
+                    render_each_token_usage("Recent 6 hours", recent, zoom),
+                ]).spacing(zoom * 12.0)
+            ).id(scroll_id).into(),
+            context,
+        )
+    }
 }
 
 fn render_each_token_usage<'c, Message: 'c>(

@@ -4,6 +4,7 @@ use crate::{
     Context,
     Error,
     ImageId,
+    InterruptId,
     LLMToken,
     LogEntry,
     Model,
@@ -11,7 +12,6 @@ use crate::{
     Turn,
     TurnResult,
     TurnSummary,
-    UserResponse,
     clean_sandbox,
     export_to_sandbox,
     from_browser_error,
@@ -51,11 +51,20 @@ mod ask;
 mod chrome;
 mod image_edit;
 mod patch;
+mod permission;
 mod read;
 mod run;
 mod write;
 
-pub use ask::{AskTo, ask_question_to_web};
+pub use ask::{
+    AskTo,
+    QuestionKind,
+    QuestionToUser,
+    UserAnswer,
+    UserResponse,
+    ask_question_to_user,
+    ask_question_to_web,
+};
 pub use chrome::WebOrFile;
 pub use image_edit::ImageRequest;
 pub use patch::{
@@ -68,6 +77,12 @@ pub use patch::{
     patch_file,
     revert_hunks,
 };
+pub use permission::{
+    Permission,
+    PermissionConfig,
+    WriteContent,
+    ask_permission_to_user,
+};
 pub use read::{
     FileEntry,
     RangeType,
@@ -75,7 +90,7 @@ pub use read::{
     check_read_path,
     read_file,
 };
-pub use run::{ParseCommandError, load_available_binaries, parse_command};
+pub use run::{ParseCommandError, init_and_load_available_binaries, list_binaries, parse_command};
 use read::check_read_permission;
 pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 
@@ -108,12 +123,11 @@ pub enum ToolCall {
         stderr: Option<Path>,
     },
     Ask {
-        // A random-generated integer.
         // It prevents the frontend from answering the same question multiple times.
-        id: u64,
+        id: InterruptId,
 
         to: AskTo,
-        question: String,
+        question: QuestionToUser,
     },
     Chrome {
         input: Path,
@@ -131,6 +145,10 @@ pub enum ToolCall {
 impl ToolCall {
     pub async fn run(&self, context: &mut Context, config: &Config) -> Result<Result<ToolCallSuccess, ToolCallError>, Error> {
         context.logger.log(LogEntry::ToolCallStart(self.clone()))?;
+
+        if let Err(e) = ask_permission_to_user(self, context, config).await? {
+            return Ok(Err(e));
+        }
 
         match self {
             ToolCall::Read { path, start, end } => {
@@ -575,55 +593,13 @@ impl ToolCall {
                     }))
                 }
             },
-            ToolCall::Ask { id, to: AskTo::User, question } => {
-                let response;
-                let tool_call_result = 'block: {
-                    if config.user_response_timeout == 0 {
-                        response = UserResponse::Reject;
-                        break 'block Err(ToolCallError::UserRejectedToRespond);
-                    }
-
-                    context.ask_to_user(*id, question.to_string())?;
-
-                    if let Err(Error::FrontendNotAvailable) = context.wait_for_fe() {
-                        response = UserResponse::Timeout;
-                        break 'block Err(ToolCallError::UserNotResponding);
-                    }
-
-                    // It waits 3 more seconds than the set timeout because fe is a few seconds slower than be
-                    for _ in 0..(config.user_response_timeout + 3) {
-                        if let Some(response_) = context.check_user_response(*id)? {
-                            response = response_.clone();
-
-                            match response_ {
-                                UserResponse::Answer(answer) => {
-                                    break 'block Ok(ToolCallSuccess::Ask { to: AskTo::User, answer });
-                                },
-                                UserResponse::Timeout => {
-                                    break 'block Err(ToolCallError::UserNotResponding);
-                                },
-                                UserResponse::Reject => {
-                                    break 'block Err(ToolCallError::UserRejectedToRespond);
-                                },
-                            }
-                        }
-
-                        sleep(Duration::from_millis(1_000)).await;
-                        context.sync_with_fe()?;
-                    }
-
-                    response = UserResponse::Timeout;
-                    Err(ToolCallError::UserNotResponding)
-                };
-
-                context.answer_to_llm(*id, question.to_string(), response)?;
-                Ok(tool_call_result)
-            },
+            ToolCall::Ask { id, to: AskTo::User, question } => ask_question_to_user(*id, question, context, config).await,
             ToolCall::Ask { id: _, to: AskTo::Web, question } => match config.agents.search {
                 Model::Disabled | Model::Mock => Ok(Err(ToolCallError::WebSearchDisabled)),
                 _ => {
+                    let QuestionToUser { question, .. } = question;
                     let answer = ask_question_to_web(question, config, &context.working_dir, &mut context.logger).await?;
-                    Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer }))
+                    Ok(Ok(ToolCallSuccess::Ask { to: AskTo::Web, answer: UserAnswer::FreeText(answer) }))
                 },
             },
             // TODO: error if `script` is set and `input` is not an html
@@ -817,7 +793,7 @@ impl ToolCall {
             ToolCall::Ask { to, question, .. } => format!(
                 "Ask to {} {:?}",
                 format!("{to:?}").to_ascii_lowercase(),
-                truncate_chars(question, 42),
+                truncate_chars(&question.question, 42),
             ),
             ToolCall::Chrome { script, input, output } => format!(
                 "Open chrome and render `{}` to `{}`{}",
@@ -897,7 +873,7 @@ pub enum ToolCallSuccess {
     },
     Ask {
         to: AskTo,
-        answer: String,
+        answer: UserAnswer,
     },
     Chrome {
         input: String,
@@ -1122,6 +1098,10 @@ pub enum ToolCallError {
     },
 
     // write errors
+    WritePermissionDeniedByUser {
+        path: String,
+        not_responding: bool,
+    },
     NoPermissionToWrite {
         path: String,
     },
@@ -1159,6 +1139,10 @@ pub enum ToolCallError {
     CannotApplyPatch(PatchError),
 
     // run errors
+    RunPermissionDeniedByUser {
+        command: Vec<String>,
+        not_responding: bool,
+    },
     CommandTimeoutTooLong {
         max: u64,
         given: u64,
@@ -1233,6 +1217,10 @@ impl ToolCallError {
             ToolCallError::ReadingExactSameFile { path } => format!("You already read `{path}` and I just gave you the content of `{path}`. Try do something else."),
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
+            ToolCallError::WritePermissionDeniedByUser { path, not_responding } => format!(
+                "The user denied to give you a permission to write to file `{path}`.{}",
+                if *not_responding { "\nNOTE: I asked for a permission, but the user is not responding, so I failed to get a permission." } else { "" },
+            ),
             ToolCallError::NoPermissionToWrite { path } => format!("You don't have a permission to write to: `{path}`."),
             ToolCallError::CannotWriteToDirectory { path, exists } => if *exists {
                 format!("You can't write to `{path}` because it already exists and is a directory.")
@@ -1270,6 +1258,11 @@ impl ToolCallError {
                 PatchError::MultipleMatch => String::from("I found multiple matches in the file that can apply your patch. Please give me more contexts so that I can decide where to patch."),
                 PatchError::NoUpdate => String::from("I can't apply the patch because the patch only has context lines, and there're no lines to remove or update. Please specify what lines to remove or delete."),
             },
+            ToolCallError::RunPermissionDeniedByUser { command, not_responding } => format!(
+                "The user denied to give you a permission to run `{}`.{}",
+                join_command_args(command),
+                if *not_responding { "\nNOTE: I asked for a permission, but the user is not responding, so I failed to get a permission." } else { "" },
+            ),
             ToolCallError::NoSuchBinary { binary, available_binaries } => format!(
                 "There's no such binary: `{binary}`.\nAvailable binaries are: {}.{}{}",
                 available_binaries.join(", "),
@@ -1550,7 +1543,7 @@ fn normalize_path(path: &Path) -> Option<Path> {
     Some(result)
 }
 
-fn join_command_args(args: &[String]) -> String {
+pub fn join_command_args(args: &[String]) -> String {
     args.iter().map(
         |arg| if arg.contains(" ") { format!("{arg:?}") } else { arg.to_string() }
     ).collect::<Vec<_>>().join(" ")

@@ -215,6 +215,18 @@ impl Logger {
 pub struct TokenUsage(HashMap<u64  /* timestamp */, HashMap<Model, (u64 /* cached_input */, u64 /* input */, u64 /* output */)>>);
 
 impl TokenUsage {
+    pub fn is_empty(&self) -> bool {
+        for usage in self.0.values() {
+            for (cached_input, input, output) in usage.values() {
+                if cached_input + input + output > 0 {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
     pub fn total(&self) -> HashMap<Model, (u64, u64, u64)> {
         let mut result: HashMap<Model, (u64, u64, u64)> = HashMap::new();
 

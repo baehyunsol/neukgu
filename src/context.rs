@@ -2,6 +2,7 @@ use crate::{
     ApiLog,
     Config,
     Error,
+    InterruptId,
     LLMToken,
     Logger,
     LogEntry,
@@ -15,7 +16,7 @@ use crate::{
     TurnResultSummary,
     TurnSummary,
     get_global_index_dir,
-    load_available_binaries,
+    init_and_load_available_binaries,
     request,
     revert_mock_state,
     system_prompt,
@@ -56,7 +57,7 @@ pub struct Context {
     // so we just have to run tool-call (or throw a parse error).
     pub curr_raw_response: Option<RawResponse>,
 
-    pub completed_interrupts_from_user: HashSet<u64>,
+    pub completed_interrupts_from_user: HashSet<InterruptId>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,  // never hidden
     pub is_in_global_index_dir: bool,
@@ -78,7 +79,7 @@ pub struct ContextJson {
     pub history: Vec<TurnId>,
     pub summaries: Vec<TurnId>,
     pub curr_raw_response: Option<RawResponse>,
-    pub completed_interrupts_from_user: HashSet<u64>,
+    pub completed_interrupts_from_user: HashSet<InterruptId>,
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
@@ -94,7 +95,7 @@ pub struct RawResponse {
 
 impl Context {
     pub fn new(working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
-        let available_binaries = load_available_binaries(working_dir)?;
+        let available_binaries = init_and_load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
         let logger = Logger::new(
             join3(working_dir, ".neukgu", "logs")?,

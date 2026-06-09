@@ -1,5 +1,13 @@
-use crate::{AskTo, Config, LLMToken, ToolCall, ToolKind};
-use crate::tool::{LineDiff, ParseCommandError, WriteMode, parse_command, parse_line_diff};
+use crate::{AskTo, Config, InterruptId, LLMToken, ToolCall, ToolKind};
+use crate::tool::{
+    LineDiff,
+    ParseCommandError,
+    QuestionKind,
+    QuestionToUser,
+    WriteMode,
+    parse_command,
+    parse_line_diff,
+};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::{Entry, HashMap};
@@ -517,7 +525,14 @@ impl ToolCall {
                         });
                     },
                 };
-                Ok(ToolCall::Ask { id: rand::random::<u64>(), to, question })
+
+                // The harness implements QuestionKind::Choice, but I haven't written prompt for that.
+                let question = QuestionToUser {
+                    question,
+                    kind: QuestionKind::FreeText,
+                };
+
+                Ok(ToolCall::Ask { id: InterruptId::new(), to, question })
             },
             ToolKind::Chrome => {
                 let script = parse_string_arg(args, "script");

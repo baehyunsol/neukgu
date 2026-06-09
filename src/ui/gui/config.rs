@@ -1,5 +1,5 @@
 use super::{gray, set_round_bg};
-use crate::{Config, Model, Thinking, ToolKind, truncate_chars};
+use crate::{Config, Model, PermissionConfig, Thinking, ToolKind, list_binaries, truncate_chars};
 use crate::chat::Config as ChatConfig;
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
@@ -22,6 +22,8 @@ pub enum SetProjectConfig {
     AgentQuestionable(Questionable),
     ContextSize(u64),
     ToggleTool(ToolKind, bool),
+    SetWritePermission(PermissionConfig),
+    SetRunPermission(String, PermissionConfig),
     OpenaiEtc1BaseUrl(String),
     OpenaiEtc1Model(String),
     OpenaiEtc2BaseUrl(String),
@@ -85,6 +87,12 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
             config.activated_tools = ToolKind::all().into_iter().filter(
                 |tool| config.activated_tools.contains(tool)
             ).collect();
+        },
+        SetProjectConfig::SetWritePermission(p) => {
+            config.write_permission = p;
+        },
+        SetProjectConfig::SetRunPermission(bin, p) => {
+            config.run_permission.insert(bin, p);
         },
         SetProjectConfig::OpenaiEtc1BaseUrl(url) => {
             if url.is_empty() {
@@ -306,10 +314,68 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
         ).collect()).spacing(zoom * 8.0).into());
     }
 
-    panels.push(panel_container(Column::from_vec(vec![
-        text!("Tools").size(zoom * 14.0).into(),
-        Column::from_vec(tool_checkboxes).spacing(zoom * 8.0).into(),
-    ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
+    panels.push(panel_container(
+        Column::from_vec(vec![
+            text!("Tools").size(zoom * 14.0).into(),
+            Column::from_vec(tool_checkboxes).spacing(zoom * 8.0).into(),
+        ])
+            .align_x(Horizontal::Center)
+            .spacing(zoom * 8.0)
+            .into(),
+        zoom,
+    ));
+
+    let mut permission_radios: Vec<Element<SetProjectConfig>> = vec![];
+    permission_radios.push(Row::from_vec(vec![
+        text!("  write-file:").size(zoom * 14.0).into(),
+        Radio::new("Allow", PermissionConfig::Allow, Some(config.write_permission), SetProjectConfig::SetWritePermission)
+            .spacing(zoom * 8.0)
+            .text_size(zoom * 14.0)
+            .size(zoom * 14.0)
+            .into(),
+        Radio::new("Deny", PermissionConfig::Deny, Some(config.write_permission), SetProjectConfig::SetWritePermission)
+            .spacing(zoom * 8.0)
+            .text_size(zoom * 14.0)
+            .size(zoom * 14.0)
+            .into(),
+        Radio::new("Ask", PermissionConfig::Ask, Some(config.write_permission), SetProjectConfig::SetWritePermission)
+            .spacing(zoom * 8.0)
+            .text_size(zoom * 14.0)
+            .size(zoom * 14.0)
+            .into(),
+    ]).spacing(zoom * 16.0).into());
+
+    for binary in list_binaries() {
+        permission_radios.push(Row::from_vec(vec![
+            text!("{}{binary}:", " ".repeat(12 - binary.len())).size(zoom * 14.0).into(),
+            Radio::new("Allow", PermissionConfig::Allow, Some(config.run_permission.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+            Radio::new("Deny", PermissionConfig::Deny, Some(config.run_permission.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+            Radio::new("Ask", PermissionConfig::Ask, Some(config.run_permission.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+        ]).spacing(zoom * 16.0).into());
+    }
+
+    panels.push(panel_container(
+        Column::from_vec(vec![
+            text!("Permissions").size(zoom * 14.0).into(),
+            Column::from_vec(permission_radios).spacing(zoom * 8.0).into(),
+        ])
+            .align_x(Horizontal::Center)
+            .spacing(zoom * 8.0)
+            .into(),
+        zoom,
+    ));
 
     panels.push(panel_container(openai_etc_config(
         "openai-etc-1",

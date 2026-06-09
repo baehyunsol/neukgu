@@ -4,7 +4,18 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::symlink;
 
-pub fn load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> {
+pub fn list_binaries() -> [&'static str; 6] {
+    [
+        "cargo",
+        "cc",
+        "git",
+        "python3",
+        "pip",
+        "rg",
+    ]
+}
+
+pub fn init_and_load_available_binaries(working_dir: &str) -> Result<Vec<String>, Error> {
     let mut available_binaries = vec![];
     let mut unavailable_binaries = vec![];
     let bin_list: Vec<(&str, &[&str], &str)> = vec![

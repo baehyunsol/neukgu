@@ -58,7 +58,7 @@ pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupCont
         .padding(zoom * 8.0)
         .width(Length::Fill)
     )
-    .style(|_| set_bg(Color::from_rgba(0.0, 0.0, 0.0, 0.5)))
+    .style(|_| set_bg(Color::from_rgba(0.0, 0.0, 0.0, 0.65)))
     .width(Length::Fill)
     .height(Length::Fill)
     .padding(zoom * 32.0)

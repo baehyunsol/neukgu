@@ -29,6 +29,15 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct InterruptId(u64);
+
+impl InterruptId {
+    pub fn new() -> InterruptId {
+        InterruptId(rand::random())
+    }
+}
+
 // How the interruption mechanism works.
 //
 // 1. There are files in `.neukgu/interruptions/`.
@@ -100,7 +109,7 @@ pub fn interrupt_be(working_dir: &str) -> Result<(), Error> {
 impl Context {
     pub async fn process_interrupt_from_user(
         &mut self,
-        id: u64,
+        id: InterruptId,
         interrupt_kind: InterruptKind,
         interrupt: String,
         config: &Config,

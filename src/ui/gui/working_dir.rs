@@ -40,12 +40,16 @@ use crate::{
     Config,
     Error,
     ImageId,
+    InterruptId,
     InterruptKind,
     LLMToken,
     LogEntry,
     LogId,
     Logger,
     Model,
+    Permission,
+    QuestionKind,
+    QuestionToUser,
     SessionSummary,
     TokenUsage,
     ToolCallSuccess,
@@ -55,8 +59,11 @@ use crate::{
     TurnPreview,
     TurnResult,
     TurnResultSummary,
+    UserAnswer,
     UserResponse,
+    WriteContent,
     check_snapshot,
+    join_command_args,
     load_log,
     load_logs_tail,
     prettify_time,
@@ -237,10 +244,10 @@ pub struct IcedContext {
     pub is_paused: bool,
     pub pause: Option<bool>,
     pub interrupt_kind: InterruptKind,
-    pub interrupt_from_user: Option<(u64, InterruptKind, String)>,
-    pub llm_request: Option<(u64, String)>,
-    pub processed_llm_requests: HashSet<u64>,
-    pub user_response: Option<(u64, UserResponse)>,
+    pub interrupt_from_user: Option<(InterruptId, InterruptKind, String)>,
+    pub llm_request: Option<(InterruptId, QuestionToUser)>,
+    pub processed_llm_requests: HashSet<InterruptId>,
+    pub user_response: Option<(InterruptId, UserResponse)>,
 }
 
 impl IcedContext {
@@ -655,6 +662,7 @@ pub enum IcedMessage {
     Find,
     AnswerLLMRequest,
     DismissLLMRequest,
+    AnswerPermissionRequest(Permission),
     GitInfoMessage(GitInfoMessage),
     EditShortText(String),
     EditLongText(TextEditorAction),
@@ -796,7 +804,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                             context.close_popup();
                             context.user_response_timeout_counter = Instant::now();
                             context.llm_request = llm_request;
-                            return Ok(focus(context.long_text_editor_id.clone()));
+                            tasks.push(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
+                            tasks.push(focus(context.long_text_editor_id.clone()));
+                            return Ok(Task::batch(tasks));
                         }
 
                         context.llm_request = llm_request;
@@ -806,6 +816,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 else if context.llm_request.is_some() {
                     context.llm_request = None;
                     context.close_popup();
+                    tasks.push(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
                 }
 
                 context.is_paused = context.fe_context.is_paused()?;
@@ -815,6 +826,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     if new_turn.kind == TurnKind::UserQuestion {
                         tasks.push(Task::done(IcedMessage::OpenPopup { curr: Popup::UserQuestion(context.fe_context.history.len() - 1, new_turn.id.clone()), prev: None }));
                     }
+                }
+
+                // 1. If we don't update this, updated config (e.g. always allow/deny permissions) won't be seen in the gui.
+                // 2. If we update this while the config popup is on, the user cannot use the config popup.
+                if !context.can_close_popup() {
+                    context.tmp_config = context.fe_context.config.clone();
                 }
             }
 
@@ -1123,7 +1140,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.is_interrupt_button_hovered = false;
 
             if !interrupt.is_empty() {
-                context.interrupt_from_user = Some((rand::random::<u64>(), context.interrupt_kind, interrupt));
+                context.interrupt_from_user = Some((InterruptId::new(), context.interrupt_kind, interrupt));
                 context.set_interrupt_text_editor_content(String::new());
                 context.fe_context.interrupt_be()?;
                 return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
@@ -1192,16 +1209,34 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.update_find_result();
         },
         IcedMessage::AnswerLLMRequest => {
-            let Some((id, _)) = context.llm_request.take() else { unreachable!() };
+            let Some((id, QuestionToUser { kind, .. })) = context.llm_request.take() else { unreachable!() };
+            let user_response = match kind {
+                QuestionKind::FreeText => UserResponse::Answer(UserAnswer::FreeText(context.long_text_editor_content.text())),
+                _ => todo!(),
+            };
+
             context.processed_llm_requests.insert(id);
-            context.user_response = Some((id, UserResponse::Answer(context.long_text_editor_content.text())));
+            context.user_response = Some((id, user_response));
             context.long_text_editor_content = TextEditorContent::with_text("");
+            return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
         },
         IcedMessage::DismissLLMRequest => {
             let Some((id, _)) = context.llm_request.take() else { unreachable!() };
             context.processed_llm_requests.insert(id);
             context.user_response = Some((id, UserResponse::Reject));
             context.long_text_editor_content = TextEditorContent::with_text("");
+            return Ok(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
+        },
+        IcedMessage::AnswerPermissionRequest(p) => {
+            let Some((id, _)) = context.llm_request.take() else { unreachable!() };
+            context.processed_llm_requests.insert(id);
+            context.user_response = Some((id, UserResponse::Answer(UserAnswer::Permission(p))));
+            return Ok(Task::batch(vec![
+                scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled),
+
+                // So that the context's `tmp_config` is updated.
+                Task::done(IcedMessage::Tick { frame: 0, force_update: true }),
+            ]));
         },
         IcedMessage::GitInfoMessage(m) => {
             if let Some(c) = &mut context.git_info_context {
@@ -1802,11 +1837,14 @@ pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clon
 
 fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let elapsed_secs = Instant::now().duration_since(context.user_response_timeout_counter.clone()).as_secs();
+    let Some((_, QuestionToUser { question, kind })) = &context.llm_request else { unreachable!() };
+    let mut column: Vec<Element<IcedMessage>> = vec![
+        text!("{question}").size(context.zoom * 18.0).into(),
+    ];
 
-    into_popup(
-        Scrollable::new(
-            Column::from_vec(vec![
-                text!("{}", context.llm_request.as_ref().unwrap().1).size(context.zoom * 14.0).into(),
+    match kind {
+        QuestionKind::FreeText => {
+            column.push(
                 TextEditor::new(&context.long_text_editor_content)
                     .id(context.long_text_editor_id.clone())
                     .placeholder("Answer neukgu's question")
@@ -1822,12 +1860,89 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                         }
                     })
                     .into(),
+            );
+
+            column.push(
                 Row::from_vec(vec![
                     button("Answer", IcedMessage::AnswerLLMRequest, green(), context.zoom).into(),
                     button("Dismiss", IcedMessage::DismissLLMRequest, red(), context.zoom).into(),
                     text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
-                ]).spacing(context.zoom * 20.0).into(),
-            ])
+                ])
+                    .align_y(Vertical::Center)
+                    .spacing(context.zoom * 20.0)
+                    .into(),
+            );
+        },
+        QuestionKind::WritePermission { path, content } => {
+            column.push(text!("path: {path}").size(context.zoom * 14.0).into());
+
+            match content {
+                WriteContent::String(s) => {
+                    column.push(Scrollable::new(
+                        Container::new(
+                            text!("{s}")
+                                .size(context.zoom * 14.0)
+                        )
+                            .padding(context.zoom * 4.0)
+                            .width(context.window_size.width)
+                            .style(|_| set_bg(gray(0.2)))
+                    ).into());
+                },
+                WriteContent::Diff(d) => {
+                    column.push(Scrollable::new(
+                        render_udiff(
+                            &d.iter().map(|line| line.to_string()).collect::<Vec<_>>().join("\n"),
+                            context.window_size.width,
+                            context.zoom,
+                        )
+                    ).into());
+                },
+                WriteContent::Output => {},
+            }
+
+            column.push(
+                Row::from_vec(vec![
+                    button("Allow", IcedMessage::AnswerPermissionRequest(Permission::Allow), green(), context.zoom).into(),
+                    button("Always allow file writes", IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
+                    button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
+                    button("Always deny file writes", IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
+                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
+                ])
+                    .align_y(Vertical::Center)
+                    .spacing(context.zoom * 20.0)
+                    .into(),
+            );
+        },
+        QuestionKind::RunPermission { command } => {
+            column.push(
+                Container::new(
+                    text!("{}", join_command_args(command)).size(context.zoom * 14.0)
+                )
+                    .padding(context.zoom * 4.0)
+                    .width(context.window_size.width)
+                    .style(|_| set_bg(gray(0.2)))
+                    .into()
+            );
+            let binary = command[0].to_string();
+            column.push(
+                Row::from_vec(vec![
+                    button("Allow", IcedMessage::AnswerPermissionRequest(Permission::Allow), green(), context.zoom).into(),
+                    button(&format!("Always allow {binary}"), IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
+                    button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
+                    button(&format!("Always deny {binary}"), IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
+                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
+                ])
+                    .align_y(Vertical::Center)
+                    .spacing(context.zoom * 20.0)
+                    .into(),
+            );
+        },
+        _ => todo!(),
+    }
+
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(column)
                 .padding(context.zoom * 20.0)
                 .spacing(context.zoom * 20.0),
         )

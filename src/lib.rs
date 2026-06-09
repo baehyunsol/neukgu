@@ -78,7 +78,7 @@ pub use global::{
     update_global_index,
 };
 pub use image::{ImageId, normalize_and_get_id};
-use interrupt::{InterruptKind, check_interruption, interrupt_be};
+use interrupt::{InterruptId, InterruptKind, check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use model::{Agents, ApiProvider, EtcModels, Model};
 pub use parse::{ParseError, ParsedSegment};
@@ -107,12 +107,21 @@ pub use tool::{
     DiffKind,
     Hunk,
     LineDiff,
+    Permission,
+    PermissionConfig,
+    QuestionKind,
+    QuestionToUser,
     ToolCall,
     ToolCallError,
     ToolCallSuccess,
     ToolKind,
+    UserAnswer,
+    UserResponse,
+    WriteContent,
     WriteMode,
-    load_available_binaries,
+    init_and_load_available_binaries,
+    join_command_args,
+    list_binaries,
     patch_diff,
     revert_hunks,
 };
@@ -126,7 +135,7 @@ pub use turn::{
     TurnSummary,
     get_turn_id,
 };
-pub use ui::{Be2Fe, Fe2Be, UserResponse, gui, tui};
+pub use ui::{Be2Fe, Fe2Be, gui, tui};
 
 pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Error> {
     context.sync_with_fe()?;

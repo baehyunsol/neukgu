@@ -1,4 +1,4 @@
-use crate::{Agents, Error, EtcModels, ToolKind};
+use crate::{Agents, Error, EtcModels, PermissionConfig, ToolKind};
 use crate::request::Config as RequestConfig;
 use ragit_fs::{
     WriteMode,
@@ -7,6 +7,7 @@ use ragit_fs::{
     write_string,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Config {
@@ -21,6 +22,11 @@ pub struct Config {
     pub stdout_max_len: u64,
     pub default_command_timeout: u64,  // seconds
     pub user_response_timeout: u64,  // seconds
+    pub write_permission: PermissionConfig,
+
+    // A key is the name of the binary.
+    // If an entry is missing, it's `PermissionConfig::Ask` by default.
+    pub run_permission: HashMap<String, PermissionConfig>,
 
     // If the agent doesn't write summary and keeps reading files,
     // the harness will force it to write a summary file.
@@ -68,6 +74,8 @@ impl Default for Config {
             stdout_max_len: 5120,
             default_command_timeout: 600,
             user_response_timeout: 300,
+            write_permission: PermissionConfig::Ask,
+            run_permission: HashMap::new(),
             max_read_without_write: 6,
             command_max_timeout: 3 * 3600,
             etc_models: EtcModels::default(),

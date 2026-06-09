@@ -323,6 +323,7 @@
   - 지금은 ask-to-user가 string-question, string-answer인데 이거를 choice-answer도 가능하게 하자!!
   - `<run>`, `<write>`, `<patch>`만 하면 되려나? "Deny", "Allow Once", "Allow Always (this tool)", "Allow Always (everything)"... run에서는 binary마다 따로 권한을 관리하고, write랑 patch는 동시에 관리하자
   - config에서 저걸 미리 deny/allow 할 수 있게 하자!!
+  - 지금은 working-dir 바깥에 있는 파일을 read/write 하려고 하면 permission error 날리잖아? 이제 이것도 물어보고 하면 되는 거 아님??
 
 ## mock API
 
@@ -338,7 +339,7 @@ echo "initializing tttt...";
 ~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
 cd ~/Documents/Rust/neukgu;
 echo "spawning gui...";
-~/Documents/Rust/neukgu/target/debug/neukgu gui;
+~/Documents/Rust/neukgu/target/debug/neukgu gui ~/Documents/ttt;
 ```
 
 ## Real API

@@ -5,10 +5,12 @@ use crate::{
     Context,
     ContextJson,
     Error,
+    InterruptId,
     InterruptKind,
     LineDiff,
     LogId,
     NeukguId,
+    QuestionToUser,
     SessionSummary,
     TokenUsage,
     ToolCall,
@@ -19,6 +21,7 @@ use crate::{
     TurnResult,
     TurnResultSummary,
     TurnSummary,
+    UserResponse,
     WriteMode as ToolWriteMode,
     interrupt_be,
     load_json,
@@ -59,14 +62,14 @@ pub mod gui;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Message {
-    pub id: u64,
+    pub id: InterruptId,
     pub kind: MessageKind,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MessageKind {
     LLM2User {
-        question: String,
+        question: QuestionToUser,
         answer: Option<UserResponse>,
     },
     User2LLM {
@@ -78,23 +81,16 @@ pub enum MessageKind {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum UserResponse {
-    Answer(String),
-    Timeout,
-    Reject,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Be2Fe {
     // `Be2Fe` frequently reads `Fe2Be::pause` and updates this field.
     pub pause: bool,
 
     // `Fe2Be` frequently reads this field and updates `Fe2Be::from_be`.
     // When a message is pushed to `Fe2Be::from_be`, the message in this field will be removed.
-    pub to_fe: HashMap<u64, Message>,
+    pub to_fe: HashMap<InterruptId, Message>,
 
     // `Be2Fe` frequently reads `Fe2Be::to_be` and updates this field.
-    pub from_fe: HashMap<u64, Message>,
+    pub from_fe: HashMap<InterruptId, Message>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -112,10 +108,10 @@ pub struct Fe2Be {
 
     // `Be2Fe` frequently reads this field and updates `Be2Fe::from_fe`.
     // When a message is pushed to `Be2Fe::from_fe`, the message in this field will be removed.
-    pub to_be: HashMap<u64, Message>,
+    pub to_be: HashMap<InterruptId, Message>,
 
     // `Fe2Be` frequently reads `Be2Fe::to_fe` and updates this field.
-    pub from_be: HashMap<u64, Message>,
+    pub from_be: HashMap<InterruptId, Message>,
 
     // Fe will update this field once a second.
     pub updated_at: i64,
@@ -406,8 +402,8 @@ impl FeContext {
     pub fn end_frame(
         &mut self,
         pause: Option<bool>,
-        interrupt_from_user: Option<(u64, InterruptKind, String)>,
-        user_response: Option<(u64, UserResponse)>,
+        interrupt_from_user: Option<(InterruptId, InterruptKind, String)>,
+        user_response: Option<(InterruptId, UserResponse)>,
         has_to_update_config: bool,
     ) -> Result<(), Error> {
         let fe2be_at = join3(&self.working_dir, ".neukgu", "fe2be.json")?;
@@ -432,7 +428,7 @@ impl FeContext {
         }
 
         if has_to_update_config {
-            let id = rand::random::<u64>();
+            let id = InterruptId::new();
             fe2be.to_be.insert(id, Message { id, kind: MessageKind::UpdateConfig(self.config.clone()) });
         }
 
@@ -559,12 +555,12 @@ impl FeContext {
         Instant::now().duration_since(self.initialized_at.clone()).as_millis() < 3000
     }
 
-    pub fn get_llm_request(&self) -> Result<Option<(u64, String)>, Error> {
+    pub fn get_llm_request(&self) -> Result<Option<(InterruptId, QuestionToUser)>, Error> {
         let fe2be: Fe2Be = load_json(&join3(&self.working_dir, ".neukgu", "fe2be.json")?)?;
 
         for Message { id, kind } in fe2be.from_be.values() {
             if let MessageKind::LLM2User { question, answer: None } = kind {
-                return Ok(Some((*id, question.to_string())));
+                return Ok(Some((*id, question.clone())));
             }
         }
 
@@ -738,7 +734,7 @@ impl Context {
         Ok(load_json::<Be2Fe>(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?.pause)
     }
 
-    pub fn ask_to_user(&self, id: u64, question: String) -> Result<(), Error> {
+    pub fn ask_to_user(&self, id: InterruptId, question: &QuestionToUser) -> Result<(), Error> {
         let be2fe_at = join3(&self.working_dir, ".neukgu", "be2fe.json")?;
         let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
         be2fe.to_fe.insert(
@@ -746,7 +742,7 @@ impl Context {
             Message {
                 id,
                 kind: MessageKind::LLM2User {
-                    question,
+                    question: question.clone(),
                     answer: None,
                 },
             },
@@ -760,7 +756,7 @@ impl Context {
         Ok(())
     }
 
-    pub fn answer_to_llm(&self, id: u64, question: String, response: UserResponse) -> Result<(), Error> {
+    pub fn answer_to_llm(&self, id: InterruptId, question: QuestionToUser, response: UserResponse) -> Result<(), Error> {
         let be2fe_at = join3(&self.working_dir, ".neukgu", "be2fe.json")?;
         let mut be2fe: Be2Fe = load_json(&be2fe_at)?;
         be2fe.to_fe.insert(
@@ -782,7 +778,7 @@ impl Context {
         Ok(())
     }
 
-    pub fn check_interrupt_from_user(&self) -> Result<Option<(u64, InterruptKind, String)>, Error> {
+    pub fn check_interrupt_from_user(&self) -> Result<Option<(InterruptId, InterruptKind, String)>, Error> {
         if !self.is_fe_alive()? {
             return Ok(None);
         }
@@ -800,11 +796,11 @@ impl Context {
         Ok(None)
     }
 
-    pub fn check_user_response(&self, id_: u64) -> Result<Option<UserResponse>, Error> {
+    pub fn check_user_response(&self, id: InterruptId) -> Result<Option<UserResponse>, Error> {
         let be2fe: Be2Fe = load_json(&join3(&self.working_dir, ".neukgu", "be2fe.json")?)?;
 
         for message in be2fe.from_fe.values() {
-            if let Message { id, kind: MessageKind::LLM2User { answer: Some(answer), ..} } = message && *id == id_ {
+            if let Message { id: id_, kind: MessageKind::LLM2User { answer: Some(answer), ..} } = message && *id_ == id {
                 return Ok(Some(answer.clone()));
             }
         }

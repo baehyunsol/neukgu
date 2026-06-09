@@ -39,14 +39,14 @@ impl Request {
         state.store(working_dir)?;
 
         Ok(Response {
-            response,
+            response: response.to_string(),
             thinking: None,
             web_search_results: vec![],
             cached_input_tokens: 0,
             input_tokens: self.history.iter().map(
                 |turn| count_bytes_of_llm_tokens(&turn.query, 2048) + turn.response.len() as u64
             ).sum::<u64>() + count_bytes_of_llm_tokens(&self.query, 2048),
-            output_tokens: 0,
+            output_tokens: (response.len() / 3) as u64,
             log: ApiLog::new(),
         })
     }
