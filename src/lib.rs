@@ -1,6 +1,7 @@
 use ragit_fs::{
     FileError,
     WriteMode as RagitFsWriteMode,
+    copy_dir,
     create_dir,
     exists,
     join,
@@ -32,6 +33,7 @@ mod prompt;
 mod request;
 mod response;
 mod sandbox;
+mod skill;
 mod snapshot;
 mod subprocess;
 mod tool;
@@ -101,6 +103,7 @@ pub use request::{
 use request::{MockState, reset_mock_state, revert_mock_state};
 pub use response::{Response, WebSearchResult};
 use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to_sandbox, import_from_sandbox};
+pub use skill::{Skill, SkillConfig, SkillSchemaError, init_default_skills, load_global_skills};
 use snapshot::{Snapshot, check_snapshot, clean_dangling_snapshots};
 pub use tool::{
     AskTo,
@@ -337,6 +340,7 @@ pub fn init_working_dir(
     instruction: Option<String>,
     working_dir: &str,
     config: Config,
+    skills_dir: Option<String>,
     is_in_global_index_dir: bool,
 ) -> Result<(), Error> {
     if exists(&join(working_dir, ".neukgu/")?) {
@@ -377,6 +381,17 @@ pub fn init_working_dir(
     create_dir(&join3(working_dir, ".neukgu", "turns")?)?;
     create_dir(&join3(working_dir, ".neukgu", "interruptions")?)?;
     create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
+
+    if let Some(skills_dir) = skills_dir {
+        copy_dir(
+            &skills_dir,
+            &join3(working_dir, ".neukgu", "skills")?,
+        )?;
+    }
+
+    else {
+        create_dir(&join3(working_dir, ".neukgu", "skills")?)?;
+    }
 
     let log_dir = &join3(working_dir, ".neukgu", "logs")?;
     init_log_dir(&log_dir)?;

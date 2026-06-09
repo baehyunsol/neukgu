@@ -42,6 +42,8 @@ use crate::{
     NeukguId,
     Project,
     ProjectJson,
+    Skill,
+    SkillSchemaError,
     clean_global_index_dir,
     delete_chat,
     get_chat_system_prompts,
@@ -54,6 +56,7 @@ use crate::{
     init_working_dir,
     load_all_chats,
     load_all_indexes,
+    load_global_skills,
     load_json,
     prettify_timestamp,
     remove_global_index,
@@ -122,6 +125,10 @@ pub struct IcedContext {
     pub window_size: Size,
     pub recent_projects: Vec<Project>,
     pub recent_chats: Vec<Chat>,
+
+    // This is synchronized with `<global-index-dir>/skills/` and is read-only.
+    pub skills: Vec<(String, Result<Skill, SkillSchemaError>)>,
+
     pub current_tabs: Vec<TabPreview>,
     pub working_dir_tab_indexes: HashMap<NeukguId, usize>,
     pub main_view_id: Id,
@@ -146,7 +153,11 @@ pub struct IcedContext {
     pub system_prompts: Vec<String>,
     pub model_store_context: ModelStoreContext,
     pub short_text_editor_content: String,
+
+    // For `Popup::Skill { .. }`, it uses long_text_editor
+    // to edit the description and extra_text_editor to edit the body.
     pub long_text_editor_content: TextEditorContent,
+    pub extra_text_editor_content: TextEditorContent,
 }
 
 impl IcedContext {
@@ -161,6 +172,7 @@ impl IcedContext {
             window_size: Size::new(0.0, 0.0),
             recent_projects: vec![],
             recent_chats: vec![],
+            skills: load_global_skills(&global_index_dir).unwrap(),
             current_tabs: vec![],
             working_dir_tab_indexes: HashMap::new(),
             main_view_id: Id::unique(),
@@ -185,6 +197,7 @@ impl IcedContext {
             model_store_context: ModelStoreContext::new(global_index_dir.to_string()),
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
+            extra_text_editor_content: TextEditorContent::new(),
         }
     }
 
@@ -215,6 +228,30 @@ impl IcedContext {
                 let ProjectJson { working_dir, .. } = load_json(&join3(&self.global_index_dir, "indexes", &format!("{:016x}", id.0))?)?;
                 self.new_project_config = Config::load(&working_dir)?;
             },
+            Popup::Skills => {},
+            Popup::Skill { name } => match name {
+                Some(skill_name) => {
+                    let mut skill = None;
+
+                    for (n, s) in self.skills.iter() {
+                        if n == &skill_name {
+                            skill = Some(s.clone().unwrap());
+                        }
+                    }
+
+                    // Otherwise, the ui should have rejected.
+                    let skill = skill.unwrap();
+
+                    self.short_text_editor_content = skill_name.to_string();
+                    self.set_long_text_editor_content(skill.description.to_string());
+                    self.set_extra_text_editor_content(skill.body.to_string());
+                },
+                None => {
+                    self.short_text_editor_content = String::new();
+                    self.set_long_text_editor_content(String::new());
+                    self.set_extra_text_editor_content(String::new());
+                },
+            },
             Popup::NewChat => {
                 self.new_chat_config = get_global_chat_config(&self.global_index_dir)?;
             },
@@ -236,6 +273,7 @@ impl IcedContext {
                 self.syntax_highlight = Some(String::from("md"));
             },
             Popup::AskDeleteProject { .. } => {},
+            Popup::AskDeleteSkill { .. } => {},
             Popup::AskDeleteChat { .. } => {},
             Popup::AskDeleteChatSystemPrompt(_) => {},
             Popup::FindInChats { .. } => {},
@@ -267,6 +305,12 @@ impl IcedContext {
         self.long_text_editor_content.perform(TextEditorAction::SelectAll);
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
         self.long_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
+    }
+
+    pub fn set_extra_text_editor_content(&mut self, c: String) {
+        self.extra_text_editor_content.perform(TextEditorAction::SelectAll);
+        self.extra_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Delete));
+        self.extra_text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
     }
 
     pub fn zoom_in(&mut self) -> Task<IcedMessage> {
@@ -325,6 +369,7 @@ pub enum IcedMessage {
         project_name: String,
         working_dir: String,
     },
+    DeleteSkill(String),
     DeleteChat(ChatId),
     AddChatSystemPrompt,
     EditChatSystemPrompt(usize),
@@ -339,6 +384,7 @@ pub enum IcedMessage {
     FindInChats,
     EditShortText(String),
     EditLongText(TextEditorAction),
+    EditExtraText(TextEditorAction),
     FocusLongTextEdit,
     SetProjectConfig(SetProjectConfig),
     SetChatConfig(SetChatConfig),
@@ -364,6 +410,11 @@ pub enum Popup {
     NewProject,
     ProjectConfig,
     ExistingProjectConfig(NeukguId),
+    Skills,
+    Skill {
+        // If it's None, it's a new skill.
+        name: Option<String>,
+    },
     NewChat,
     ChatConfig,
     ExistingChatConfig(ChatId),
@@ -376,6 +427,7 @@ pub enum Popup {
         project_name: String,
         working_dir: String,
     },
+    AskDeleteSkill(String),
     AskDeleteChat {
         id: ChatId,
         title: Option<String>,
@@ -411,10 +463,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             if frame % 8 == 0 || force_update {
                 context.recent_projects = load_all_indexes(&context.global_index_dir);
                 context.recent_chats = load_all_chats(&context.global_index_dir)?;
+                context.skills = load_global_skills(&context.global_index_dir)?;
 
                 // let's just assume that there's no overflow!
                 context.recent_projects.sort_by_key(|p| -p.updated_at);
                 context.recent_chats.sort_by_key(|c| -c.updated_at);
+                context.skills.sort_by_key(|(n, _)| n.to_string());
 
                 context.system_prompts = get_chat_system_prompts(&context.global_index_dir)?;
                 context.update_battery_state();
@@ -480,6 +534,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::DeleteProject { project_name: project_name.to_string(), working_dir: working_dir.to_string() }));
                 }
 
+                if let Some(Popup::AskDeleteSkill(name)) = &context.curr_popup {
+                    return Ok(Task::done(IcedMessage::DeleteSkill(name.to_string())));
+                }
+
                 else if let Some(Popup::AskDeleteChat { id, .. }) = &context.curr_popup {
                     return Ok(Task::done(IcedMessage::DeleteChat(*id)));
                 }
@@ -519,7 +577,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let instruction = context.long_text_editor_content.text();
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), true)?;
+            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), Some(join(&context.global_index_dir, "skills")?), true)?;
             return Ok(Task::batch(vec![
                 Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }),
                 Task::done(IcedMessage::ClosePopup),
@@ -563,6 +621,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 Task::done(IcedMessage::ClosePopup),
             ]));
         },
+        IcedMessage::DeleteSkill(name) => {
+            let skill_path = join3(&context.global_index_dir, "skills", &name)?;
+            remove_dir_all(&skill_path)?;
+            context.new_project_config = get_global_config(&context.global_index_dir)?;
+            context.new_project_config.remove_skill(&name);
+            return Ok(Task::done(IcedMessage::SaveGlobalProjectConfig));
+        },
         IcedMessage::DeleteChat(chat_id) => {
             delete_chat(chat_id, &context.global_index_dir)?;
             return Ok(Task::batch(vec![
@@ -597,7 +662,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 Popup::EditChatSystemPrompt(_) => {
                     tasks.push(focus(context.long_text_editor_id.clone()));
                 },
-                Popup::NewProject | Popup::NewChat | Popup::FindInChats { .. } => {
+                Popup::NewProject | Popup::Skill { .. } | Popup::NewChat | Popup::FindInChats { .. } => {
                     tasks.push(focus(context.short_text_editor_id.clone()));
                 },
                 _ => {},
@@ -640,6 +705,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::EditLongText(a) => {
             context.long_text_editor_content.perform(a);
+        },
+        IcedMessage::EditExtraText(a) => {
+            context.extra_text_editor_content.perform(a);
         },
         IcedMessage::FocusLongTextEdit => {
             return Ok(focus(context.long_text_editor_id.clone()));
@@ -761,6 +829,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     blue(),
                     context.zoom,
                 ),
+                button(
+                    "Skills",
+                    IcedMessage::OpenPopup { curr: Popup::Skills, prev: None },
+                    blue(),
+                    context.zoom,
+                ),
             ],
             context.project_section_expanded,
             IcedMessage::ExpandProjectSection,
@@ -847,6 +921,61 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .align_x(Horizontal::Center)
                     .width(Length::Fill)
             ).id(context.popup_scroll_id.clone()).into(), context),
+        ]).into();
+    }
+
+    else if let Some(Popup::Skills) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_skills_popup(context),
+        ]).into();
+    }
+
+    else if let Some(Popup::Skill { name }) = &context.curr_popup {
+        let skill_editor = Scrollable::new(
+            Column::from_vec(vec![
+                text!("name").size(context.zoom * 18.0).into(),
+                TextInput::new("name", &context.short_text_editor_content)
+                    .width(context.window_size.width)
+                    .size(context.zoom * 14.0)
+                    .id(context.short_text_editor_id.clone())
+                    .on_input(IcedMessage::EditShortText)
+                    .on_submit(IcedMessage::FocusLongTextEdit)
+                    .into(),
+                text!("description").size(context.zoom * 18.0).into(),
+                TextEditor::new(&context.long_text_editor_content)
+                    .width(context.window_size.width)
+                    .size(context.zoom * 14.0)
+                    .id(context.long_text_editor_id.clone())
+                    .min_height(300)
+                    .on_action(IcedMessage::EditLongText)
+                    .into(),
+                text!("body").size(context.zoom * 18.0).into(),
+                TextEditor::new(&context.extra_text_editor_content)
+                    .width(context.window_size.width)
+                    .size(context.zoom * 14.0)
+                    .min_height(500)
+                    .on_action(IcedMessage::EditExtraText)
+                    .into(),
+                button(
+                    "Save",
+                    // match name {
+                    //     Some(name) => IcedMessage::UpdateSkill { name: name.to_string() },
+                    //     None => IcedMessage::CreateSkill,
+                    // },
+                    IcedMessage::Notify(String::from("Not implemented yet")),
+                    green(),
+                    context.zoom,
+                ).into(),
+            ])
+                .padding(context.zoom * 8.0)
+                .spacing(context.zoom * 8.0)
+        )
+            .id(context.popup_scroll_id.clone());
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(skill_editor.into(), context),
         ]).into();
     }
 
@@ -947,6 +1076,21 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         let ask = Column::from_vec(vec![
             text!("Delete project `{project_name}`?").size(context.zoom * 14.0).into(),
             button("(Y)es", IcedMessage::DeleteProject { project_name: project_name.to_string(), working_dir: working_dir.to_string() }, green(), context.zoom).into(),
+        ])
+            .spacing(context.zoom * 20.0)
+            .align_x(Horizontal::Center)
+            .width(Length::Fill);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(ask.into(), context).into(),
+        ]).into();
+    }
+
+    else if let Some(Popup::AskDeleteSkill(name)) = &context.curr_popup {
+        let ask = Column::from_vec(vec![
+            text!("Delete skill `{name}`?").size(context.zoom * 14.0).into(),
+            button("(Y)es", IcedMessage::DeleteSkill(name.to_string()), green(), context.zoom).into(),
         ])
             .spacing(context.zoom * 20.0)
             .align_x(Horizontal::Center)
@@ -1289,6 +1433,58 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 .width(Length::Fill),
         )
             .width(Length::Fill)
+            .into(),
+        context,
+    )
+}
+
+fn render_skills_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let mut column: Vec<Element<IcedMessage>> = context.skills.iter().map(
+        |(name, maybe_skill)| Container::new(
+            Row::from_vec(vec![
+                Column::from_vec(vec![
+                    text!("{name}").size(context.zoom * 18.0).into(),
+                    Container::new(match maybe_skill {
+                        Ok(skill) => text!("{}", skill.description).size(context.zoom * 14.0),
+                        Err(e) => text!("{e:?}").color(red()).size(context.zoom * 14.0),
+                    })
+                        .padding(context.zoom * 8.0)
+                        .width(context.zoom * 500.0)
+                        .style(|_| set_bg(black()))
+                        .into(),
+                ])
+                    .spacing(context.zoom * 8.0)
+                    .into(),
+                Column::from_vec(vec![
+                    button("Edit", IcedMessage::OpenPopup { curr: Popup::Skill { name: Some(name.to_string()) }, prev: Some(Popup::Skills) }, blue(), context.zoom).into(),
+                    button("Delete", IcedMessage::OpenPopup { curr: Popup::AskDeleteSkill(name.to_string()), prev: Some(Popup::Skills) }, red(), context.zoom).into(),
+                ])
+                    .spacing(context.zoom * 8.0)
+                    .width(context.zoom * 100.0)
+                    .align_x(Horizontal::Center)
+                    .into(),
+            ])
+                .align_y(Vertical::Center)
+                .spacing(context.zoom * 8.0)
+        )
+            .padding(context.zoom * 8.0)
+            .style(|_| set_round_bg(gray(0.2), context.zoom))
+            .into()
+    ).collect();
+
+    column.push(
+        button("Add", IcedMessage::OpenPopup { curr: Popup::Skill { name: None }, prev: Some(Popup::Skills) }, green(), context.zoom).into(),
+    );
+    column.push(Space::new().width(context.window_size.width).into());
+
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(column)
+                .align_x(Horizontal::Center)
+                .padding(context.zoom * 8.0)
+                .spacing(context.zoom * 8.0)
+        )
+            .id(context.popup_scroll_id.clone())
             .into(),
         context,
     )

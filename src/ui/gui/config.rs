@@ -22,6 +22,7 @@ pub enum SetProjectConfig {
     AgentQuestionable(Questionable),
     ContextSize(u64),
     ToggleTool(ToolKind, bool),
+    ToggleSkill(String, bool),
     SetWritePermission(PermissionConfig),
     SetRunPermission(String, PermissionConfig),
     OpenaiEtc1BaseUrl(String),
@@ -87,6 +88,9 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
             config.activated_tools = ToolKind::all().into_iter().filter(
                 |tool| config.activated_tools.contains(tool)
             ).collect();
+        },
+        SetProjectConfig::ToggleSkill(skill, enable) => {
+            config.skills.get_mut(&skill).unwrap().enabled = enable;
         },
         SetProjectConfig::SetWritePermission(p) => {
             config.write_permission = p;
@@ -376,6 +380,32 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
             .into(),
         zoom,
     ));
+
+    if !config.skills.is_empty() {
+        let mut skills: Vec<(_, _)> = config.skills.iter().collect();
+        skills.sort_by_key(|(name, _)| name.to_string());
+        let skill_checkboxes: Vec<Element<SetProjectConfig>> = skills.into_iter().map(
+            move |(name, skill)| {
+                Checkbox::new(skill.enabled)
+                    .label(name.to_string())
+                    .on_toggle(move |t| SetProjectConfig::ToggleSkill(name.to_string(), t))
+                    .size(zoom * 14.0)
+                    .text_size(zoom * 14.0)
+                    .into()
+            }
+        ).collect();
+
+        panels.push(panel_container(
+            Column::from_vec(vec![
+                text!("Skills").size(zoom * 14.0).into(),
+                Column::from_vec(skill_checkboxes).spacing(zoom * 8.0).into(),
+            ])
+                .align_x(Horizontal::Center)
+                .spacing(zoom * 8.0)
+                .into(),
+            zoom,
+        ));
+    }
 
     panels.push(panel_container(openai_etc_config(
         "openai-etc-1",

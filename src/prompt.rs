@@ -1,4 +1,5 @@
-use crate::{Config, ToolKind};
+use crate::{Config, SkillConfig, ToolKind};
+use std::collections::HashMap;
 
 impl ToolKind {
     pub fn description(&self, index: usize, config: &Config) -> String {
@@ -230,6 +231,11 @@ pub fn system_prompt(config: &Config) -> String {
         |tool| format!("{}", tool.tag_name())
     ).collect::<Vec<_>>().join(", ");
     let tool_descriptions = tool_descriptions.join("\n\n");
+    let tool_descriptions = format!("{tool_descriptions}\n\n---\n\nYou have to use exactly 1 tool per turn. When you call a tool, finish your turn and wait for the response.\n\n---\n\n");
+    let skill_descriptions = match skill_prompt(&config.skills) {
+        Some(skill_descriptions) => format!("{skill_descriptions}\n\n---\n\n"),
+        None => String::new(),
+    };
 
     format!(r#"
 You're neukgu (늑구), an AI coding agent.
@@ -249,15 +255,57 @@ You have to regularly write summaries of your work at `logs/summary-XXX.md`. The
 When you're done, create a file `logs/done`, and write your final summary there. Then I'll give you feedback.
 When you write a summary, it must include 1) what you've done so far 2) what you've done since the last time you wrote a summary 3) what you've learnt so far 4) what you've learnt since the last time you wrote a summary and 5) what are the remaining things to do.
 
+---
+
 {tool_descriptions}
-
----
-
-You have to use exactly 1 tool per turn. When you call a tool, finish your turn and wait for the response.
-
----
-
+{skill_descriptions}
 By the way, your name (neukgu, 늑구) is from a wolf who escaped a Korean zoo."#)
+}
+
+pub fn skill_prompt(skills: &HashMap<String, SkillConfig>) -> Option<String> {
+    let mut enabled_skills: Vec<SkillConfig> = skills.values().filter_map(
+        |skill| if skill.enabled {
+            Some(skill.clone())
+        } else {
+            None
+        }
+    ).collect();
+    enabled_skills.sort_by_key(|skill| skill.name.to_string());
+    let skill_list = enabled_skills.iter().map(
+        |skill| format!("- {}\n  - path: .neukgu/skills/{}/SKILL.md\n  - description: {}", skill.name, skill.name, skill.description)
+    ).collect::<Vec<_>>().join("\n");
+
+    match enabled_skills.get(0) {
+        // VIBE NOTE: claude sonnet and gpt (via neukgu-chat) wrote this prompt
+        Some(enabled_skill) => Some(format!(
+            r#"
+## Skills
+
+Skills are documents that provide domain knowledge or special capabilities that you may not have. A skill covers specialized knowledge a user has prepared for you.
+
+**When to use a skill:**
+Use a skill when all three of the following are true:
+1. You need to perform a task.
+2. You lack the knowledge to perform it correctly or confidently.
+3. There is a skill available that appears to cover that knowledge.
+
+**How to use a skill:**
+Read the skill's `SKILL.md` file at `.neukgu/skills/<skill-name>/SKILL.md`. You'll see the paths below. The file may also reference additional supporting files in the same directory — use them as instructed by the document.
+For example, in order to use `{}` skill, do <read><path>.neukgu/skills/{}/SKILL.md</path></read>.
+
+Do **not** read a skill file preemptively. Only read it at the moment you actually need it.
+
+---
+
+**Available skills:**
+
+{skill_list}
+            "#,
+            enabled_skill.name,
+            enabled_skill.name,
+        ).trim().to_string()),
+        None => None,
+    }
 }
 
 // VIBE NOTE: Claude Sonnet (via neukgu-chat) wrote this prompt.

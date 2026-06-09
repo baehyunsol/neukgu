@@ -240,21 +240,20 @@
   - 아니면 templated instruction을 만들어??
   - skill로 만들기는... 좀 애매함. 특별한 skill이 필요하다기보다는 그냥 instruction이 비슷한 거잖아?
 149. SKILL 구현
-  - `<skill>`이라는 tool을 만들고, tool description에다가 skill 목록을 쭉 적으면 됨!!
-  - 특정 skill을 보여달라고 하면 걍 보여주면됨... easy!
-  - skill을 어디에 등록??
-    - 1, global index dir에 skill도 관리. index tab에서도 여기 있는 skill들을 관리할 수 있음
-    - 2, working dir을 만드는 순간 global index dir에 있는 skill의 목록을 복사해서 working dir의 index dir에 넣어둠.
-      - 앞으로 이 세션에서는 local skills만 볼 수 있음
-  - skill에 tool-dependency 등록하기?
-    - 이렇게 하려면 각 skill을 json 파일로 만들어야 함.
-    - 생각해보니 어차피 이름/설명/내용 적으려면 json object로 만들어야 하네
-  - 방금 전에 본 skill을 또 보려고 하면?
-    - 걍 context에 똑같은 skill이 들어오면 숨겨버리자!!
-  - 얘는 optional한 tool인가??
-    - 그냥 등록된 skill이 있냐없냐로 판단하면 될 듯??
-    - skill 등록하는 ui를 만들어야겠네...
-      - 이것도 config ui 안에다가 넣으면 됨!!
+  - 표준: https://agentskills.io/home
+  - 정리
+    - frontmatter는 name, description만 확인할 거고 나머지는 신경 안 쓸 거임.
+    - `~/.herd-of-neukgus/skills/`에 skill의 목록이 있고, index tab에서 수정 가능
+      - 저 안에 skill name으로 된 dir이 있고 그 안에 SKILL.md가 있음
+    - 새 프로젝트를 만들면 `~/.herd-of-neukgus/skills/`를 그대로 복붙해서 `<project>/.neukgu/skills/`로 갖고 옴
+      - neukgu는 per-project skill만 볼 수 있음.
+      - 만약 이미 진행 중인 프로젝트에 skill을 추가하거나 수정하고 싶으면??
+    - `<skill>`이라는 tool은 없음. 프롬프트에다가 "이 위치에 skill이 있으니 읽으세요"라고 적어둘 거임
+      - `<read>`에서 `.neukgu/skills/*`를 읽으면 그것만 예외적으로 허용
+    - tool dependency, skill dependency
+      - 이런 것도 추가하고 싶은데 일단 frontmatter에는 자리가 없네 ㅠㅠ
+    - config에서 개별 skill을 toggle할 수 있음
+      - `HashMap<name: String, { name: String, enabled: bool, description: String }>`으로 넣어두자
 152. browser에서 파일 미리보기 할 때, 방향키로 browse 가능케 하기!!
 155. snapshot/sandbox를 git으로 관리하기??
   - 이게 잘되면 옛날처럼 모든 turn의 snapshot을 떠놓고 오류나면 즉시 롤백하면 됨
@@ -319,10 +318,7 @@
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
 168. ask permissions
-  - tool 실행하기 전에 fake turn으로 ask-to-user를 넣으면 되지 않음?? ask-to-user는 context에서 숨기면 되지
-  - 지금은 ask-to-user가 string-question, string-answer인데 이거를 choice-answer도 가능하게 하자!!
-  - `<run>`, `<write>`, `<patch>`만 하면 되려나? "Deny", "Allow Once", "Allow Always (this tool)", "Allow Always (everything)"... run에서는 binary마다 따로 권한을 관리하고, write랑 patch는 동시에 관리하자
-  - config에서 저걸 미리 deny/allow 할 수 있게 하자!!
+  - 구현 완료!!
   - 지금은 working-dir 바깥에 있는 파일을 read/write 하려고 하면 permission error 날리잖아? 이제 이것도 물어보고 하면 되는 거 아님??
 
 ## mock API

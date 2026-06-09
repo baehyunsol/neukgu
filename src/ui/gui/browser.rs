@@ -935,11 +935,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::CreateWorkingDir { path } => {
             let project_name = context.short_text_editor_content.to_string();
+            let global_index_dir = get_global_index_dir()?;
             validate_project_name(&project_name)?;
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
             create_dir(&project_path)?;
-            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), false)?;
+            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::CreateDir { parent } => {
@@ -951,7 +952,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
-            init_working_dir(Some(instruction), &path, context.new_project_config.clone(), false)?;
+            let global_index_dir = get_global_index_dir()?;
+            init_working_dir(Some(instruction), &path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),

@@ -1,4 +1,4 @@
-use crate::{Agents, Error, EtcModels, PermissionConfig, ToolKind};
+use crate::{Agents, Error, EtcModels, PermissionConfig, Skill, SkillConfig, ToolKind};
 use crate::request::Config as RequestConfig;
 use ragit_fs::{
     WriteMode,
@@ -13,6 +13,7 @@ use std::collections::HashMap;
 pub struct Config {
     pub agents: Agents,
     pub activated_tools: Vec<ToolKind>,
+    pub skills: HashMap<String, SkillConfig>,
     pub sandbox_root: String,
     pub llm_context_max_len: u64,
     pub text_file_max_len: u64,
@@ -58,6 +59,14 @@ impl Config {
             ..RequestConfig::default()
         }
     }
+
+    pub fn add_skill(&mut self, skill: Skill) {
+        self.skills.insert(skill.name.to_string(), skill.to_config(true));
+    }
+
+    pub fn remove_skill(&mut self, skill: &str) {
+        self.skills.remove(skill);
+    }
 }
 
 impl Default for Config {
@@ -65,6 +74,7 @@ impl Default for Config {
         Config {
             agents: Agents::default(),
             activated_tools: ToolKind::all(),
+            skills: HashMap::new(),
             sandbox_root: String::from("/tmp/neukgu-sandbox/"),
             llm_context_max_len: 262_144,
             text_file_max_len: 32_768,

@@ -1,5 +1,14 @@
 use chrono::Local;
-use crate::{Context, ContextJson, Config, Error, NeukguId, init_log_dir, load_json};
+use crate::{
+    Context,
+    ContextJson,
+    Config,
+    Error,
+    NeukguId,
+    init_default_skills,
+    init_log_dir,
+    load_json,
+};
 use crate::chat::Config as ChatConfig;
 use ragit_fs::{
     WriteMode,
@@ -87,6 +96,10 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
             &serde_json::to_string_pretty(&Config::default())?,
             WriteMode::AlwaysCreate,
         )?;
+    }
+
+    if !exists(&join(global_index_dir, "skills")?) {
+        init_default_skills(global_index_dir)?;
     }
 
     if !exists(&join(global_index_dir, "chat-config.json")?) {

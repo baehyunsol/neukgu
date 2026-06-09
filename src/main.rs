@@ -112,6 +112,11 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             } else {
                 Config::default()
             };
+            let skills_dir = if let Ok(global_index_dir) = get_global_index_dir() && let Ok(path) = join(&global_index_dir, "skills") {
+                Some(path)
+            } else {
+                None
+            };
 
             if let Some(model) = model {
                 config.agents = Agents::single(model, Model::default_image_edit());
@@ -119,7 +124,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction, &project_name, config, false)?;
+            init_working_dir(instruction, &project_name, config, skills_dir, false)?;
             Ok(())
         },
         Some("init") => {
@@ -136,12 +141,17 @@ fn run(args: Vec<String>) -> Result<(), Error> {
             } else {
                 Config::default()
             };
+            let skills_dir = if let Ok(global_index_dir) = get_global_index_dir() && let Ok(path) = join(&global_index_dir, "skills") {
+                Some(path)
+            } else {
+                None
+            };
 
             if let Some(model) = model {
                 config.agents = Agents::single(model, Model::default_image_edit());
             }
 
-            init_working_dir(instruction, ".", config, false)?;
+            init_working_dir(instruction, ".", config, skills_dir, false)?;
             Ok(())
         },
         Some("headless") => {
