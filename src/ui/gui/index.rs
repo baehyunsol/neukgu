@@ -44,6 +44,7 @@ use crate::{
     ProjectJson,
     Skill,
     SkillSchemaError,
+    build_info,
     clean_global_index_dir,
     delete_chat,
     get_chat_system_prompts,
@@ -946,6 +947,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             render_tabs(context),
             context,
         ).into(),
+        {
+            let (version, commit, build_profile) = build_info();
+            Container::new(
+                text!("version: {version} ({commit}), build-profile: {build_profile}").size(context.zoom * 12.0)
+            )
+                .padding(context.zoom * 8.0)
+                .into()
+        },
     ]).spacing(context.zoom * 8.0);
 
     let mut full_view_stacked: Element<IcedMessage> = Scrollable::new(c)

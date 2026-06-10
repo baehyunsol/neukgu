@@ -140,6 +140,14 @@ pub use turn::{
 };
 pub use ui::{Be2Fe, Fe2Be, gui, tui};
 
+pub fn build_info() -> (&'static str, &'static str, &'static str) {
+    (
+        "0.1.0",  // You have to update this manually hahaha
+        option_env!("GIT_COMMIT_HASH").unwrap_or("unknown"),
+        option_env!("BUILD_PROFILE").unwrap_or("unknown"),
+    )
+}
+
 pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Error> {
     context.sync_with_fe()?;
 

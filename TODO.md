@@ -320,6 +320,9 @@
 168. ask permissions
   - 구현 완료!!
   - 지금은 working-dir 바깥에 있는 파일을 read/write 하려고 하면 permission error 날리잖아? 이제 이것도 물어보고 하면 되는 거 아님??
+169. summaries
+  - summary 볼 때 방향키 좌우로 넘길 수 있게 하기
+  - 각 summary에 제목 붙이게 하기? 이것도 걍 small agent 쓰면 되지 않음? ㅋㅋ
 
 ## mock API
 
