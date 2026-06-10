@@ -201,10 +201,11 @@ pub fn check_read_path(path: &Path, working_dir: &str) -> Result<Result<(String,
     Ok(Ok((joined_path, real_path)))
 }
 
-pub(crate) fn check_read_permission(path: &Path) -> bool {
+fn check_read_permission(path: &Path) -> bool {
     match normalize_path(path) {
-        Some(path) => match path.get(0).map(|s| s.as_str()) {
-            Some(".neukgu") => false,
+        Some(path) => match (path.get(0).map(|s| s.as_str()), path.get(1).map(|s| s.as_str())) {
+            (Some(".neukgu"), Some("skills")) => true,
+            (Some(".neukgu"), _) => false,
 
             // If `path.get(0)` is `None`, that's working-dir. The agent can read working-dir.
             _ => true,

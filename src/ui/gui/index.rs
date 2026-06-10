@@ -363,6 +363,11 @@ pub enum IcedMessage {
     SaveGlobalProjectConfig,
     SaveProjectConfig(NeukguId),
     NewChat,
+
+    // It might change the name of the skill, so it remembers the old name.
+    UpdateSkill { name: String },
+
+    CreateSkill,
     SaveGlobalChatConfig,
     SaveChatConfig(ChatId),
     DeleteProject {
@@ -600,6 +605,57 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }),
                 Task::done(IcedMessage::ClosePopup),
             ]));
+        },
+        IcedMessage::UpdateSkill { name: old_name } => {
+            let new_name = context.short_text_editor_content.to_string();
+            let description = context.long_text_editor_content.text();
+            let body = context.extra_text_editor_content.text();
+            context.new_project_config = get_global_config(&context.global_index_dir)?;
+
+            if old_name != new_name && context.new_project_config.skills.contains_key(&new_name) {
+                return Ok(Task::done(IcedMessage::Notify(format!("Skill `{new_name}` already exists!"))));
+            }
+
+            let skill = match Skill::try_init(new_name.clone(), description, None, None, body) {
+                Ok(skill) => skill,
+                Err(e) => {
+                    return Ok(Task::done(IcedMessage::Notify(format!("Cannot update skill: {e}"))));
+                },
+            };
+
+            let old_skill_path = join3(&context.global_index_dir, "skills", &old_name)?;
+            let new_skill_path = join3(&context.global_index_dir, "skills", &new_name)?;
+
+            if old_name != new_name {
+                ragit_fs::rename(&old_skill_path, &new_skill_path)?;
+            }
+
+            skill.save(&context.global_index_dir)?;
+            context.new_project_config.remove_skill(&old_name);
+            context.new_project_config.add_skill(skill);
+            return Ok(Task::done(IcedMessage::SaveGlobalProjectConfig));
+        },
+        IcedMessage::CreateSkill => {
+            let name = context.short_text_editor_content.to_string();
+            let description = context.long_text_editor_content.text();
+            let body = context.extra_text_editor_content.text();
+
+            match Skill::try_init(name, description, None, None, body) {
+                Ok(skill) => {
+                    context.new_project_config = get_global_config(&context.global_index_dir)?;
+
+                    if context.new_project_config.skills.contains_key(&skill.name) {
+                        return Ok(Task::done(IcedMessage::Notify(format!("Skill `{}` already exists!", skill.name))));
+                    }
+
+                    skill.save(&context.global_index_dir)?;
+                    context.new_project_config.add_skill(skill);
+                    return Ok(Task::done(IcedMessage::SaveGlobalProjectConfig));
+                },
+                Err(e) => {
+                    return Ok(Task::done(IcedMessage::Notify(format!("Cannot create skill: {e}"))));
+                },
+            }
         },
         IcedMessage::SaveGlobalChatConfig => {
             save_global_chat_config(&context.new_chat_config, &context.global_index_dir)?;
@@ -959,11 +1015,10 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .into(),
                 button(
                     "Save",
-                    // match name {
-                    //     Some(name) => IcedMessage::UpdateSkill { name: name.to_string() },
-                    //     None => IcedMessage::CreateSkill,
-                    // },
-                    IcedMessage::Notify(String::from("Not implemented yet")),
+                    match name {
+                        Some(name) => IcedMessage::UpdateSkill { name: name.to_string() },
+                        None => IcedMessage::CreateSkill,
+                    },
                     green(),
                     context.zoom,
                 ).into(),
@@ -1446,7 +1501,7 @@ fn render_skills_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage>
                     text!("{name}").size(context.zoom * 18.0).into(),
                     Container::new(match maybe_skill {
                         Ok(skill) => text!("{}", skill.description).size(context.zoom * 14.0),
-                        Err(e) => text!("{e:?}").color(red()).size(context.zoom * 14.0),
+                        Err(e) => text!("ERROR: {e}").color(red()).size(context.zoom * 14.0),
                     })
                         .padding(context.zoom * 8.0)
                         .width(context.zoom * 500.0)

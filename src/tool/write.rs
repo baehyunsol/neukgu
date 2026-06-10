@@ -1,4 +1,4 @@
-use super::{Path, ToolCallError, check_read_permission, normalize_path};
+use super::{Path, ToolCallError, normalize_path};
 use crate::Error;
 use ragit_fs::{create_dir_all, exists, is_dir, is_symlink, join, parent};
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,7 @@ pub fn check_write_path(
         None => path.join("/"),
     };
 
-    if !check_read_permission(path) {
+    if !check_write_permission(path) {
         return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
     }
 
@@ -82,4 +82,18 @@ pub fn check_write_path(
     }
 
     Ok(Ok((joined_path, real_path)))
+}
+
+fn check_write_permission(path: &Path) -> bool {
+    match normalize_path(path) {
+        Some(path) => match path.get(0).map(|s| s.as_str()) {
+            Some(".neukgu") => false,
+
+            // If it's None, it's a working directory.
+            // The agent has no permission to write, but I prefer returning `CannotWriteToDirectory`,
+            // which will be checked later.
+            _ => true,
+        },
+        None => false,
+    }
 }

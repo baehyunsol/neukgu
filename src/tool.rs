@@ -91,7 +91,6 @@ pub use read::{
     read_file,
 };
 pub use run::{ParseCommandError, init_and_load_available_binaries, list_binaries, parse_command};
-use read::check_read_permission;
 pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 
 type Path = Vec<String>;

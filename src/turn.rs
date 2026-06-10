@@ -218,7 +218,7 @@ impl Turn {
                         String::from("???")
                     },
                     TurnKind::UserInstruction => match &self.turn_result {
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { answer, .. }) => format!("Instruction from user {:?}", truncate_chars(&answer.to_string(), 36)),
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::InstructionFromUser(instruction)) => format!("Instruction from user {:?}", truncate_chars(&instruction.to_string(), 36)),
                         _ => unreachable!(),
                     },
                     // I don't make `parse_result` in this case.
