@@ -263,7 +263,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         } else {
             Space::new().into()
         },
-    ]).into()
+    ]).spacing(context.zoom * 8.0).into()
 }
 
 fn render_tab_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
@@ -581,7 +581,7 @@ pub fn get_git_info(path: &str) -> Result<GitInfo, Error> {
                 String::from("log"),
                 String::from("--oneline"),
                 String::from("--abbrev=16"),
-                String::from("-n100"),
+                String::from("-n128"),
                 String::from("--no-color"),
             ],
             false,
@@ -623,13 +623,13 @@ pub fn get_git_info(path: &str) -> Result<GitInfo, Error> {
     })
 }
 
-static LINE_HEADER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"diff --git a/(.+) b/(.+)").unwrap());
+static LINE_HEADER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"diff --git "?a/(.+)"? "?b/(.+)"?"#).unwrap());
 
 fn parse_git_diff(diff: &str) -> Vec<FileDiff> {
     fn parse_line_header(header: &str) -> (String, String) {
         match LINE_HEADER_RE.captures(header) {
             Some(cap) => (cap.get(1).unwrap().as_str().to_string(), cap.get(2).unwrap().as_str().to_string()),
-            None => unreachable!(),
+            None => panic!("Failed to parse line header: {header:?}"),
         }
     }
 

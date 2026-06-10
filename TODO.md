@@ -323,6 +323,34 @@
 169. summaries
   - summary 볼 때 방향키 좌우로 넘길 수 있게 하기
   - 각 summary에 제목 붙이게 하기? 이것도 걍 small agent 쓰면 되지 않음? ㅋㅋ
+170. skill builder
+  - https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md
+    - 이걸 보면 검증 loop를 돎. 새로운 skill을 이용해서 결과물을 만들어보고, 그 결과물에대한 피드백을 사용자한테 받고, 이거를 계속 도는데 늑구에서는 이런 loop를 구현할 방법이 없음
+  - 일단은 수동으로 질답을 해가면서 작업을 하고,
+  - 작업이 끝나면 skill-builder를 호출함. 그럼 이 작업의 workflow를 그대로 업어서 SKILL.md로 만듦.
+  - 중간중간에 필요한 스크립트 업어서 저장
+  - skill upgrader도 필요함. 이미 존재하는 skill을 고치려면
+    - skill 안에 들어있는 파일들을 모두 읽을 수 있어야함
+    - 새로운 skill을 어떻게 반영..?? 지금은 세션이 탄생하는 순간에 skill이 동기화가 되는데?
+171. 클로드코드용 스킬을 늑구에서 사용해보기
+172. skill을 외부에서 파일로 갖고 와서 직접 넣는 경우
+  - global skill로 등록
+    - 아마 index tab의 skills에서는 보이는데 config에는 반영이 안될 듯?
+  - local skill로 등록
+    - ncode같은 경우를 생각하면 local working dir에 직접 넣는 기능도 필요
+    - 나혼자 쓸 거라고 생각하면 불필요한 기능...
+173. 늑구가 `<patch>` 쓸 때 context 없이 고칠 부분만 정확히 적거든? 근데 눈으로 볼 때는 context 있는게 편함... 나중에 revert apply 할 때도 context이 필요함.
+  - context line을 가라로 넣을 방법이 없을까?
+  - context line을 가라로 넣더라도 AI가 보는 context에는 context line이 없어야함.
+    - 와 용어가 엄청 헷갈리네 ㅠㅠ
+    - 즉, `Popup::Turn`에서는 AI가 만든 diff가 그대로 보이고, `Popup::Diff`에서는 가라로 들어간 context line이 추가로 보이면 좋겠다는 얘기...
+    - 추가로, `get_changed_file()` 할 때도 가라 context line 반영해서 해야함!!
+174. `logs/done` 쓴 다음에 다시 시작하면 자동으로 done 파일 삭제되잖아? 삭제되었다는 흔적을 남겨야함!!
+  - 안 남기니까 다음번에 done 쓸 때 일단 truncate로 쓰고 오류나서 create로 다시 씀...
+175. scratch pad에서 diff 보는 모드를 따로 만들까? diff 은근 자주 보는데 그럼 걍 render_udiff 써버리면 안됨??
+  - syntax_highlight에다가 `.diff`를 주고, scratch pad가 저 extension인지 아닌지를 확인해서 다르게 하자!!
+  - 그럼 render_udiff 글자색도 바꿔야하네... 이참에 모든 글자색을 지정해버릴까? 그러면 테마 변경 가능 ㅋㅋㅋ
+176. 왜 `<patch>`에는 open in browser 버튼이 없지??
 
 ## mock API
 

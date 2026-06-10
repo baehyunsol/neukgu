@@ -281,7 +281,7 @@ pub fn skill_prompt(skills: &HashMap<String, SkillConfig>) -> Option<String> {
             r#"
 ## Skills
 
-Skills are documents that provide domain knowledge or special capabilities that you may not have. A skill covers specialized knowledge a user has prepared for you.
+Skills are documents that provide domain knowledge, custom workflow or special capabilities that you may not have. A skill covers specialized knowledge a user has prepared for you.
 
 **When to use a skill:**
 Use a skill when all three of the following are true:
