@@ -746,8 +746,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::FindInChats => {
             let new_job_id = JobId::new();
 
-            if let Some(Popup::FindInChats { job_id, .. }) = &mut context.curr_popup {
+            if let Some(Popup::FindInChats { job_id, error }) = &mut context.curr_popup {
                 *job_id = Some(new_job_id);
+                *error = None;
             }
 
             return Ok(Task::done(IcedMessage::BackgroundJob(Job {
@@ -1200,7 +1201,6 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    // NOTE: It's a copy-paste of the same popup in ui/gui/browser.rs
     else if let Some(Popup::FindInChats { job_id, error }) = &context.curr_popup {
         let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
             .size(context.zoom * 14.0)

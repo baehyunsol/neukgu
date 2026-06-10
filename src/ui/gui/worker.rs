@@ -12,7 +12,9 @@ use crate::{
 };
 use crate::subprocess::{self, Output};
 use crate::tool::parse_command;
+use globset::{GlobBuilder, GlobMatcher};
 use ragit_fs::{
+    exists,
     file_size,
     is_dir,
     is_symlink,
@@ -22,6 +24,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct JobId(u64);
@@ -43,6 +46,10 @@ pub enum JobKind {
     Rg {
         path: String,
         regex: String,
+    },
+    Glob {
+        path: String,
+        pattern: String,
     },
     Run {
         path: String,
@@ -74,6 +81,9 @@ pub struct JobResult {
 pub enum JobResultKind {
     Rg { regex: String, matches: Vec<RgMatch>, count: usize },
     RgTimeout,
+    RgError(String),
+    Glob { pattern: String, matches: Vec<GlobMatch>, timeout: bool },
+    GlobError(String),
     Run(Output),
     RunError(String),
     InvalidCommand { error: String },
@@ -165,6 +175,17 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 )?;
 
                 tx_to_main.send(JobResult { id: Some(id), kind: parse_rg_output(regex, rg_result) }).unwrap();
+            },
+            Job { id, kind: JobKind::Glob { path, pattern } } => {
+                match GlobBuilder::new(&pattern).literal_separator(true).build() {
+                    Ok(glob) => {
+                        let matcher = glob.compile_matcher();
+                        tx_to_main.send(JobResult { id: Some(id), kind: match_glob(&path, &matcher, 20 /* timeout */) }).unwrap();
+                    },
+                    Err(e) => {
+                        tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GlobError(e.to_string()) }).unwrap();
+                    },
+                }
             },
             Job { id, kind: JobKind::Run { path, command } } => match parse_command(&command) {
                 Ok(command) => match subprocess::run(
@@ -302,6 +323,12 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
         return JobResultKind::RgTimeout;
     }
 
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if stderr.contains("error") {
+        return JobResultKind::RgError(stderr.to_string());
+    }
+
     let mut matches = vec![];
     let mut count = 0;
 
@@ -326,6 +353,55 @@ fn parse_rg_output(regex: String, output: Output) -> JobResultKind {
     }
 
     JobResultKind::Rg { regex, matches, count }
+}
+
+#[derive(Clone, Debug)]
+pub struct GlobMatch {
+    pub path: String,
+
+    // These are necessary for gui tabs.
+    pub is_symlink: bool,
+    pub is_dir: bool,
+}
+
+fn match_glob(path: &str, matcher: &GlobMatcher, timeout: u64) -> JobResultKind {
+    if !exists(path) || !is_dir(path) {
+        return JobResultKind::GlobError(format!("{:?}", read_dir(path, false).unwrap_err()));
+    }
+
+    let mut buffer = vec![];
+    let timeout = match_glob_worker(path, matcher, Instant::now(), timeout, &mut buffer);
+    JobResultKind::Glob { pattern: matcher.glob().glob().to_string(), matches: buffer, timeout }
+}
+
+fn match_glob_worker(path: &str, matcher: &GlobMatcher, started_at: Instant, timeout: u64, buffer: &mut Vec<GlobMatch>) -> bool {
+    if Instant::now().duration_since(started_at.clone()).as_secs() > timeout {
+        return true;
+    }
+
+    for entry in read_dir(path, true).unwrap_or(vec![]) {
+        let e_is_dir = is_dir(&entry);
+        let e_is_symlink = is_symlink(&entry);
+
+        // It doesn't follow symlinks otherwise it might loop infinitely.
+        if !e_is_symlink && e_is_dir {
+            let timeout = match_glob_worker(&entry, matcher, started_at, timeout, buffer);
+
+            if timeout {
+                return true;
+            }
+        }
+
+        if matcher.is_match(&entry) {
+            buffer.push(GlobMatch {
+                path: entry,
+                is_symlink: e_is_symlink,
+                is_dir: e_is_dir,
+            });
+        }
+    }
+
+    false
 }
 
 fn add_chat_turn_blocked(chat_id: ChatId, api_keys: HashMap<String, String>, query: Vec<LLMToken>) -> Result<(), Error> {

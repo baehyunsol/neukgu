@@ -25,6 +25,7 @@ use super::git::{self, IcedContext as GitInfoContext, IcedMessage as GitInfoMess
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
 use super::worker::{
+    GlobMatch,
     Job,
     JobId,
     JobKind,
@@ -49,7 +50,20 @@ use crate::{
 use iced::{Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Button, Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::{
+    Button,
+    Column,
+    Container,
+    Id,
+    MouseArea,
+    Radio,
+    Row,
+    Scrollable,
+    Space,
+    Stack,
+    TextInput,
+    text,
+};
 use iced::widget::image::{
     Handle as ImageHandle,
     Viewer as ImageViewer,
@@ -152,6 +166,7 @@ pub struct IcedContext {
     pub git_info_context: Option<GitInfoContext>,
     pub zoom: f32,
     pub new_project_config: Config,
+    pub find_option: FindOption,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
     pub command_editor_content: TextEditorContent,
@@ -194,6 +209,7 @@ impl IcedContext {
             git_info_context: None,
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
+            find_option: FindOption::Regex,
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
             command_editor_content: TextEditorContent::new(),
@@ -445,6 +461,7 @@ impl IcedContext {
             Popup::AskDelete { .. } => {},
             Popup::Find { .. } => {},
             Popup::FindResult { .. } => {},
+            Popup::GlobFindResult { .. } => {},
             Popup::RunResult { .. } => {},
             Popup::Help => {
                 self.copy_buffer = Some(HELP_MESSAGE.to_string());
@@ -532,6 +549,7 @@ pub enum IcedMessage {
     NewBrowser { dir: String, file: Option<String> },
     Find,
     RunCommand,
+    SetFindOption(FindOption),
     EditShortText(String),
     EditLongText(TextEditorAction),
     EditCommand(TextEditorAction),
@@ -697,6 +715,13 @@ pub enum Popup {
         truncate: Option<usize>,
         match_count: usize,
     },
+    GlobFindResult {
+        pattern: String,
+        matches: Vec<GlobMatch>,
+        truncate: Option<usize>,
+        match_count: usize,
+        timeout: bool,
+    },
     RunResult {
         job_id: JobId,
         started_at: i64,
@@ -705,6 +730,12 @@ pub enum Popup {
         error: Option<String>,
     },
     Help,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FindOption {
+    Regex,
+    Glob,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -961,16 +992,25 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Find => {
             let new_job_id = JobId::new();
 
-            if let Some(Popup::Find { job_id, .. }) = &mut context.curr_popup {
+            if let Some(Popup::Find { job_id, error }) = &mut context.curr_popup {
                 *job_id = Some(new_job_id);
+                *error = None;
             }
 
-            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
-                id: new_job_id,
-                kind: JobKind::Rg {
+            let job = match context.find_option {
+                FindOption::Regex => JobKind::Rg {
                     path: context.cwd.to_string(),
                     regex: context.short_text_editor_content.to_string(),
                 },
+                FindOption::Glob => JobKind::Glob {
+                    path: context.cwd.to_string(),
+                    pattern: context.short_text_editor_content.to_string(),
+                },
+            };
+
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: new_job_id,
+                kind: job,
             })));
         },
         IcedMessage::RunCommand => {
@@ -995,6 +1035,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     error: None,
                 })),
             ]));
+        },
+        IcedMessage::SetFindOption(o) => {
+            context.find_option = o;
         },
         IcedMessage::EditShortText(s) => {
             context.short_text_editor_content = s;
@@ -1054,13 +1097,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
-            JobResultKind::RgTimeout => match &mut context.curr_popup {
-                Some(Popup::Find { error, job_id }) if *job_id == job_result.id => {
-                    *job_id = None;
-                    *error = Some(String::from("ripgrep timeout"));
-                },
-                _ => {},
-            },
             JobResultKind::Rg { regex, matches, count } => match &context.curr_popup {
                 Some(Popup::Find { job_id, .. }) if *job_id == job_result.id => {
                     let (matches, truncate) = if matches.len() < 512 {
@@ -1070,6 +1106,32 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     };
 
                     return Ok(Task::done(IcedMessage::OpenPopup(Popup::FindResult { regex: regex.to_string(), matches, truncate, match_count: *count })));
+                },
+                _ => {},
+            },
+            JobResultKind::RgError(e) | JobResultKind::GlobError(e) => match &mut context.curr_popup {
+                Some(Popup::Find { error, job_id }) if *job_id == job_result.id => {
+                    *job_id = None;
+                    *error = Some(e.to_string());
+                },
+                _ => {},
+            },
+            JobResultKind::RgTimeout => match &mut context.curr_popup {
+                Some(Popup::Find { error, job_id }) if *job_id == job_result.id => {
+                    *job_id = None;
+                    *error = Some(String::from("ripgrep timeout"));
+                },
+                _ => {},
+            },
+            JobResultKind::Glob { pattern, matches, timeout } => match &mut context.curr_popup {
+                Some(Popup::Find { job_id, .. }) if *job_id == job_result.id => {
+                    let (matches, truncate, match_count) = if matches.len() < 512 {
+                        (matches.to_vec(), None, matches.len())
+                    } else {
+                        (matches[..512].to_vec(), Some(matches.len() - 512), matches.len())
+                    };
+
+                    return Ok(Task::done(IcedMessage::OpenPopup(Popup::GlobFindResult { pattern: pattern.to_string(), matches, truncate, match_count, timeout: *timeout })));
                 },
                 _ => {},
             },
@@ -1208,9 +1270,25 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    // NOTE: It's a copy-paste of the same popup in ui/gui/index.rs
     else if let Some(Popup::Find { job_id, error }) = &context.curr_popup {
-        let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
+        let find_option = Row::from_vec(vec![
+            Radio::new(if job_id.is_some() { "-" } else { "Regex" }, FindOption::Regex, Some(context.find_option), IcedMessage::SetFindOption)
+                .spacing(context.zoom * 8.0)
+                .text_size(context.zoom * 14.0)
+                .size(context.zoom * 14.0)
+                .into(),
+            Radio::new(if job_id.is_some() { "-" } else { "Glob" }, FindOption::Glob, Some(context.find_option), IcedMessage::SetFindOption)
+                .spacing(context.zoom * 8.0)
+                .text_size(context.zoom * 14.0)
+                .size(context.zoom * 14.0)
+                .into(),
+        ])
+            .spacing(context.zoom * 8.0);
+
+        let mut text_editor = TextInput::new(
+            if context.find_option == FindOption::Regex { "regex" } else { "glob" },
+            &context.short_text_editor_content,
+        )
             .size(context.zoom * 14.0)
             .id(context.short_text_editor_id.clone());
 
@@ -1222,7 +1300,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(
                 Column::from_vec(vec![
+                    find_option.into(),
                     text_editor.into(),
+                    if context.find_option == FindOption::Glob {
+                        text!("NOTE: The glob matcher matches absolute paths, not relative paths.").size(context.zoom * 14.0).into()
+                    } else {
+                        Space::new().into()
+                    },
                     if job_id.is_some() {
                         text!("Finding...").size(context.zoom * 14.0).into()
                     } else {
@@ -1252,6 +1336,54 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(render_find_result(regex, matches, *truncate, *match_count, context), context),
+        ]).into();
+    }
+
+    else if let Some(Popup::GlobFindResult { pattern, matches, truncate, match_count, timeout }) = &context.curr_popup {
+        let mut glob_find_result: Vec<Element<IcedMessage>> = vec![
+            Space::new().width(context.window_size.width).into(),
+            text!("{pattern}").size(context.zoom * 18.0).into(),
+            text!(
+                "{match_count} match{}{}",
+                if *match_count == 1 { "" } else { "es" },
+                if *timeout { " (maybe more)" } else { "" },
+            )
+                .size(context.zoom * 14.0)
+                .into(),
+        ];
+
+        if truncate.is_some() {
+            glob_find_result.push(text!("Since there were too many matches, it only displays the first 512 matches.").size(context.zoom * 14.0).into());
+        }
+
+        glob_find_result.push(text!("{}", "-".repeat(32)).size(context.zoom * 14.0).into());
+        glob_find_result.extend(matches.iter().map(
+            |GlobMatch { path, is_symlink, is_dir }| {
+                Row::from_vec(vec![
+                    text!("{path}").size(context.zoom * 14.0).into(),
+                    if !*is_symlink && *is_dir {
+                        button("Open", IcedMessage::NewBrowser { dir: path.to_string(), file: None }, skyblue(), context.zoom).into()
+                    } else {
+                        button("Open", IcedMessage::NewBrowser { dir: parent(path).unwrap(), file: Some(basename(path).unwrap()) }, skyblue(), context.zoom).into()
+                    },
+                ])
+                    .align_y(Vertical::Center)
+                    .spacing(context.zoom * 8.0)
+                    .into()
+            }
+        ));
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Scrollable::new(
+                    Column::from_vec(glob_find_result)
+                        .spacing(context.zoom * 8.0)
+                )
+                    .id(context.popup_scroll_id.clone())
+                    .into(),
+                context,
+            ),
         ]).into();
     }
 
