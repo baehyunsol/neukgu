@@ -10,6 +10,7 @@ use crate::{
     LineDiff,
     LogId,
     NeukguId,
+    Path,
     QuestionToUser,
     SessionSummary,
     TokenUsage,
@@ -595,13 +596,18 @@ impl FeContext {
                     ToolCallSuccess::Write { path, .. } |
                     ToolCallSuccess::Patch { path, .. }
                 ) = &turn.turn_result {
-                    if changed_files_set.contains(path) {
+                    if let Some(path) = &path.relative && changed_files_set.contains(path) {
+                        continue;
+                    }
+
+                    // We're not gonna track this
+                    if path.relative.is_none() {
                         continue;
                     }
 
                     let (path, original_content) = match turn.turn_result {
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: ToolWriteMode::Create, .. }) => (path, String::new()),
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, mode: _, diff: Some(diff), mut content, .. }) => {
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path: Path { relative: Some(path), .. }, mode: ToolWriteMode::Create, .. }) => (path, String::new()),
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path: Path { relative: Some(path), .. }, mode: _, diff: Some(diff), mut content, .. }) => {
                             let hunks = revert_hunks(&diff);
 
                             for hunk in hunks.iter() {
@@ -611,8 +617,8 @@ impl FeContext {
 
                             (path, content)
                         },
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { path, diff, new_content }) => {
-                            let reverted_diff: Vec<LineDiff> = diff.into_iter().map(
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { path: Path { relative: Some(path), .. }, diff: _, diff_with_context, new_content }) => {
+                            let reverted_diff: Vec<LineDiff> = diff_with_context.into_iter().map(
                                 |LineDiff { kind, line }| LineDiff {
                                     kind: kind.revert(),
                                     line,

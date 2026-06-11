@@ -179,39 +179,24 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
     }
 }
 
-pub fn check_read_path(path: &Path, working_dir: &str) -> Result<Result<(String, String), ToolCallError>, Error> {
-    let joined_path = match normalize_path(path) {
-        Some(path) if path.is_empty() => String::from("."),
-        Some(path) => path.join("/"),
-        None => path.join("/"),
+pub fn check_read_path(path: &str, working_dir: &str) -> Result<Result<Path, ToolCallError>, Error> {
+    let path = match normalize_path(path, working_dir) {
+        Some(path) => path,
+        None => {
+            return Ok(Err(ToolCallError::InvalidPath(path.to_string())));
+        },
     };
 
-    // If the AI tries to read `../../Documents/`, that's a permission error whether or not the path exists.
-    if !check_read_permission(path) {
-        return Ok(Err(ToolCallError::NoPermissionToRead { path: joined_path }));
+    if path.is_index_dir() && !path.is_skills_dir() {
+        return Ok(Err(ToolCallError::CannotReadIndexDir));
     }
-
-    let real_path = join(working_dir, &joined_path)?;
 
     // If the file is a symlink, `exists` checks the existence of the pointee, not the pointer
-    if !exists(&real_path) && !is_symlink(&real_path) {
-        return Ok(Err(ToolCallError::NoSuchFile { path: joined_path }));
+    if !exists(&path.absolute) && !is_symlink(&path.absolute) {
+        return Ok(Err(ToolCallError::NoSuchFile { path }));
     }
 
-    Ok(Ok((joined_path, real_path)))
-}
-
-fn check_read_permission(path: &Path) -> bool {
-    match normalize_path(path) {
-        Some(path) => match (path.get(0).map(|s| s.as_str()), path.get(1).map(|s| s.as_str())) {
-            (Some(".neukgu"), Some("skills")) => true,
-            (Some(".neukgu"), _) => false,
-
-            // If `path.get(0)` is `None`, that's working-dir. The agent can read working-dir.
-            _ => true,
-        },
-        None => false,
-    }
+    Ok(Ok(path))
 }
 
 impl Context {

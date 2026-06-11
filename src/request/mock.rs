@@ -209,15 +209,65 @@ fn mock_requests() -> Vec<MockRequest> {
             ",
             Some("use newline characters"),
         ),
+        MockRequest::new(
+            "",
+            Some("can't find"),
+        ),
         // parse test end
+
+        // external path test
+        MockRequest::new(
+            "<read><path>../ext-file-1</path></read>",
+            Some("no such file"),
+        ),
+        MockRequest::new(
+            "<write><path>../ext-file-1</path><mode>create</mode><content>Hello, I am ext-file-1!</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>../ext-file-1</path></read>",
+            Some("Hello"),
+        ),
+        MockRequest::new(
+            "<remove><path>.././ext-file-1</path></remove>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>/tmp/ext-file-1</path></read>",
+            Some("no such file"),
+        ),
+
+        MockRequest::new(
+            "<read><path>/tmp/ext-file-2</path></read>",
+            Some("no such file"),
+        ),
+        MockRequest::new(
+            "<write><path>/tmp/ext-file-2</path><mode>create</mode><content>Hello, I am ext-file-2!</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>/tmp/ext-file-2</path></read>",
+            Some("Hello"),
+        ),
+        MockRequest::new(
+            "<remove><path>/tmp/ext-file-2</path></remove>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>/tmp/ext-file-2</path></read>",
+            Some("no such file"),
+        ),
+        // external path test end
 
         // patch test
         MockRequest::new(
             "<write>\n<mode>create</mode>\n<path>whatever.md</path>\n<content>
+This is line 0.
 This is line 1.
 This is line 2.
 This is line 3.
 This is line 4.
+This is line 5.
 </content>\n</write>",
             None,
         ),
@@ -242,8 +292,11 @@ This is line 4.",
             ),
         ),
         MockRequest::new(
-            "",
-            Some("can't find"),
+            "<patch>\n<path>whatever.md</path>\n<diff>
+-This is not line 2.
++This is never line 2.
+</diff>\n</patch>",
+            None,
         ),
         // patch test end
 

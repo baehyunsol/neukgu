@@ -148,7 +148,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 |(i, diff)| Container::new(
                     Column::from_vec(vec![
                         button("Rollback", IcedMessage::Rollback(i), blue(), context.zoom).into(),
-                        render_udiff(diff, context.window_size.width, context.zoom),
+                        render_udiff(diff, context.window_size.width, context.zoom, false),
                     ]).spacing(context.zoom * 4.0)
                 ).padding(context.zoom * 6.0).style(move |_| set_round_bg(gray(0.2), context.zoom)).into()
             ).collect();

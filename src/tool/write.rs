@@ -1,6 +1,6 @@
 use super::{Path, ToolCallError, normalize_path};
 use crate::Error;
-use ragit_fs::{create_dir_all, exists, is_dir, is_symlink, join, parent};
+use ragit_fs::{create_dir_all, exists, is_dir, parent};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, Deserialize, PartialEq, Serialize)]
@@ -27,35 +27,34 @@ impl From<WriteMode> for ragit_fs::WriteMode {
 }
 
 pub fn check_write_path(
-    path: &Path,
+    path: &str,
     working_dir: &str,
 
     // If it's None, it treats `mode` like `ragit_fs::WriteMode::CreateOrTruncate`
     mode: Option<WriteMode>,
-) -> Result<Result<(String, String), ToolCallError>, Error> {
-    let path_ends_with_slash = path.last().map(|p| p.is_empty()) == Some(true);
-    let joined_path = match normalize_path(path) {
-        Some(path) if path.is_empty() => String::from("."),
-        Some(path) => path.join("/"),
-        None => path.join("/"),
+) -> Result<Result<Path, ToolCallError>, Error> {
+    let path_ends_with_slash = path.ends_with("/");
+    let path = match normalize_path(path, working_dir) {
+        Some(path) => path,
+        None => {
+            return Ok(Err(ToolCallError::InvalidPath(path.to_string())));
+        },
     };
 
-    if !check_write_permission(path) {
-        return Ok(Err(ToolCallError::NoPermissionToWrite { path: joined_path }));
+    if path.is_index_dir() {
+        return Ok(Err(ToolCallError::CannotWriteToIndexDir));
     }
 
-    let real_path = join(working_dir, &joined_path)?;
-
-    match (mode, exists(&real_path)) {
-        (Some(WriteMode::Truncate | WriteMode::Append), _) if is_dir(&real_path) => {
-            return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_path, exists: exists(&real_path) }));
+    match (mode, exists(&path.absolute)) {
+        (Some(WriteMode::Truncate | WriteMode::Append), _) if is_dir(&path.absolute) => {
+            return Ok(Err(ToolCallError::CannotWriteToDirectory { path: path.clone(), exists: exists(&path.absolute) }));
         },
         (Some(WriteMode::Create), false) |
         (Some(WriteMode::Truncate), true) |
         (Some(WriteMode::Append), true) => {},
         (Some(mode), exists) => {
             return Ok(Err(ToolCallError::WriteModeError {
-                path: joined_path,
+                path,
                 mode,
                 exists,
             }));
@@ -63,37 +62,19 @@ pub fn check_write_path(
         _ => {},
     }
 
-    if joined_path == "." || path_ends_with_slash || is_dir(&real_path) {
-        return Ok(Err(ToolCallError::CannotWriteToDirectory { path: joined_path, exists: exists(&real_path) }));
+    if path.relative.as_ref().unwrap_or(&String::new()) == "." || path_ends_with_slash || is_dir(&path.absolute) {
+        return Ok(Err(ToolCallError::CannotWriteToDirectory { path: path.clone(), exists: exists(&path.absolute) }));
     }
 
-    let parent_path = parent(&real_path)?;
+    let parent_path = parent(&path.absolute)?;
 
-    if is_symlink(&parent_path) {
-        return Ok(Err(ToolCallError::CannotCreateParentDirectory { parent: parent(&joined_path)?, file: joined_path }));
-    }
-
-    else if !exists(&parent_path) {
+    if !exists(&parent_path) {
         create_dir_all(&parent_path)?;
     }
 
     else if !is_dir(&parent_path) {
-        return Ok(Err(ToolCallError::CannotCreateParentDirectory { parent: parent(&joined_path)?, file: joined_path }));
+        return Ok(Err(ToolCallError::CannotCreateParentDirectory { parent: parent(&path.to_string())?, path }));
     }
 
-    Ok(Ok((joined_path, real_path)))
-}
-
-fn check_write_permission(path: &Path) -> bool {
-    match normalize_path(path) {
-        Some(path) => match path.get(0).map(|s| s.as_str()) {
-            Some(".neukgu") => false,
-
-            // If it's None, it's a working directory.
-            // The agent has no permission to write, but I prefer returning `CannotWriteToDirectory`,
-            // which will be checked later.
-            _ => true,
-        },
-        None => false,
-    }
+    Ok(Ok(path))
 }

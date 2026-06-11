@@ -38,6 +38,8 @@ use ragit_fs::{
     read_bytes,
     read_dir,
     read_string,
+    remove_dir_all,
+    remove_file,
     write_bytes,
     write_string,
 };
@@ -51,6 +53,7 @@ mod ask;
 mod chrome;
 mod image_edit;
 mod patch;
+mod path;
 mod permission;
 mod read;
 mod run;
@@ -77,11 +80,14 @@ pub use patch::{
     patch_file,
     revert_hunks,
 };
+pub use path::{Path, normalize_path};
 pub use permission::{
     Permission,
     PermissionConfig,
-    WriteContent,
+    PermissionPreview,
+    ToolPermissionKind,
     ask_permission_to_user,
+    default_tool_permissions,
 };
 pub use read::{
     FileEntry,
@@ -93,33 +99,34 @@ pub use read::{
 pub use run::{ParseCommandError, init_and_load_available_binaries, list_binaries, parse_command};
 pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 
-type Path = Vec<String>;
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ToolCall {
     // start and end are both inclusive.
     // They're 1-based index.
     Read {
-        path: Path,
+        path: String,
         start: Option<u64>,
         end: Option<u64>,
     },
     Write {
-        path: Path,
+        path: String,
         mode: WriteMode,
         content: String,
     },
     Patch {
-        path: Path,
+        path: String,
         diff: Vec<LineDiff>,
+    },
+    Remove {
+        path: String,
     },
     Run {
         timeout: Option<u64>,
         command: Vec<String>,
-        path: Option<Path>,
+        path: Option<String>,
         env: Vec<(String, String)>,
-        stdout: Option<Path>,
-        stderr: Option<Path>,
+        stdout: Option<String>,
+        stderr: Option<String>,
     },
     Ask {
         // It prevents the frontend from answering the same question multiple times.
@@ -129,15 +136,15 @@ pub enum ToolCall {
         question: QuestionToUser,
     },
     Chrome {
-        input: Path,
-        output: Path,
+        input: String,
+        output: String,
         script: Option<String>,
     },
     ImageEdit {
-        input: Path,
+        input: String,
         prompt: String,
         size: Option<(u64, u64)>,
-        output: Path,
+        output: String,
     },
 }
 
@@ -155,8 +162,8 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::TooManyReadWithoutSummary));
                 }
 
-                let joined_path = match check_read_path(path, &context.working_dir)? {
-                    Ok((joined_path, _)) => joined_path,
+                let path = match check_read_path(path, &context.working_dir)? {
+                    Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
@@ -165,11 +172,11 @@ impl ToolCall {
                 let start_i = (*start).unwrap_or(0);
                 let end_i = (*end).unwrap_or(u64::MAX - 1);
 
-                match read_file(&joined_path, context)? {
+                match read_file(&path.absolute, context)? {
                     TypedFile::Text(s) => {
                         if s.len() as u64 > config.text_file_max_len && start.is_none() && end.is_none() {
                             Ok(Err(ToolCallError::TextTooLongToRead {
-                                path: joined_path,
+                                path,
                                 length: s.len() as u64,
                                 limit: config.text_file_max_len,
                             }))
@@ -177,7 +184,7 @@ impl ToolCall {
 
                         else if let Some(end) = end && start_i + config.text_file_max_lines < *end {
                             Ok(Err(ToolCallError::TooManyTextLinesToRead {
-                                path: joined_path,
+                                path,
                                 length: *end - start_i + 1,
                                 limit: config.text_file_max_lines,
                             }))
@@ -206,7 +213,7 @@ impl ToolCall {
 
                             else {
                                 Ok(Ok(ToolCallSuccess::ReadText {
-                                    path: joined_path,
+                                    path,
                                     content: lines.join("\n"),
                                     total_lines: total_lines as u64,
                                     range: (*start, *end),
@@ -219,7 +226,7 @@ impl ToolCall {
 
                         if pages.len() as u64 > config.pdf_max_pages && (start.is_none() || start_i < 2) && end.is_none() {
                             Ok(Err(ToolCallError::TooManyPdfPagesToRead {
-                                path: joined_path,
+                                path,
                                 pages: pages.len() as u64,
                                 limit: config.pdf_max_pages,
                                 given_range: (*start, *end),
@@ -228,7 +235,7 @@ impl ToolCall {
 
                         else if let Some(end) = end && start_i + config.pdf_max_pages < *end {
                             Ok(Err(ToolCallError::TooManyPdfPagesToRead {
-                                path: joined_path,
+                                path,
                                 pages: *end - start_i + 1,
                                 limit: config.pdf_max_pages,
                                 given_range: (*start, Some(*end)),
@@ -238,7 +245,7 @@ impl ToolCall {
                         else {
                             match pages.get((start_i.max(1) as usize - 1)..(end_i as usize).min(pages.len())) {
                                 Some(sliced_pages) if sliced_pages.len() > 0 || pages.is_empty() => Ok(Ok(ToolCallSuccess::ReadPdf {
-                                    path: joined_path,
+                                    path,
                                     pages: sliced_pages.to_vec(),
                                     total_pages: pages.len() as u64,
                                     range: (*start, *end),
@@ -251,13 +258,13 @@ impl ToolCall {
                             }
                         }
                     },
-                    TypedFile::BrokenPdf { error } => Ok(Err(ToolCallError::BrokenFile { path: joined_path, kind: String::from("pdf"), error })),
-                    TypedFile::Image(id, size) => Ok(Ok(ToolCallSuccess::ReadImage { path: joined_path, id, size })),
-                    TypedFile::BrokenImage { error } => Ok(Err(ToolCallError::BrokenFile { path: joined_path, kind: String::from("image"), error })),
+                    TypedFile::BrokenPdf { error } => Ok(Err(ToolCallError::BrokenFile { path, kind: String::from("pdf"), error })),
+                    TypedFile::Image(id, size) => Ok(Ok(ToolCallSuccess::ReadImage { path, id, size })),
+                    TypedFile::BrokenImage { error } => Ok(Err(ToolCallError::BrokenFile { path, kind: String::from("image"), error })),
                     TypedFile::Dir(entries) => {
                         if entries.len() as u64 > config.dir_max_entries && (start.is_none() || start_i < 2) && end.is_none() {
                             Ok(Err(ToolCallError::TooManyDirEntriesToRead {
-                                path: joined_path,
+                                path,
                                 entries: entries.len() as u64,
                                 limit: config.dir_max_entries,
                                 given_range: (*start, *end),
@@ -266,7 +273,7 @@ impl ToolCall {
 
                         else if let Some(end) = end && start_i + config.dir_max_entries < *end {
                             Ok(Err(ToolCallError::TooManyDirEntriesToRead {
-                                path: joined_path,
+                                path,
                                 entries: *end - start_i + 1,
                                 limit: config.dir_max_entries,
                                 given_range: (*start, Some(*end)),
@@ -276,7 +283,7 @@ impl ToolCall {
                         else {
                             match entries.get((start_i.max(1) as usize - 1)..(end_i as usize).min(entries.len())) {
                                 Some(sliced_entries) if sliced_entries.len() > 0 || entries.is_empty() => Ok(Ok(ToolCallSuccess::ReadDir {
-                                    path: joined_path,
+                                    path,
                                     entries: sliced_entries.to_vec(),
                                     total_entries: entries.len() as u64,
                                     range: (*start, *end),
@@ -291,26 +298,19 @@ impl ToolCall {
                     },
                     TypedFile::Symlink { pointee } => {
                         if end.is_none() && start.is_none() {
-                            Ok(Ok(ToolCallSuccess::ReadSymlink {
-                                path: joined_path,
-                                pointee,
-                            }))
+                            Ok(Ok(ToolCallSuccess::ReadSymlink { path, pointee }))
                         }
 
                         else {
-                            Ok(Err(ToolCallError::SymlinkWithRange {
-                                path: joined_path,
-                                pointee,
-                                range: (*start, *end),
-                            }))
+                            Ok(Err(ToolCallError::SymlinkWithRange { path, pointee, range: (*start, *end) }))
                         }
                     },
-                    TypedFile::Etc => Ok(Err(ToolCallError::InvalidFileType { path: joined_path })),
+                    TypedFile::Etc => Ok(Err(ToolCallError::InvalidFileType { path })),
                 }
             },
             ToolCall::Write { path, mode, content } => {
-                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, Some(*mode))? {
-                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                let path = match check_write_path(path, &context.working_dir, Some(*mode))? {
+                    Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
@@ -318,7 +318,7 @@ impl ToolCall {
 
                 if content.len() as u64 > config.text_file_max_len {
                     return Ok(Err(ToolCallError::TextTooLongToWrite {
-                        path: joined_path,
+                        path,
                         length: content.len() as u64,
                         limit: config.text_file_max_len,
                     }));
@@ -327,27 +327,27 @@ impl ToolCall {
                 let prev_content = if *mode == WriteMode::Create {
                     String::new()
                 } else {
-                    String::from_utf8_lossy(&read_bytes(&real_path)?).to_string()
+                    String::from_utf8_lossy(&read_bytes(&path.absolute)?).to_string()
                 };
 
                 // It applies some heuristics to trailing/leading newlines.
                 if *mode == WriteMode::Append {
                     write_string(
-                        &real_path,
+                        &path.absolute,
                         "\n",
                         (*mode).into(),
                     )?;
                 }
 
                 write_string(
-                    &real_path,
+                    &path.absolute,
                     content.trim(),
                     (*mode).into(),
                 )?;
 
                 if *mode != WriteMode::Append {
                     write_string(
-                        &real_path,
+                        &path.absolute,
                         "\n",
                         WriteMode::Append.into(),
                     )?;
@@ -364,16 +364,16 @@ impl ToolCall {
                     diff = Some(unified_diff(
                         DiffAlgorithm::Patience,
                         &prev_content,
-                        &String::from_utf8_lossy(&read_bytes(&real_path)?),
+                        &String::from_utf8_lossy(&read_bytes(&path.absolute)?),
                         5,
                         None,
                     ));
                 }
 
                 Ok(Ok(ToolCallSuccess::Write {
-                    path: joined_path,
+                    path: path.clone(),
                     content: content.to_string(),
-                    is_summary: is_summary_path(path),
+                    is_summary: path.is_summary_file(),
                     diff,
                     mode: *mode,
                     bytes: byte_count,
@@ -382,49 +382,71 @@ impl ToolCall {
                 }))
             },
             ToolCall::Patch { path, diff } => {
-                let (joined_path, real_path) = match check_write_path(path, &context.working_dir, None)? {
-                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                let path = match check_write_path(path, &context.working_dir, None)? {
+                    Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
 
-                match (exists(&real_path), is_symlink(&real_path), is_dir(&real_path), read_string(&real_path)) {
+                match (exists(&path.absolute), is_symlink(&path.absolute), is_dir(&path.absolute), read_string(&path.absolute)) {
                     (_, true, _, _) => {
-                        return Ok(Err(ToolCallError::CannotPatchSymlink { path: joined_path }));
+                        return Ok(Err(ToolCallError::CannotPatchSymlink { path }));
                     },
                     (false, _, _, _) => {
-                        return Ok(Err(ToolCallError::CannotPatchNonExistFile { path: joined_path }));
+                        return Ok(Err(ToolCallError::CannotPatchNonExistFile { path }));
                     },
                     (_, _, true, _) => {
-                        return Ok(Err(ToolCallError::CannotPatchDir { path: joined_path }));
+                        return Ok(Err(ToolCallError::CannotPatchDir { path }));
                     },
                     (_, _, _, Err(e)) => {
-                        return Ok(Err(ToolCallError::CanOnlyPatchText { path: joined_path, error: format!("{e:?}") }));
+                        return Ok(Err(ToolCallError::CanOnlyPatchText { path, error: format!("{e:?}") }));
                     },
                     _ => {},
                 }
 
-                let mut result = patch_file(&real_path, diff);
+                let result = patch_file(&path, diff);
 
-                if let Ok(ToolCallSuccess::Patch { new_content, path, .. }) = &mut result {
-                    write_string(&real_path, new_content, WriteMode::Truncate.into())?;
-                    *path = joined_path;
+                if let Ok(ToolCallSuccess::Patch { new_content, path, .. }) = &result {
+                    write_string(&path.absolute, new_content, WriteMode::Truncate.into())?;
                 }
 
                 Ok(result)
             },
+            ToolCall::Remove { path } => {
+                let path = match normalize_path(path, &context.working_dir) {
+                    Some(path) => path,
+                    None => {
+                        return Ok(Err(ToolCallError::InvalidPath(path.to_string())));
+                    },
+                };
+
+                if path.is_index_dir() {
+                    return Ok(Err(ToolCallError::CannotWriteToIndexDir));
+                }
+
+                // TODO: what if it tries to remove `..`? Then it'll kill itself...
+                match (exists(&path.absolute), is_symlink(&path.absolute), is_dir(&path.absolute)) {
+                    (_, true, _) => todo!(),
+                    (false, _, _) => Ok(Err(ToolCallError::CannotRemoveNonExistFile { path })),
+                    (_, _, true) => {
+                        remove_dir_all(&path.absolute)?;
+                        Ok(Ok(ToolCallSuccess::RemoveDir { path }))
+                    },
+                    (_, _, false) => {
+                        remove_file(&path.absolute)?;
+                        Ok(Ok(ToolCallSuccess::RemoveFile { path }))
+                    },
+                }
+            },
             ToolCall::Run { timeout, command, path, env, stdout, stderr } => {
                 let mut env = env.to_vec();
-                let stdout_path = stdout.clone();
-                let stderr_path = stderr.clone();
-                let mut env_joined_path = None;
-                let (mut stdout_real_path, mut stderr_real_path) = (None, None);
+                let mut run_at = None;
 
                 if let Some(path) = path {
                     match check_read_path(path, &context.working_dir)? {
-                        Ok((joined_path, _)) => {
-                            env_joined_path = Some(joined_path);
+                        Ok(path) => {
+                            run_at = Some(path);
                         },
                         Err(e) => {
                             return Ok(Err(e));
@@ -432,27 +454,27 @@ impl ToolCall {
                     }
                 }
 
-                if let Some(stdout) = stdout {
+                let stdout_path = if let Some(stdout) = stdout {
                     match check_write_path(stdout, &context.working_dir, None)? {
-                        Ok((_, real_path)) => {
-                            stdout_real_path = Some(real_path);
-                        },
+                        Ok(path) => Some(path),
                         Err(e) => {
                             return Ok(Err(e));
                         },
                     }
-                }
+                } else {
+                    None
+                };
 
-                if let Some(stderr) = stderr {
+                let stderr_path = if let Some(stderr) = stderr {
                     match check_write_path(stderr, &context.working_dir, None)? {
-                        Ok((_, real_path)) => {
-                            stderr_real_path = Some(real_path);
-                        },
+                        Ok(path) => Some(path),
                         Err(e) => {
                             return Ok(Err(e));
                         },
                     }
-                }
+                } else {
+                    None
+                };
 
                 // If `command` is empty, that's a parse error.
                 let mut command = command.to_vec();
@@ -488,11 +510,12 @@ impl ToolCall {
                 }
 
                 let sandbox_at = export_to_sandbox(&config.sandbox_root, &context.working_dir, false /* copy index dir */)?;
-                let mut env_path = sandbox_at.clone();
 
-                if let Some(path) = &env_joined_path {
-                    env_path = join(&env_path, path)?;
-                }
+                let run_at_real_path = match &run_at {
+                    Some(Path { relative: Some(path), .. }) => join(&sandbox_at, path)?,
+                    Some(Path { relative: None, absolute }) => absolute.to_string(),
+                    None => sandbox_at.to_string(),
+                };
 
                 if let Ok(home) = std::env::var("HOME") {
                     env.push((String::from("HOME"), home));
@@ -532,7 +555,7 @@ impl ToolCall {
                     if command.len() > 1 { &command[1..] } else { &command[0..0] },
                     true,
                     &env,
-                    &env_path,
+                    &run_at_real_path,
                     timeout,
                     &context.working_dir,
                     true,
@@ -544,36 +567,36 @@ impl ToolCall {
                 let timeout_value = timeout;
                 let subprocess::Output { status, stdout, stderr, elapsed_ms: _, timeout } = result;
 
-                let stdout = match &stdout_real_path {
+                let stdout = match &stdout_path {
                     Some(path) => {
                         write_bytes(
-                            path,
+                            &path.absolute,
                             &stdout,
                             ragit_fs::WriteMode::CreateOrTruncate,
                         )?;
-                        DumpOrRedirect::Redirect(stdout_path.unwrap())
+                        DumpOrRedirect::Redirect(stdout_path.clone().unwrap())
                     },
                     None => DumpOrRedirect::Dump(String::from_utf8_lossy(&stdout).to_string()),
                 };
-                let stderr = match &stderr_real_path {
+                let stderr = match &stderr_path {
                     Some(path) => {
                         write_bytes(
-                            path,
+                            &path.absolute,
                             &stderr,
-                            if stdout_real_path == stderr_real_path {
+                            if &stdout_path == &stderr_path {
                                 ragit_fs::WriteMode::AlwaysAppend
                             } else {
                                 ragit_fs::WriteMode::CreateOrTruncate
                             },
                         )?;
-                        DumpOrRedirect::Redirect(stderr_path.unwrap())
+                        DumpOrRedirect::Redirect(stderr_path.clone().unwrap())
                     },
                     None => DumpOrRedirect::Dump(String::from_utf8_lossy(&stderr).to_string()),
                 };
 
                 if timeout {
                     Ok(Err(ToolCallError::Timeout {
-                        path: env_joined_path,
+                        path: run_at,
                         command: command.to_vec(),
                         timeout: timeout_value,
                         stdout,
@@ -583,7 +606,7 @@ impl ToolCall {
 
                 else {
                     Ok(Ok(ToolCallSuccess::Run {
-                        path: env_joined_path,
+                        path: run_at,
                         command: command.to_vec(),
                         elapsed_ms,
                         exit_code: status,
@@ -603,28 +626,38 @@ impl ToolCall {
             },
             // TODO: error if `script` is set and `input` is not an html
             ToolCall::Chrome { script, input, output } => {
-                let mut joined_input = input.join("/");
-                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None)? {
-                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                let raw_input = input.to_string();
+
+                // What a naive algorithm...
+                let input = if input.starts_with("http://") || input.starts_with("https://") {
+                    WebOrFile::Web(input.to_string())
+                } else {
+                    let path = match normalize_path(input, &context.working_dir) {
+                        Some(path) => path,
+                        None => {
+                            return Ok(Err(ToolCallError::InvalidPath(input.to_string())));
+                        },
+                    };
+                    WebOrFile::File(path)
+                };
+                let output = match check_write_path(output, &context.working_dir, None)? {
+                    Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
 
                 let url = {
-                    let path = WebOrFile::from(input);
-
-                    if let WebOrFile::File(path) = &path {
-                        let (joined_input_, real_input_path) = match check_read_path(path, &context.working_dir)? {
-                            Ok((joined_path, real_path)) => (joined_path, real_path),
+                    if let WebOrFile::File(_) = &input {
+                        let file_path = match check_read_path(&raw_input, &context.working_dir)? {
+                            Ok(path) => path,
                             Err(e) => {
                                 return Ok(Err(e));
                             },
                         };
-                        joined_input = joined_input_;
 
-                        if joined_input.to_ascii_lowercase().ends_with(".svg") {
-                            let svg_data = read_string(&real_input_path)?;
+                        if file_path.absolute.to_ascii_lowercase().ends_with(".svg") {
+                            let svg_data = read_string(&file_path.absolute)?;
 
                             // VIBE NOTE: gemini 3.1 wrote this code (svg to png)
                             let mut opt = resvg::usvg::Options::default();
@@ -642,16 +675,16 @@ impl ToolCall {
                                 resvg::usvg::Transform::identity(),
                                 &mut pixmap.as_mut(),
                             );
-                            pixmap.save_png(&real_output_path)?;
+                            pixmap.save_png(&output.absolute)?;
                             // the VIBE ends here
 
-                            let png_data = read_bytes(&real_output_path)?;
+                            let png_data = read_bytes(&output.absolute)?;
                             let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
-                            return Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output: None }));
+                            return Ok(Ok(ToolCallSuccess::Chrome { input, output_path: output, output_image: image_id, script_output: None }));
                         }
                     }
 
-                    path.to_url(&context.working_dir)?
+                    input.to_url()
                 };
 
                 // TODO: It occasionally panics on MacOS, when it launches the browser multiple times in a session.
@@ -674,36 +707,36 @@ impl ToolCall {
 
                 let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
                 let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
-                write_bytes(&real_output_path, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
-                Ok(Ok(ToolCallSuccess::Chrome { input: joined_input, output_path: joined_output, output_image: image_id, script_output }))
+                write_bytes(&output.absolute, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
+                Ok(Ok(ToolCallSuccess::Chrome { input, output_path: output, output_image: image_id, script_output }))
             },
             ToolCall::ImageEdit { input, prompt, size, output } => {
                 if let Model::Disabled | Model::Mock = config.agents.image_edit {
                     return Ok(Err(ToolCallError::ImageEditDisabled));
                 }
 
-                let (joined_input, real_input_path) = match check_read_path(input, &context.working_dir)? {
-                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                let input = match check_read_path(input, &context.working_dir)? {
+                    Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
-                let (joined_output, real_output_path) = match check_write_path(output, &context.working_dir, None)? {
-                    Ok((joined_path, real_path)) => (joined_path, real_path),
+                let output = match check_write_path(output, &context.working_dir, None)? {
+                    Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
 
-                let input_image_id = match read_bytes(&real_input_path) {
+                let input_image_id = match read_bytes(&input.absolute) {
                     Ok(bytes) => match normalize_and_get_id(&bytes, &context.working_dir) {
                         Ok(id) => id,
                         Err(_) => {
-                            return Ok(Err(ToolCallError::NotAnImage { path: joined_input }));
+                            return Ok(Err(ToolCallError::NotAnImage { path: input }));
                         },
                     },
                     Err(_) => {
-                        return Ok(Err(ToolCallError::NotAnImage { path: joined_input }));
+                        return Ok(Err(ToolCallError::NotAnImage { path: input }));
                     },
                 };
 
@@ -728,16 +761,16 @@ impl ToolCall {
                 let generated_image = ::image::load_from_memory(&generated_image_bytes)?;
 
                 write_bytes(
-                    &real_output_path,
+                    &output.absolute,
                     &generated_image_bytes,
                     ragit_fs::WriteMode::CreateOrTruncate,
                 )?;
 
                 let generated_image_id = normalize_and_get_id(&generated_image_bytes, &context.working_dir)?;
                 Ok(Ok(ToolCallSuccess::ImageEdit {
-                    input: joined_input,
+                    input,
                     prompt: prompt.to_string(),
-                    output_path: joined_output,
+                    output_path: output,
                     output_image: generated_image_id,
                     requested_size: *size,
                     generated_size: (generated_image.width() as u64, generated_image.height() as u64),
@@ -749,8 +782,7 @@ impl ToolCall {
     pub fn preview(&self) -> String {
         match self {
             ToolCall::Read { path, start, end } => format!(
-                "Read `{}`{}",
-                path.join("/"),
+                "read `{path}` {}",
                 if let (None, None) = (start, end) {
                     String::new()
                 } else {
@@ -762,14 +794,13 @@ impl ToolCall {
                 },
             ),
             ToolCall::Write { path, mode, content } => format!(
-                "{} {} bytes to `{}`",
+                "{} {} bytes to `{path}`",
                 match mode {
-                    WriteMode::Create => "Create and write",
-                    WriteMode::Truncate => "Truncate and write",
-                    WriteMode::Append => "Append",
+                    WriteMode::Create => "create and write",
+                    WriteMode::Truncate => "truncate and write",
+                    WriteMode::Append => "append",
                 },
                 content.len(),
-                path.join("/"),
             ),
             ToolCall::Patch { path, diff, .. } => {
                 let add = diff.iter().filter(
@@ -779,25 +810,20 @@ impl ToolCall {
                     |LineDiff { kind, .. }| *kind == DiffKind::Remove
                 ).count();
                 format!(
-                    "Patch `{}` (add {add} line{}, remove {remove} line{})",
-                    path.join("/"),
+                    "patch `{path}` (add {add} line{}, remove {remove} line{})",
                     if add == 1 { "" } else { "s" },
                     if remove == 1 { "" } else { "s" },
                 )
             },
-            ToolCall::Run { command, .. } => format!(
-                "Run `{}`",
-                join_command_args(command),
-            ),
+            ToolCall::Remove { path } => format!("remove `{path}`"),
+            ToolCall::Run { command, .. } => format!("run `{}`", join_command_args(command)),
             ToolCall::Ask { to, question, .. } => format!(
-                "Ask to {} {:?}",
+                "ask to {} {:?}",
                 format!("{to:?}").to_ascii_lowercase(),
                 truncate_chars(&question.question, 42),
             ),
             ToolCall::Chrome { script, input, output } => format!(
-                "Open chrome and render `{}` to `{}`{}",
-                input.join("/"),
-                output.join("/"),
+                "open chrome and render `{input}` to `{output}`{}",
                 if let Some(script) = script {
                     format!(" (script: {})", truncate_chars(script, 42))
                 } else {
@@ -805,8 +831,7 @@ impl ToolCall {
                 },
             ),
             ToolCall::ImageEdit { input, prompt, .. } => format!(
-                "Editing `{}`{}",
-                input.join("/"),
+                "editing `{input}` {:?}",
                 truncate_chars(prompt, 42),
             ),
         }
@@ -816,34 +841,34 @@ impl ToolCall {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ToolCallSuccess {
     ReadText {
-        path: String,
+        path: Path,
         content: String,
         total_lines: u64,
         range: (Option<u64>, Option<u64>),
     },
     ReadPdf {
-        path: String,
+        path: Path,
         pages: Vec<ImageId>,
         total_pages: u64,
         range: (Option<u64>, Option<u64>),
     },
     ReadImage {
-        path: String,
+        path: Path,
         id: ImageId,
         size: (u64, u64),
     },
     ReadDir {
-        path: String,
+        path: Path,
         entries: Vec<FileEntry>,
         total_entries: u64,
         range: (Option<u64>, Option<u64>),
     },
     ReadSymlink {
-        path: String,
+        path: Path,
         pointee: String,
     },
     Write {
-        path: String,
+        path: Path,
         content: String,
 
         // If the LLM writes file at `logs/summary-XXX.md`, this flag is set.
@@ -858,12 +883,19 @@ pub enum ToolCallSuccess {
         lines: u64,
     },
     Patch {
-        path: String,
+        path: Path,
         diff: Vec<LineDiff>,
+
+        // Usually, AIs generate diffs with little or no contexts. That's more efficient for AIs.
+        // But for human, it's better to have more contexts. So, the harness adds context lines.
+        diff_with_context: Vec<LineDiff>,
+
         new_content: String,
     },
+    RemoveFile { path: Path },
+    RemoveDir { path: Path },
     Run {
-        path: Option<String>,
+        path: Option<Path>,
         command: Vec<String>,
         elapsed_ms: u64,
         exit_code: i32,
@@ -875,15 +907,15 @@ pub enum ToolCallSuccess {
         answer: UserAnswer,
     },
     Chrome {
-        input: String,
-        output_path: String,
+        input: WebOrFile,
+        output_path: Path,
         output_image: ImageId,
         script_output: Option<String>,
     },
     ImageEdit {
-        input: String,
+        input: Path,
         prompt: String,
-        output_path: String,
+        output_path: Path,
         output_image: ImageId,
         requested_size: Option<(u64, u64)>,
         generated_size: (u64, u64),
@@ -938,7 +970,7 @@ impl ToolCallSuccess {
                 ).collect::<Vec<_>>().join("\n");
                 let s = format!(
                     "{path}{}\n{entries_count}\n\n{entries}",
-                    if path.ends_with("/") { "" } else { "/" },
+                    if path.to_string().ends_with("/") { "" } else { "/" },
                 );
                 vec![LLMToken::String(s)]
             },
@@ -955,6 +987,14 @@ impl ToolCallSuccess {
                 let s = format!("Successfully updated `{path}`.");
                 vec![LLMToken::String(s)]
             },
+            ToolCallSuccess::RemoveFile { path } => {
+                let s = format!("Successfully removed file `{path}`.");
+                vec![LLMToken::String(s)]
+            },
+            ToolCallSuccess::RemoveDir { path } => {
+                let s = format!("Successfully removed directory `{path}`.");
+                vec![LLMToken::String(s)]
+            },
             ToolCallSuccess::Run { path, command, elapsed_ms, exit_code, stdout, stderr } => {
                 let path = if let Some(path) = path {
                     format!("\n<path>{path}</path>")
@@ -963,11 +1003,11 @@ impl ToolCallSuccess {
                 };
                 let (stdout, stdout_truncated) = match stdout {
                     DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.join("/")), None),
+                    DumpOrRedirect::Redirect(stdout) => (format!("Redirected to `{stdout}`"), None),
                 };
                 let (stderr, stderr_truncated) = match stderr {
                     DumpOrRedirect::Dump(stderr) => truncate_middle(stderr, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stderr) => (format!("Redirected to {}", stderr.join("/")), None),
+                    DumpOrRedirect::Redirect(stderr) => (format!("Redirected to `{stderr}`"), None),
                 };
                 let stdout_truncated = if let Some(stdout_truncated) = stdout_truncated {
                     format!("\nstdout is very long, so {stdout_truncated} bytes were truncated")
@@ -1000,15 +1040,26 @@ impl ToolCallSuccess {
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Ask { answer, .. } => vec![LLMToken::String(answer.to_string())],
-            ToolCallSuccess::Chrome { input, output_path, output_image, script_output } => vec![
-                LLMToken::String(format!(
-                    "Successfully opened `{input}`{}{}, captured a screenshot, and saved it to `{output_path}`.{}",
-                    if input.ends_with(".svg") { "" } else { " with chrome" },
-                    if script_output.is_some() { ", ran javascript" } else { "" },
-                    if let Some(script_output) = script_output { format!("\nscript output: {script_output}") } else { String::new() },
-                )),
-                LLMToken::Image(*output_image),
-            ],
+            ToolCallSuccess::Chrome { input, output_path, output_image, script_output } => {
+                let input_path = match input {
+                    WebOrFile::Web(url) => url.to_string(),
+                    WebOrFile::File(path) => path.absolute.to_string(),
+                };
+                let input_rendered = match input {
+                    WebOrFile::Web(url) => url.to_string(),
+                    WebOrFile::File(path) => path.to_string(),
+                };
+
+                vec![
+                    LLMToken::String(format!(
+                        "Successfully opened `{input_rendered}`{}{}, captured a screenshot, and saved it to `{output_path}`.{}",
+                        if input_path.ends_with(".svg") { "" } else { " with chrome" },
+                        if script_output.is_some() { ", ran javascript" } else { "" },
+                        if let Some(script_output) = script_output { format!("\nscript output: {script_output}") } else { String::new() },
+                    )),
+                    LLMToken::Image(*output_image),
+                ]
+            },
             ToolCallSuccess::ImageEdit { input, output_path, output_image, .. } => vec![
                 LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
                 LLMToken::Image(*output_image),
@@ -1036,9 +1087,14 @@ Answered a user question. NOTE: this QA has nothing to do with the current work 
             ToolCallSuccess::ReadText { path, .. } |
             ToolCallSuccess::ReadPdf { path, .. } |
             ToolCallSuccess::ReadImage { path, .. } |
+            ToolCallSuccess::ReadSymlink { path, .. } |
             ToolCallSuccess::Write { path, .. } |
-            ToolCallSuccess::Chrome { input: path, .. } => Ok(Some((parent(path)?, Some(basename(path)?)))),
-            ToolCallSuccess::ReadDir { path, .. } => Ok(Some((path.to_string(), None))),
+            ToolCallSuccess::Patch { path, .. } |
+            ToolCallSuccess::ImageEdit { output_path: path, .. } => Ok(Some((parent(&path.absolute)?, Some(basename(&path.absolute)?)))),
+            ToolCallSuccess::ReadDir { path, .. } => Ok(Some((path.absolute.to_string(), None))),
+
+            // TODO: what if AI reads a directory with chrome?
+            ToolCallSuccess::Chrome { input: WebOrFile::File(path), .. } => Ok(Some((parent(&path.absolute)?, Some(basename(&path.absolute)?)))),
             _ => Ok(None),
         }
     }
@@ -1046,12 +1102,23 @@ Answered a user question. NOTE: this QA has nothing to do with the current work 
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ToolCallError {
-    // read errors
-    NoSuchFile {
-        path: String,
+    InvalidPath(String),
+
+    // permission errors (by user)
+    ToolPermissionDeniedByUser {
+        kind: ToolPermissionKind,
+        path: Path,
+        not_responding: bool,
     },
-    NoPermissionToRead {
-        path: String,
+    RunPermissionDeniedByUser {
+        command: Vec<String>,
+        not_responding: bool,
+    },
+
+    // read errors
+    CannotReadIndexDir,
+    NoSuchFile {
+        path: Path,
     },
     InvalidRange {
         r#type: RangeType,
@@ -1059,89 +1126,82 @@ pub enum ToolCallError {
         given: (Option<u64>, Option<u64>),
     },
     InvalidFileType {
-        path: String,
+        path: Path,
     },
     TextTooLongToRead {
-        path: String,
+        path: Path,
         length: u64,
         limit: u64,
     },
     TooManyTextLinesToRead {
-        path: String,
+        path: Path,
         length: u64,
         limit: u64,
     },
     TooManyPdfPagesToRead {
-        path: String,
+        path: Path,
         pages: u64,
         limit: u64,
         given_range: (Option<u64>, Option<u64>),
     },
     TooManyDirEntriesToRead {
-        path: String,
+        path: Path,
         entries: u64,
         limit: u64,
         given_range: (Option<u64>, Option<u64>),
     },
     TooManyReadWithoutSummary,
     BrokenFile {
-        path: String,
+        path: Path,
         kind: String,
         error: String,
     },
-    ReadingExactSameFile { path: String },
+    ReadingExactSameFile { path: Path },
     SymlinkWithRange {
-        path: String,
+        path: Path,
         pointee: String,
         range: (Option<u64>, Option<u64>),
     },
 
     // write errors
-    WritePermissionDeniedByUser {
-        path: String,
-        not_responding: bool,
-    },
-    NoPermissionToWrite {
-        path: String,
-    },
     // If the given path is `docs/`, that's a directory whether or not that already exists.
+    CannotWriteToIndexDir,
     CannotWriteToDirectory {
-        path: String,
+        path: Path,
         exists: bool,
     },
     CannotCreateParentDirectory {
         parent: String,
-        file: String,
+        path: Path,
     },
     WriteModeError {
-        path: String,
+        path: Path,
         mode: WriteMode,
         exists: bool,
     },
     TextTooLongToWrite {
-        path: String,
+        path: Path,
         length: u64,
         limit: u64,
     },
     NoSummaryInDoneFile,
 
     // patch errors
-    CannotPatchSymlink { path: String },
-    CannotPatchNonExistFile { path: String },
-    CannotPatchDir { path: String },
+    CannotPatchSymlink { path: Path },
+    CannotPatchNonExistFile { path: Path },
+    CannotPatchDir { path: Path },
     CanOnlyPatchText {
-        path: String,
+        path: Path,
 
-        // This is `format!("{:?}", read_string(path).unwrap_err)`
+        // This is `format!("{:?}", read_string(path).unwrap_err())`
         error: String,
     },
     CannotApplyPatch(PatchError),
 
+    // remove errors
+    CannotRemoveNonExistFile { path: Path },
+
     // run errors
-    RunPermissionDeniedByUser {
-        command: Vec<String>,
-        not_responding: bool,
-    },
     CommandTimeoutTooLong {
         max: u64,
         given: u64,
@@ -1151,7 +1211,7 @@ pub enum ToolCallError {
         available_binaries: Vec<String>,
     },
     Timeout {
-        path: Option<String>,
+        path: Option<Path>,
         command: Vec<String>,
         timeout: u64,
         stdout: DumpOrRedirect,
@@ -1165,7 +1225,7 @@ pub enum ToolCallError {
 
     // image-edit errors
     NotAnImage {
-        path: String,
+        path: Path,
     },
     ImageRequestError {
         status_code: u16,
@@ -1174,7 +1234,7 @@ pub enum ToolCallError {
     ImageEditDisabled,
 
     // etc
-    SupposedToWriteSummary { write_path: Option<String> },
+    SupposedToWriteSummary { write_path: Option<Path> },
     UserInterrupt,
 }
 
@@ -1182,7 +1242,7 @@ impl ToolCallError {
     pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         let s = match self {
             ToolCallError::NoSuchFile { path } => format!("There's no such file: `{path}`."),
-            ToolCallError::NoPermissionToRead { path } => format!("You don't have a permission to read: `{path}`."),
+            ToolCallError::CannotReadIndexDir => String::from("You're not allowed to read inside `.neukgu/`."),
             ToolCallError::InvalidRange { r#type: range_type, length, given: (start, end) } => format!(
                 "{}..{} is an invalid range. The {} only has {length} {}.",
                 if let Some(start) = start { format!("{start}") } else { String::new() },
@@ -1216,11 +1276,16 @@ impl ToolCallError {
             ToolCallError::ReadingExactSameFile { path } => format!("You already read `{path}` and I just gave you the content of `{path}`. Try do something else."),
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
-            ToolCallError::WritePermissionDeniedByUser { path, not_responding } => format!(
-                "The user denied to give you a permission to write to file `{path}`.{}",
-                if *not_responding { "\nNOTE: I asked for a permission, but the user is not responding, so I failed to get a permission." } else { "" },
+            ToolCallError::ToolPermissionDeniedByUser { kind, path, not_responding } => format!(
+                "The user denied to give you a permission to {} `{path}`. The harness asked {:?} to the user and the user {}.",
+                kind.describe(),
+                kind.question(),
+                if *not_responding {
+                    "didn't respond"
+                } else {
+                    "said no"
+                },
             ),
-            ToolCallError::NoPermissionToWrite { path } => format!("You don't have a permission to write to: `{path}`."),
             ToolCallError::CannotWriteToDirectory { path, exists } => if *exists {
                 format!("You can't write to `{path}` because it already exists and is a directory.")
             } else {
@@ -1232,8 +1297,8 @@ impl ToolCallError {
 
                 format!("You can't create a directory with that tool. If you want to create a directory `{path}`, just create a file inside the directory. Then all the intermediate directories will be created.")
             },
-            ToolCallError::CannotCreateParentDirectory { parent, file } => format!(
-                "Tried to create parent directory of `{file}`, but it failed. `{parent}` already exists and is not a directory",
+            ToolCallError::CannotCreateParentDirectory { parent, path } => format!(
+                "Tried to create parent directory of `{path}`, but it failed. `{parent}` already exists and is not a directory",
             ),
             ToolCallError::WriteModeError { path, mode, exists } => match (mode, exists) {
                 (WriteMode::Create, true) => format!("You can't create `{path}` because it already exists. Try with \"truncate\" or \"append\"."),
@@ -1291,11 +1356,11 @@ If you want to run the binary in another directory, use `<path>` parameter, like
                 };
                 let (stdout, stdout_truncated) = match stdout {
                     DumpOrRedirect::Dump(stdout) => truncate_middle(stdout, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.join("/")), None),
+                    DumpOrRedirect::Redirect(stdout) => (format!("Redirected to {}", stdout.to_string()), None),
                 };
                 let (stderr, stderr_truncated) = match stderr {
                     DumpOrRedirect::Dump(stderr) => truncate_middle(stderr, config.stdout_max_len),
-                    DumpOrRedirect::Redirect(stderr) => (format!("Redirected to {}", stderr.join("/")), None),
+                    DumpOrRedirect::Redirect(stderr) => (format!("Redirected to {}", stderr.to_string()), None),
                 };
                 let stdout_truncated = if let Some(stdout_truncated) = stdout_truncated {
                     format!("\nstdout is very long, so {stdout_truncated} bytes were truncated")
@@ -1352,8 +1417,8 @@ Command timeout! The process didn't terminate for {timeout} seconds.
             ToolCallError::TooManyTextLinesToRead { path, .. } |
             ToolCallError::TooManyPdfPagesToRead { path, .. } |
             ToolCallError::BrokenFile { path, .. } |
-            ToolCallError::WriteModeError { path, .. } => Ok(Some((parent(path)?, Some(basename(path)?)))),
-            ToolCallError::TooManyDirEntriesToRead { path, .. } => Ok(Some((path.to_string(), None))),
+            ToolCallError::WriteModeError { path, .. } => Ok(Some((parent(&path.absolute)?, Some(basename(&path.absolute)?)))),
+            ToolCallError::TooManyDirEntriesToRead { path, .. } => Ok(Some((path.absolute.to_string(), None))),
             _ => Ok(None),
         }
     }
@@ -1364,6 +1429,7 @@ pub enum ToolKind {
     Read,
     Write,
     Patch,
+    Remove,
     Run,
     Ask,
     Chrome,
@@ -1376,6 +1442,7 @@ impl ToolKind {
             ToolKind::Read,
             ToolKind::Write,
             ToolKind::Patch,
+            ToolKind::Remove,
             ToolKind::Run,
             ToolKind::Ask,
             ToolKind::Chrome,
@@ -1388,6 +1455,7 @@ impl ToolKind {
             b"read" => Some(ToolKind::Read),
             b"write" => Some(ToolKind::Write),
             b"patch" => Some(ToolKind::Patch),
+            b"remove" => Some(ToolKind::Remove),
             b"run" => Some(ToolKind::Run),
             b"ask" => Some(ToolKind::Ask),
             b"chrome" => Some(ToolKind::Chrome),
@@ -1401,6 +1469,7 @@ impl ToolKind {
             ToolKind::Read => "read",
             ToolKind::Write => "write",
             ToolKind::Patch => "patch",
+            ToolKind::Remove => "remove",
             ToolKind::Run => "run",
             ToolKind::Ask => "ask",
             ToolKind::Chrome => "chrome",
@@ -1417,6 +1486,7 @@ impl ToolKind {
             ToolKind::Read => vec!["path", "start", "end"],
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Patch => vec!["path", "diff"],
+            ToolKind::Remove => vec!["path"],
             ToolKind::Run => vec!["timeout", "command", "path", "env", "stdout", "stderr"],
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
@@ -1429,6 +1499,7 @@ impl ToolKind {
             ToolKind::Read => false,
             ToolKind::Write => false,
             ToolKind::Patch => true,
+            ToolKind::Remove => false,
             ToolKind::Run => false,
             ToolKind::Ask => false,
             ToolKind::Chrome => true,
@@ -1449,10 +1520,12 @@ impl Context {
                 if let Turn { turn_result: TurnResult::ToolCallError(ToolCallError::TooManyReadWithoutSummary), .. } = &last_turn {
                     match tool {
                         ToolCall::Write { path, .. } => {
-                            if is_summary_path(path) {
+                            let path = normalize_path(path, &self.working_dir);
+
+                            if path.as_ref().map(|p| p.is_summary_file()).unwrap_or(false) {
                                 Ok(Ok(()))
                             } else {
-                                Ok(Err(ToolCallError::SupposedToWriteSummary { write_path: Some(path.join("/")) }))
+                                Ok(Err(ToolCallError::SupposedToWriteSummary { write_path: path }))
                             }
                         },
                         ToolCall::Ask { to: AskTo::User, .. } => Ok(Ok(())),
@@ -1462,7 +1535,9 @@ impl Context {
 
                 // 2. It wrote `logs/done` but there's no summary in the file or it's too short.
                 else if let ToolCall::Write { path, content, .. } = tool {
-                    if is_done_file(path) && content.len() < 10 {
+                    let path = normalize_path(path, &self.working_dir);
+
+                    if path.as_ref().map(|p| p.is_done_file()).unwrap_or(false) && content.len() < 10 {
                         Ok(Err(ToolCallError::NoSummaryInDoneFile))
                     }
 
@@ -1478,8 +1553,8 @@ impl Context {
                 //       interrupts the model and nudges it.
                 else if let ToolCall::Read { path, start: None, end: None } = tool {
                     if let Some(ParsedSegment { tool: Some(tool), .. }) = &last_turn.parse_result {
-                        if let ToolCall::Read { path: last_path, start: None, end: None } = tool && normalize_path(path) == normalize_path(last_path) && normalize_path(path).is_some() {
-                            return Ok(Err(ToolCallError::ReadingExactSameFile { path: normalize_path(path).unwrap().join("/") }));
+                        if let ToolCall::Read { path: last_path, start: None, end: None } = tool && normalize_path(path, &self.working_dir) == normalize_path(last_path, &self.working_dir) && normalize_path(path, &self.working_dir).is_some() {
+                            return Ok(Err(ToolCallError::ReadingExactSameFile { path: normalize_path(path, &self.working_dir).unwrap() }));
                         }
                     }
 
@@ -1493,53 +1568,6 @@ impl Context {
             None => Ok(Ok(())),
         }
     }
-}
-
-fn is_summary_path(path: &Path) -> bool {
-    match normalize_path(path) {
-        Some(path) => match (path.get(0), path.get(1), path.get(2)) {
-            (Some(logs), Some(summary), None) if logs == "logs" && (summary.starts_with("summary") && summary.ends_with(".md") || summary == "done") => true,
-            _ => false,
-        },
-        None => false,
-    }
-}
-
-fn is_done_file(path: &Path) -> bool {
-    match normalize_path(path) {
-        Some(path) if path.join("/") == "logs/done" => true,
-        _ => false,
-    }
-}
-
-// Normalization fails if it tries escape the working directory.
-fn normalize_path(path: &Path) -> Option<Path> {
-    let mut result = vec![];
-
-    for segment in path.iter() {
-        match segment.as_str() {
-            "." => {},
-            ".." => match result.pop() {
-                Some(_) => {},
-                None => { return None; },
-            },
-            s => {
-                result.push(s.to_string());
-            },
-        }
-    }
-
-    // `a/b/` and `a/b` are the same.
-    if let Some("") = result.last().map(|s| s.as_str()) {
-        result.pop().unwrap();
-    }
-
-    // `/a/b` (abs_path) is not allowed
-    if result.iter().any(|s| s == "") {
-        return None;
-    }
-
-    Some(result)
 }
 
 pub fn join_command_args(args: &[String]) -> String {

@@ -1,7 +1,9 @@
-use super::{ToolCallError, ToolCallSuccess};
+use super::{Path, ToolCallError, ToolCallSuccess};
 use crate::ParseError;
 use ragit_fs::read_string;
 use serde::{Deserialize, Serialize};
+use similar::Algorithm as DiffAlgorithm;
+use similar::udiff::unified_diff;
 use std::collections::HashSet;
 use std::fmt;
 
@@ -111,16 +113,37 @@ pub enum PatchError {
     NoUpdate,
 }
 
-pub fn patch_file(path: &str, diff: &[LineDiff]) -> Result<ToolCallSuccess, ToolCallError> {
+pub fn patch_file(path: &Path, diff: &[LineDiff]) -> Result<ToolCallSuccess, ToolCallError> {
     // IO errors must be checked before calling this function!
-    let old_content = read_string(path).unwrap();
+    let old_content = read_string(&path.absolute).unwrap();
 
     match patch_diff(&old_content, diff) {
-        Ok(content) => Ok(ToolCallSuccess::Patch {
-            path: path.to_string(),
-            diff: diff.to_vec(),
-            new_content: content,
-        }),
+        Ok(new_content) => {
+            let diff_with_context = unified_diff(
+                DiffAlgorithm::Patience,
+                &old_content,
+                &new_content,
+                5,
+                None,
+            );
+            let diff_with_context: Vec<&str> = diff_with_context.lines().collect();
+            assert!(diff_with_context[0].starts_with("@"));
+            assert!(diff_with_context[1].starts_with("+") || diff_with_context[1].starts_with("-") || diff_with_context[1].starts_with(" "));
+            let diff_with_context = if diff_with_context.iter().filter(|line| line.starts_with("@")).count() > 1 {
+                // `diff`'s context is already large that `unified_diff(_, _, _, 5, _)` created more than 1 hunk.
+                diff.to_vec()
+            } else {
+                let hunk = Hunk::from_lines(&diff_with_context[1..]);
+                hunk.lines
+            };
+
+            Ok(ToolCallSuccess::Patch {
+                path: path.clone(),
+                diff: diff.to_vec(),
+                diff_with_context,
+                new_content,
+            })
+        },
         Err(e) => Err(ToolCallError::CannotApplyPatch(e)),
     }
 }
@@ -356,7 +379,7 @@ mod tests {
         let content = "a\nb\nc\n";
         let patch = parse_line_diff(" x\n-b\n+B\n c\n").unwrap();
 
-        assert_eq!(patch_diff(content, &patch), Err(PatchError::NoMatch));
+        assert!(matches!(patch_diff(content, &patch), Err(PatchError::NoMatch { .. })));
     }
 
     #[test]
@@ -372,7 +395,7 @@ mod tests {
         let content = "a\nb\n";
         let patch = parse_line_diff("+x\n").unwrap();
 
-        assert_eq!(patch_diff(content, &patch), Err(PatchError::NoMatch));
+        assert!(matches!(patch_diff(content, &patch), Err(PatchError::NoMatch { .. })));
     }
 
     #[test]
@@ -396,7 +419,7 @@ mod tests {
         let content = "\n";  // this is not an empty content!
         let patch = parse_line_diff("+x\n+y").unwrap();
 
-        assert_eq!(patch_diff(content, &patch), Err(PatchError::NoMatch));
+        assert!(matches!(patch_diff(content, &patch), Err(PatchError::NoMatch { .. })));
     }
 
     #[test]
@@ -444,7 +467,7 @@ mod tests {
         let content = "a\nb\nc\n";
         let patch = parse_line_diff(" b\n").unwrap();
 
-        assert_eq!(patch_diff(content, &patch), Ok("a\nb\nc\n".to_string()));
+        assert_eq!(patch_diff(content, &patch), Err(PatchError::NoUpdate));
     }
 
     #[test]
@@ -452,7 +475,7 @@ mod tests {
         let content = "a\nb\nc";
         let patch = parse_line_diff(" a\n b\n c\n").unwrap();
 
-        assert_eq!(patch_diff(content, &patch), Ok("a\nb\nc".to_string()));
+        assert_eq!(patch_diff(content, &patch), Err(PatchError::NoUpdate));
     }
 
     #[test]
@@ -460,7 +483,7 @@ mod tests {
         let content = "a\nb\na\nb\n";
         let patch = parse_line_diff(" a\n b\n").unwrap();
 
-        assert_eq!(patch_diff(content, &patch), Err(PatchError::MultipleMatch));
+        assert_eq!(patch_diff(content, &patch), Err(PatchError::NoUpdate));
     }
 
     #[test]

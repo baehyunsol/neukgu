@@ -15,6 +15,7 @@
   - 앞 32KiB만 잘라서 context에 집어넣어도 원하는 바는 다 전달이 되잖아? 그렇게 하자
   - 근데 지금 구현으로는 Tool의 arg만 잘라낼 방법이 없음...
   - 지금 당장은 고민할 필요가 없음. 애초에 AI가 저렇게 긴 파일을 한번에 쓸 능력이 안되거든!
+  - 만약에 AI가 저렇게 긴 파일을 한번에 쓸 능력이 되잖아? 그정도로 똑똑한 AI면 context에 집어넣어도 별 문제 없을 듯 ㅋㅋ
 19. multi-agent
   - 코드 짜는 agent 따로, test하는 agent 따로, doc 쓰는 agent 따로... 하면 더 좋으려나?
   - working-dir 안에서 여러 agent가 *동시에* 돌아가는게 가능하려나?? 지금의 flow로는 좀 힘들겠지? ㅠㅠ
@@ -317,9 +318,6 @@
 166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index (working-dir 만들 때 파일 추가)에 넣자
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
-168. ask permissions
-  - 구현 완료!!
-  - 지금은 working-dir 바깥에 있는 파일을 read/write 하려고 하면 permission error 날리잖아? 이제 이것도 물어보고 하면 되는 거 아님??
 169. summaries
   - summary 볼 때 방향키 좌우로 넘길 수 있게 하기
   - 각 summary에 제목 붙이게 하기? 이것도 걍 small agent 쓰면 되지 않음? ㅋㅋ
@@ -339,18 +337,44 @@
   - local skill로 등록
     - ncode같은 경우를 생각하면 local working dir에 직접 넣는 기능도 필요
     - 나혼자 쓸 거라고 생각하면 불필요한 기능...
-173. 늑구가 `<patch>` 쓸 때 context 없이 고칠 부분만 정확히 적거든? 근데 눈으로 볼 때는 context 있는게 편함... 나중에 revert apply 할 때도 context이 필요함.
-  - context line을 가라로 넣을 방법이 없을까?
-  - context line을 가라로 넣더라도 AI가 보는 context에는 context line이 없어야함.
-    - 와 용어가 엄청 헷갈리네 ㅠㅠ
-    - 즉, `Popup::Turn`에서는 AI가 만든 diff가 그대로 보이고, `Popup::Diff`에서는 가라로 들어간 context line이 추가로 보이면 좋겠다는 얘기...
-    - 추가로, `get_changed_file()` 할 때도 가라 context line 반영해서 해야함!!
 174. `logs/done` 쓴 다음에 다시 시작하면 자동으로 done 파일 삭제되잖아? 삭제되었다는 흔적을 남겨야함!!
   - 안 남기니까 다음번에 done 쓸 때 일단 truncate로 쓰고 오류나서 create로 다시 씀...
-175. scratch pad에서 diff 보는 모드를 따로 만들까? diff 은근 자주 보는데 그럼 걍 render_udiff 써버리면 안됨??
-  - syntax_highlight에다가 `.diff`를 주고, scratch pad가 저 extension인지 아닌지를 확인해서 다르게 하자!!
-  - 그럼 render_udiff 글자색도 바꿔야하네... 이참에 모든 글자색을 지정해버릴까? 그러면 테마 변경 가능 ㅋㅋㅋ
-176. 왜 `<patch>`에는 open in browser 버튼이 없지??
+177. loop engineering
+  - https://x.com/addyosmani/status/2064127981161959567
+  - Instead of writing prompts, you give goals to the agent and it will create a loop.
+  - 5 components of loop
+    - Automation: an external event (including clock) can fire an agent
+    - Worktrees: multiple agents working in parallel without stepping on each other
+    - Skills
+    - Plugins/Connectors
+    - Sub-agents
+  - How neukgu implements the 5 components
+    - Automation: N/A
+    - Worktrees: N/A
+    - Skills: Partial
+    - Plugins/Connectors: Almost N/A
+      - We can add tools, but it takes too long to do so.
+    - Sub-agents: N/A
+  - What neukgu should implement
+    - Automation: we first have to make sure that the headless neukgu can do every work. then, we'll implement a simple daemon that fires the headless neukgu.
+    - Sub-agents
+      - I'm not gonna implement worktrees. I'm not gonna allow multiple agents to run at the same time.
+      - I need a system that 1) an agent can fire another agent 2) an agent finishes its job and passes its context to the caller.
+      - I also need a nice view to see multiple agents.
+      - Let's create `Vec<Context>`.
+        - UI shows 1 context at a time. If you wanna see another context, you have to switch it.
+        - A context can spawn another context.
+          - It can also resume a finished context.
+          - Tool input: `session_id: Option<SessionId>, instruction: String`
+            - If session_id is not given, it creates a new one. If given, it resumes one.
+          - Tool output: `session_id: SessionId, elapsed_time: u64, result: String`
+            - There's another agent that writes the result.
+        - When a context finishes (logs/done), it's switched to the caller.
+        - Let's say context P spawned context C. C finished its work and passed the context back to P. Then the user switched to C and resumed it. What happens when C finishes?
+178. opus에서는 thinking.enabled가 지원이 안되고 thinking.adaptive만 된대...
+179. permission config ui에다가 "allow all", "deny all", "ask all" 버튼 추가!
+180. 시스템 프롬프트에다가 cwd랑 오늘 날짜 정도는 알려주자. 그리고 "사용자가 명시하지 않는 이상 cwd 밖으로 나가지 마세요"라고도 하자!!
+181. InvalidLogId -> `Path` 관련된 초대형 refactoring 한 다음에 GUI에서 이 오류가 자주 보임...
 
 ## mock API
 

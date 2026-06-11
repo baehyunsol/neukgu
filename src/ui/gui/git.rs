@@ -484,6 +484,7 @@ fn render_changes_unit<'d, 'e>(
                                 &hunk.to_udiff(),
                                 window_size.width,
                                 zoom,
+                                false,
                             ),
                         ])
                             .spacing(zoom * 4.0)

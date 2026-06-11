@@ -1,4 +1,5 @@
 use super::{black, blue, button, disabled_button, gold, gray, red, white};
+use super::file_change::render_udiff;
 use super::slide_rule::{
     self,
     IcedContext as SlideRuleContext,
@@ -304,6 +305,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'c, IcedMessage> {
     let mut content: Element<IcedMessage> = match context.tab {
         Tab::Hidden => unreachable!(),
+        Tab::TextView if context.text_viewer_context.1.as_ref().map(|e| e.as_str()) == Some("diff") => render_udiff(
+            &context.text_editor_content.text(),
+            context.window_size.width,
+            context.zoom,
+            true,  // invert color
+        ),
         Tab::TextView => TextEditor::new(&context.text_editor_content)
             .id(context.text_editor_id.clone())
             .width(context.window_size.width)

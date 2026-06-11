@@ -1,5 +1,15 @@
-use super::{green, green_transparent, red, red_transparent, set_bg, white, yellow};
-use iced::{Element, Length};
+use super::{
+    black,
+    brown,
+    green,
+    green_transparent,
+    red,
+    red_transparent,
+    set_bg,
+    white,
+    yellow,
+};
+use iced::{Color, Element, Length};
 use iced::widget::{Column, Container, Row, text};
 use similar::{Algorithm, ChangeTag, TextDiffConfig};
 
@@ -7,14 +17,26 @@ pub fn render_udiff<'d, 'm, Message: 'm>(
     udiff: &'d str,
     width: impl Into<Length>,
     zoom: f32,
+    invert_color: bool,
 ) -> Element<'m, Message> {
-    fn render_context<'a, 'b, 'c, 'd, Message: 'd>(context: &'a mut Vec<&'b str>, lines: &'c mut Vec<Element<'d, Message>>, zoom: f32) {
+    fn render_context<'a, 'b, 'c, 'd, Message: 'd>(
+        context: &'a mut Vec<&'b str>,
+        lines: &'c mut Vec<Element<'d, Message>>,
+        color: Color,
+        zoom: f32,
+    ) {
         for line in context.drain(..) {
-            lines.push(text!("{line}").size(zoom * 14.0).color(white()).into());
+            lines.push(text!("{line}").size(zoom * 14.0).color(color).into());
         }
     }
 
-    fn render_hunk<'a, 'b, 'c, 'd, 'e, 'f, Message: 'f>(add: &'a mut Vec<&'b str>, remove: &'c mut Vec<&'d str>, lines: &'e mut Vec<Element<'f, Message>>, zoom: f32) {
+    fn render_hunk<'a, 'b, 'c, 'd, 'e, 'f, Message: 'f>(
+        add: &'a mut Vec<&'b str>,
+        remove: &'c mut Vec<&'d str>,
+        lines: &'e mut Vec<Element<'f, Message>>,
+        color: Color,
+        zoom: f32,
+    ) {
         match (add.len(), remove.len()) {
             (0, _) => {
                 for line in remove.drain(..) {
@@ -50,17 +72,17 @@ pub fn render_udiff<'d, 'm, Message: 'm>(
                 let mut curr_line = vec![];
 
                 for (tag, s) in diff1.iter().chain(diff2.iter()) {
-                    let color = match tag {
+                    let bg_color = match tag {
                         ChangeTag::Equal => None,
                         ChangeTag::Delete => Some(red_transparent()),
                         ChangeTag::Insert => Some(green_transparent()),
                     };
 
                     if s.ends_with("\n") {
-                        let word = text!("{}", s.get(..(s.len() - 1)).unwrap()).size(zoom * 14.0);
+                        let word = text!("{}", s.get(..(s.len() - 1)).unwrap()).color(color).size(zoom * 14.0);
                         curr_line.push(
-                            if let Some(color) = color {
-                                Container::new(word).style(move |_| set_bg(color)).into()
+                            if let Some(bg_color) = bg_color {
+                                Container::new(word).style(move |_| set_bg(bg_color)).into()
                             } else {
                                 word.into()
                             },
@@ -70,10 +92,10 @@ pub fn render_udiff<'d, 'm, Message: 'm>(
                     }
 
                     else {
-                        let word = text!("{s}").size(zoom * 14.0);
+                        let word = text!("{s}").color(color).size(zoom * 14.0);
                         curr_line.push(
-                            if let Some(color) = color {
-                                Container::new(word).style(move |_| set_bg(color)).into()
+                            if let Some(bg_color) = bg_color {
+                                Container::new(word).style(move |_| set_bg(bg_color)).into()
                             } else {
                                 word.into()
                             },
@@ -101,11 +123,12 @@ pub fn render_udiff<'d, 'm, Message: 'm>(
     let mut curr_context = vec![];
     let mut curr_add = vec![];
     let mut curr_remove = vec![];
+    let color = if invert_color { black() } else { white() };
 
     for line in udiff.lines() {
         if line.starts_with(" ") {
             if !curr_add.is_empty() || !curr_remove.is_empty() {
-                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, zoom);
+                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, color, zoom);
             }
 
             curr_context.push(line);
@@ -113,7 +136,7 @@ pub fn render_udiff<'d, 'm, Message: 'm>(
 
         else if line.starts_with("+") || line.starts_with("-") {
             if !curr_context.is_empty() {
-                render_context(&mut curr_context, &mut lines, zoom);
+                render_context(&mut curr_context, &mut lines, color, zoom);
             }
 
             if line.starts_with("+") {
@@ -125,23 +148,28 @@ pub fn render_udiff<'d, 'm, Message: 'm>(
 
         else {
             if !curr_context.is_empty() {
-                render_context(&mut curr_context, &mut lines, zoom);
+                render_context(&mut curr_context, &mut lines, color, zoom);
             }
 
             else if !curr_add.is_empty() || !curr_remove.is_empty() {
-                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, zoom);
+                render_hunk(&mut curr_add, &mut curr_remove, &mut lines, color, zoom);
             }
 
-            lines.push(text!("{line}").size(zoom * 14.0).color(yellow()).into());
+            lines.push(
+                text!("{line}")
+                    .size(zoom * 14.0)
+                    .color(if invert_color { brown() } else { yellow() })
+                    .into(),
+            );
         }
     }
 
     if !curr_context.is_empty() {
-        render_context(&mut curr_context, &mut lines, zoom);
+        render_context(&mut curr_context, &mut lines, color, zoom);
     }
 
     else if !curr_add.is_empty() || !curr_remove.is_empty() {
-        render_hunk(&mut curr_add, &mut curr_remove, &mut lines, zoom);
+        render_hunk(&mut curr_add, &mut curr_remove, &mut lines, color, zoom);
     }
 
     Column::from_vec(lines).width(width).into()

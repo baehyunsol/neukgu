@@ -48,6 +48,7 @@ use crate::{
     Logger,
     Model,
     Permission,
+    PermissionPreview,
     QuestionKind,
     QuestionToUser,
     SessionSummary,
@@ -61,7 +62,6 @@ use crate::{
     TurnResultSummary,
     UserAnswer,
     UserResponse,
-    WriteContent,
     check_snapshot,
     join_command_args,
     load_log,
@@ -360,8 +360,8 @@ impl IcedContext {
                         self.text_diff = Some(diff.to_string());
                     }
 
-                    else if let TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { diff, .. }) = &turn.turn_result {
-                        self.text_diff = Some(diff.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"));
+                    else if let TurnResult::ToolCallSuccess(ToolCallSuccess::Patch { diff_with_context, .. }) = &turn.turn_result {
+                        self.text_diff = Some(diff_with_context.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"));
                     }
 
                     else {
@@ -369,7 +369,6 @@ impl IcedContext {
                     }
 
                     self.turn_result_path = turn.get_result_path()?;
-                    self.turn_result_path = self.turn_result_path.as_ref().map(|(dir, file)| (join(&self.fe_context.working_dir, dir).unwrap(), file.clone()));
                     self.copy_buffer = Some(format!(
 "# {index}. {}
 
@@ -441,6 +440,9 @@ impl IcedContext {
             },
             Popup::Diff => {
                 self.copy_buffer = self.text_diff.clone();
+
+                // Popup::Diff doesn't have syntax highlighting, but this will guide the scratch pad.
+                self.syntax_highlight = Some(String::from("diff"));
             },
             Popup::TokenUsage => {
                 self.loaded_token_usage = Some(self.fe_context.get_token_usage()?);
@@ -1467,7 +1469,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     else if let Some(Popup::Diff) = context.curr_popup {
-        let diff_view = Scrollable::new(render_udiff(context.text_diff.as_ref().unwrap(), context.window_size.width, context.zoom)).id(context.popup_scroll_id.clone());
+        let diff_view = Scrollable::new(render_udiff(context.text_diff.as_ref().unwrap(), context.window_size.width, context.zoom, false)).id(context.popup_scroll_id.clone());
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(diff_view.into(), context).into(),
@@ -1873,11 +1875,11 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                     .into(),
             );
         },
-        QuestionKind::WritePermission { path, content } => {
+        QuestionKind::ToolPermission { kind, path, preview } => {
             column.push(text!("path: {path}").size(context.zoom * 14.0).into());
 
-            match content {
-                WriteContent::String(s) => {
+            match preview {
+                PermissionPreview::String(s) => {
                     column.push(Scrollable::new(
                         Container::new(
                             text!("{s}")
@@ -1888,24 +1890,25 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                             .style(|_| set_bg(gray(0.2)))
                     ).into());
                 },
-                WriteContent::Diff(d) => {
+                PermissionPreview::Diff(d) => {
                     column.push(Scrollable::new(
                         render_udiff(
                             &d.iter().map(|line| line.to_string()).collect::<Vec<_>>().join("\n"),
                             context.window_size.width,
                             context.zoom,
+                            false,
                         )
                     ).into());
                 },
-                WriteContent::Output => {},
+                PermissionPreview::None => {},
             }
 
             column.push(
                 Row::from_vec(vec![
                     button("Allow", IcedMessage::AnswerPermissionRequest(Permission::Allow), green(), context.zoom).into(),
-                    button("Always allow file writes", IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
+                    button(&format!("Always allow {}", kind.short_name() ), IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
                     button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
-                    button("Always deny file writes", IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
+                    button(&format!("Always deny {}", kind.short_name()), IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
                     text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
@@ -2070,7 +2073,7 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
                     text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
                     text!(")").size(context.zoom * 14.0).into(),
                 ]).align_y(Vertical::Center).into(),
-                render_udiff(&change.udiff, context.window_size.width, context.zoom),
+                render_udiff(&change.udiff, context.window_size.width, context.zoom, false),
             ]).into()
         } else {
             *all_expanded = false;

@@ -81,7 +81,7 @@ impl TurnId {
             TurnResult::ToolCallSuccess(ToolCallSuccess::Write { path, content, is_summary: true, .. }) => Ok(SessionSummary {
                 timestamp: turn_preview.timestamp,
                 timestamp_millis: turn.timestamp_millis,
-                title: file_name(path)?,
+                title: file_name(&path.absolute)?,
                 summary: content.to_string(),
             }),
 

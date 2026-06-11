@@ -1,5 +1,14 @@
 use super::{gray, set_round_bg};
-use crate::{Config, Model, PermissionConfig, Thinking, ToolKind, list_binaries, truncate_chars};
+use crate::{
+    Config,
+    Model,
+    PermissionConfig,
+    Thinking,
+    ToolKind,
+    ToolPermissionKind,
+    list_binaries,
+    truncate_chars,
+};
 use crate::chat::Config as ChatConfig;
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
@@ -23,7 +32,7 @@ pub enum SetProjectConfig {
     ContextSize(u64),
     ToggleTool(ToolKind, bool),
     ToggleSkill(String, bool),
-    SetWritePermission(PermissionConfig),
+    SetToolPermission(ToolPermissionKind, PermissionConfig),
     SetRunPermission(String, PermissionConfig),
     OpenaiEtc1BaseUrl(String),
     OpenaiEtc1Model(String),
@@ -92,11 +101,11 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
         SetProjectConfig::ToggleSkill(skill, enable) => {
             config.skills.get_mut(&skill).unwrap().enabled = enable;
         },
-        SetProjectConfig::SetWritePermission(p) => {
-            config.write_permission = p;
+        SetProjectConfig::SetToolPermission(k, p) => {
+            config.tool_permissions.insert(k, p);
         },
         SetProjectConfig::SetRunPermission(bin, p) => {
-            config.run_permission.insert(bin, p);
+            config.run_permissions.insert(bin, p);
         },
         SetProjectConfig::OpenaiEtc1BaseUrl(url) => {
             if url.is_empty() {
@@ -330,39 +339,43 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
     ));
 
     let mut permission_radios: Vec<Element<SetProjectConfig>> = vec![];
-    permission_radios.push(Row::from_vec(vec![
-        text!("  write-file:").size(zoom * 14.0).into(),
-        Radio::new("Allow", PermissionConfig::Allow, Some(config.write_permission), SetProjectConfig::SetWritePermission)
-            .spacing(zoom * 8.0)
-            .text_size(zoom * 14.0)
-            .size(zoom * 14.0)
-            .into(),
-        Radio::new("Deny", PermissionConfig::Deny, Some(config.write_permission), SetProjectConfig::SetWritePermission)
-            .spacing(zoom * 8.0)
-            .text_size(zoom * 14.0)
-            .size(zoom * 14.0)
-            .into(),
-        Radio::new("Ask", PermissionConfig::Ask, Some(config.write_permission), SetProjectConfig::SetWritePermission)
-            .spacing(zoom * 8.0)
-            .text_size(zoom * 14.0)
-            .size(zoom * 14.0)
-            .into(),
-    ]).spacing(zoom * 16.0).into());
+
+    for kind in ToolPermissionKind::all() {
+        let kind_str = kind.short_name();
+        permission_radios.push(Row::from_vec(vec![
+            text!("{}{kind_str}:", " ".repeat(16 - kind_str.len())).size(zoom * 14.0).into(),
+            Radio::new("Allow", PermissionConfig::Allow, Some(config.tool_permissions.get(&kind).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetToolPermission(kind, p))
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+            Radio::new("Deny", PermissionConfig::Deny, Some(config.tool_permissions.get(&kind).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetToolPermission(kind, p))
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+            Radio::new("Ask", PermissionConfig::Ask, Some(config.tool_permissions.get(&kind).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetToolPermission(kind, p))
+                .spacing(zoom * 8.0)
+                .text_size(zoom * 14.0)
+                .size(zoom * 14.0)
+                .into(),
+        ]).spacing(zoom * 16.0).into());
+    }
 
     for binary in list_binaries() {
         permission_radios.push(Row::from_vec(vec![
-            text!("{}{binary}:", " ".repeat(12 - binary.len())).size(zoom * 14.0).into(),
-            Radio::new("Allow", PermissionConfig::Allow, Some(config.run_permission.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+            text!("{}{binary}:", " ".repeat(16 - binary.len())).size(zoom * 14.0).into(),
+            Radio::new("Allow", PermissionConfig::Allow, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .into(),
-            Radio::new("Deny", PermissionConfig::Deny, Some(config.run_permission.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+            Radio::new("Deny", PermissionConfig::Deny, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .into(),
-            Radio::new("Ask", PermissionConfig::Ask, Some(config.run_permission.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+            Radio::new("Ask", PermissionConfig::Ask, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)

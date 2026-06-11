@@ -12,7 +12,6 @@ impl ToolKind {
 {index}. Read
 
 With this tool, you can read a text file, an image file or a directory.
-You CANNOT read files that are not inside the working directory.
 
 <read>
 <path>src/main.rs</path>
@@ -74,7 +73,6 @@ It might add or trim leading/trailing newline characters.
 It'll refuse to write a file if it's larger than {text_file_max_len}. You should split it into smaller files.
 
 If you try to create a file in a directory that does not exist, it'll create the intermediate directories automatically.
-You CANNOT write files outside of the working directory.
 "#),
             ToolKind::Patch => format!(r#"
 {index}. Patch
@@ -102,6 +100,17 @@ An add line starts with "+" and a remove line starts with "-".
 
 If you want to update different parts of a file, you have to call this tool multiple times. A `<patch>` tool can update one part of a file at a time.
 If there're no matches or multiple matches, the tool will not update the file. You have to disambiguate by providing more context lines.
+"#),
+            ToolKind::Remove => format!(r#"
+{index}. Remove
+
+You can remove a file or directory with this tool.
+
+The below tool-call removes `src/util.rs`.
+
+<remove>
+<path>src/util.rs</path>
+</remove>
 "#),
             ToolKind::Run => format!(r#"
 {index}. Run

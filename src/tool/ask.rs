@@ -1,4 +1,4 @@
-use super::{Permission, ToolCallError, ToolCallSuccess, WriteContent};
+use super::{Permission, PermissionPreview, ToolCallError, ToolCallSuccess, ToolPermissionKind};
 use async_std::task::sleep;
 use crate::{
     Config,
@@ -34,9 +34,10 @@ pub enum QuestionKind {
         options: Vec<String>,
         multi: bool,
     },
-    WritePermission {
+    ToolPermission {
+        kind: ToolPermissionKind,
         path: String,
-        content: WriteContent,
+        preview: PermissionPreview,
     },
     RunPermission {
         command: Vec<String>,

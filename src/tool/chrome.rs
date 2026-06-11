@@ -1,37 +1,17 @@
-use super::{Path, normalize_path};
-use crate::Error;
-use ragit_fs::{into_abs_path, join};
+use super::Path;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum WebOrFile {
     Web(String),
     File(Path),
 }
 
 impl WebOrFile {
-    pub fn to_url(&self, working_dir: &str) -> Result<String, Error> {
+    pub fn to_url(&self) -> String {
         match self {
-            WebOrFile::Web(s) => Ok(s.to_string()),
-            WebOrFile::File(p) => {
-                // read_permission is already checked, so it's safe to unwrap this
-                let p = normalize_path(p).unwrap().join("/");
-                let p = join(working_dir, &p)?;
-                let p = into_abs_path(&p)?;
-                Ok(format!("file://{p}"))
-            },
-        }
-    }
-}
-
-impl From<&Path> for WebOrFile {
-    fn from(path: &Path) -> WebOrFile {
-        let joined_path = path.join("/");
-
-        // What a naive algorithm hahaha
-        if joined_path.starts_with("http:") || joined_path.starts_with("https:") {
-            WebOrFile::Web(joined_path)
-        } else {
-            WebOrFile::File(path.clone())
+            WebOrFile::Web(s) => s.to_string(),
+            WebOrFile::File(p) => format!("file://{}", p.absolute),
         }
     }
 }

@@ -374,7 +374,7 @@ impl ToolCall {
     pub fn parse(kind: ToolKind, args: &HashMap<Vec<u8>, Vec<u8>>) -> Result<ToolCall, ParseError> {
         match kind {
             ToolKind::Read => {
-                let path = match parse_path_arg(args, "path") {
+                let path = match parse_string_arg(args, "path") {
                     Some(path) => path,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -396,7 +396,7 @@ impl ToolCall {
                 Ok(ToolCall::Read { path, start, end })
             },
             ToolKind::Write => {
-                let path = match parse_path_arg(args, "path") {
+                let path = match parse_string_arg(args, "path") {
                     Some(path) => path,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -443,7 +443,7 @@ impl ToolCall {
                 Ok(ToolCall::Write { path, mode, content })
             },
             ToolKind::Patch => {
-                let path = match parse_path_arg(args, "path") {
+                let path = match parse_string_arg(args, "path") {
                     Some(path) => path,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -463,6 +463,19 @@ impl ToolCall {
                 };
 
                 Ok(ToolCall::Patch { path, diff })
+            },
+            ToolKind::Remove => {
+                let path = match parse_string_arg(args, "path") {
+                    Some(path) => path,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("remove"),
+                            arg: String::from("path"),
+                        });
+                    },
+                };
+
+                Ok(ToolCall::Remove { path })
             },
             ToolKind::Run => {
                 let timeout = match parse_int_arg("run", args, "timeout", Some(1), None) {
@@ -490,14 +503,14 @@ impl ToolCall {
                         });
                     },
                 };
-                let path = parse_path_arg(args, "path");
+                let path = parse_string_arg(args, "path");
                 let env = match parse_env_arg(args, "env") {
                     Some(Ok(env)) => env,
                     Some(Err(e)) => return Err(e),
                     None => vec![],
                 };
-                let stdout = parse_path_arg(args, "stdout");
-                let stderr = parse_path_arg(args, "stderr");
+                let stdout = parse_string_arg(args, "stdout");
+                let stderr = parse_string_arg(args, "stderr");
                 Ok(ToolCall::Run { timeout, command, path, env, stdout, stderr })
             },
             ToolKind::Ask => {
@@ -536,7 +549,7 @@ impl ToolCall {
             },
             ToolKind::Chrome => {
                 let script = parse_string_arg(args, "script");
-                let input = match parse_path_arg(args, "input") {
+                let input = match parse_string_arg(args, "input") {
                     Some(input) => input,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -545,7 +558,7 @@ impl ToolCall {
                         });
                     },
                 };
-                let output = match parse_path_arg(args, "output") {
+                let output = match parse_string_arg(args, "output") {
                     Some(output) => output,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -557,7 +570,7 @@ impl ToolCall {
                 Ok(ToolCall::Chrome { script, input, output })
             },
             ToolKind::ImageEdit => {
-                let input = match parse_path_arg(args, "input") {
+                let input = match parse_string_arg(args, "input") {
                     Some(input) => input,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -580,7 +593,7 @@ impl ToolCall {
                     Some(Err(e)) => return Err(e),
                     None => None,
                 };
-                let output = match parse_path_arg(args, "output") {
+                let output = match parse_string_arg(args, "output") {
                     Some(output) => output,
                     None => {
                         return Err(ParseError::MissingArg {
@@ -593,12 +606,6 @@ impl ToolCall {
             },
         }
     }
-}
-
-fn parse_path_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Vec<String>> {
-    let path = args.get(arg.as_bytes())?;
-    let path = String::from_utf8_lossy(path);
-    Some(path.split("/").map(|s| s.to_string()).collect())
 }
 
 fn parse_int_arg(
