@@ -70,7 +70,7 @@ impl IcedContext {
         self.text_editor_content.perform(TextEditorAction::Edit(TextEditorEdit::Paste(Arc::new(c))));
     }
 
-    fn save_context(&mut self) {
+    pub fn save_context(&mut self) {
         match self.tab {
             Tab::TextView => {
                 self.text_viewer_context.0 = self.text_editor_content.text();
@@ -263,9 +263,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             return context.zoom_out();
         },
         IcedMessage::Notify(_) => unreachable!(),
-        IcedMessage::Close => {
-            context.tab = Tab::Hidden;
-        },
+        IcedMessage::Close => unreachable!(),
     }
 
     Task::none()

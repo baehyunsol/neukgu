@@ -193,6 +193,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             Task::none()
         },
         IcedMessage::ScratchPad(ScratchPadMessage::Close) => {
+            context.scratch_pad.save_context();
             context.scratch_pad.tab = ScratchPadTab::Hidden;
             context.keep_scroll()
         },
