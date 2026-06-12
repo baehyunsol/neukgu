@@ -34,9 +34,9 @@ use std::sync::LazyLock;
 pub struct TurnId(pub String);
 
 // TODO: now that `from_str` uses this regex, it needs to be more strict.
-pub static TURN_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+\-(pe|tce|tcs)\-(ag|ss|uq|ui)\-(\d{6,})\-(\d{6,})$").unwrap());
+pub static TURN_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".+\-(pe|tce|tcs)\-(ag|ss|rd|uq|ui)\-(\d{6,})\-(\d{6,})$").unwrap());
 
-pub static TURN_TIMESTAMP_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+)\-(?:pe|tce|tcs)\-(?:ag|ss|uq|ui)\-.+").unwrap());
+pub static TURN_TIMESTAMP_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+)\-(?:pe|tce|tcs)\-(?:ag|ss|rd|uq|ui)\-.+").unwrap());
 
 impl TurnId {
     pub fn dummy() -> TurnId {
@@ -64,6 +64,7 @@ impl TurnId {
         let kind = match cap.get(2).unwrap().as_str() {
             "ag" => TurnKind::Agent,
             "ss" => TurnKind::SessionStart,
+            "rd" => TurnKind::RemoveDoneMark,
             "uq" => TurnKind::UserQuestion,
             "ui" => TurnKind::UserInstruction,
             _ => unreachable!(),
@@ -98,6 +99,10 @@ pub enum TurnKind {
 
     // The first few turns of a session are fake turns.
     SessionStart,
+
+    // When user interrupts after `logs/done`, the harness inserts a
+    // fake turn: `<remove><path>logs/done</path></remove>`
+    RemoveDoneMark,
 
     UserQuestion,
     UserInstruction,
@@ -212,7 +217,7 @@ impl Turn {
         let preview_title = match &self.parse_result {
             Some(parse_result) => {
                 match self.kind {
-                    TurnKind::Agent | TurnKind::SessionStart => if let Some(tool) = &parse_result.tool {
+                    TurnKind::Agent | TurnKind::SessionStart | TurnKind::RemoveDoneMark => if let Some(tool) = &parse_result.tool {
                         tool.preview()
                     } else {
                         String::from("???")
@@ -283,7 +288,7 @@ impl Turn {
 
                 introduce_agent(self.agents.big, &self.etc_models)
             },
-            TurnKind::SessionStart => String::from("Auto-generated"),
+            TurnKind::SessionStart | TurnKind::RemoveDoneMark => String::from("Auto-generated"),
             TurnKind::UserQuestion => String::from("User question"),
             TurnKind::UserInstruction => String::from("User instruction"),
         }
@@ -344,6 +349,7 @@ pub fn get_turn_id(summary: TurnSummary) -> TurnId {
         match summary.kind {
             TurnKind::Agent => "ag",
             TurnKind::SessionStart => "ss",
+            TurnKind::RemoveDoneMark => "rd",
             TurnKind::UserQuestion => "uq",
             TurnKind::UserInstruction => "ui",
         },

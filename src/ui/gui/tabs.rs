@@ -520,7 +520,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ));
 
     for (i, tab) in context.tabs.iter().enumerate() {
-        let (title, flag) = tab.get_title_and_flag(true);
+        let (title, flag) = tab.get_title_and_flag();
         let (curr_selected, select_action, title_width) = if let Some(s) = context.selected_tab && s == i {
             (true, IcedMessage::None, selected_tab_width)
         } else {

@@ -26,7 +26,7 @@ use crate::{NeukguId, prettify_timestamp, truncate_chars};
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
-use ragit_fs::{basename, exists, join};
+use ragit_fs::{basename, exists, join, parent};
 use std::collections::HashMap;
 
 pub struct IcedContext {
@@ -83,12 +83,26 @@ impl IcedContext {
         }
     }
 
-    pub fn get_title_and_flag(&self, full_path: bool) -> (String, Color) {
+    pub fn get_title_and_flag(&self) -> (String, Color) {
+        fn get_two_level_path(path: &str) -> Option<String> {
+            match (basename(path), parent(path)) {
+                (Ok(p2), Ok(parent)) => match basename(&parent) {
+                    Ok(p1) => Some(format!("{p1}/{p2}")),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+
+        fn try_get_two_level_path(path: &str) -> String {
+            get_two_level_path(path).unwrap_or_else(|| path.to_string())
+        }
+
         match &self.local {
             LocalContext::Browser(c) => {
                 let title = match &c.curr_popup {
-                    Some(browser::Popup::PreviewFile { path } | browser::Popup::PreviewSymlink { path }) => format!("Read: {}", if full_path { path.to_string() } else { basename(path).unwrap() }),
-                    _ => format!("Browse: {}/", if full_path { c.cwd.to_string() } else { basename(&c.cwd).unwrap() }),
+                    Some(browser::Popup::PreviewFile { path } | browser::Popup::PreviewSymlink { path }) => format!("Read: {}", try_get_two_level_path(path)),
+                    _ => format!("Browse: {}/", try_get_two_level_path(&c.cwd)),
                 };
                 (title, skyblue())
             },
@@ -97,6 +111,14 @@ impl IcedContext {
                 brown(),
             ),
             LocalContext::WorkingDir(c) => {
+                let title = if c.fe_context.is_in_global_index_dir {
+                    basename(&c.fe_context.working_dir).unwrap()
+                } else {
+                    match get_two_level_path(&c.fe_context.working_dir) {
+                        Some(p) => p.to_string(),
+                        None => c.fe_context.working_dir.to_string(),
+                    }
+                };
                 let flag = match 0 {
                     _ if c.fe_context.curr_error().is_some() => red(),
                     _ if c.llm_request.is_some() => blue(),
@@ -104,7 +126,7 @@ impl IcedContext {
                     _ => green(),
                 };
 
-                (format!("Working Dir: {}/", if full_path { c.fe_context.working_dir.to_string() } else { basename(&c.fe_context.working_dir).unwrap() }), flag)
+                (format!("Working Dir: {title}/"), flag)
             },
             LocalContext::Error(c) => (c.message.to_string(), red()),
         }
@@ -121,7 +143,7 @@ impl IcedContext {
 
     pub fn get_preview(&self, index: usize) -> TabPreview {
         let mut neukgu_id = None;
-        let (title, flag) = self.get_title_and_flag(true);
+        let (title, flag) = self.get_title_and_flag();
         let (status, error) = match &self.local {
             LocalContext::Browser(c) => match &c.curr_popup {
                 Some(browser::Popup::RunResult { command, started_at, output: None, error, .. }) => (

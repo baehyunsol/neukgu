@@ -11,6 +11,40 @@ pub struct Path {
 }
 
 impl Path {
+    // This is used for `<path>` and `<stdout>` in `<run>` tool.
+    // If both `<path>` and `<stdout>` are given, `<stdout>` is
+    // relative to `<path>`. But if `<stdout>` is an absolute path,
+    // it ignores `<path>`.
+    pub fn abs_or_join(&self, other: &str, working_dir: &str) -> Option<Path> {
+        if other.starts_with("/") {
+            match normalize_path_lexically(other) {
+                Some(p) if p == "" => Some(Path { relative: None, absolute: String::from("/") }),
+                Some(p) => Some(Path { relative: None, absolute: p }),
+                None => None,
+            }
+        }
+
+        else if let Some(relative) = &self.relative {
+            match join(relative, other) {
+                Ok(p) => normalize_path(&p, working_dir),
+
+                // It may or may not be an error, but how can we know that?
+                Err(_) => todo!(),
+            }
+        }
+
+        else {
+            match join(&self.absolute, other) {
+                Ok(p) => match normalize_path_lexically(&p) {
+                    Some(p) if p == "" => Some(Path { relative: None, absolute: String::from("/") }),
+                    Some(p) => Some(Path { relative: None, absolute: p }),
+                    None => None,
+                },
+                Err(_) => None,
+            }
+        }
+    }
+
     // `logs/summary*.md` or `logs/done`
     pub fn is_summary_file(&self) -> bool {
         self.is_done_file() || match self {
@@ -58,35 +92,6 @@ impl fmt::Display for Path {
 // If it's invalid, it returns None. (e.g. `normalize_path("/../../", ..)`)
 // If it's valid but not in working dir, it returns Some(Path { relative: None, .. }). (e.g. `normalize_path("../a/b/", ..)`)
 pub fn normalize_path(path: &str, working_dir: &str) -> Option<Path> {
-    fn normalize_path_lexically(path: &str) -> Option<String> {
-        let mut result = vec![];
-
-        for segment in path.split("/") {
-            match segment {
-                "." => {},
-                ".." => match result.pop() {
-                    Some(s) => {
-                        if s == "" {
-                            return None;
-                        }
-                    },
-                    None => {
-                        return None;
-                    },
-                },
-                s => {
-                    result.push(s.to_string());
-                },
-            }
-        }
-
-        if let Some(last) = result.last() && last == "" {
-            result.pop().unwrap();
-        }
-
-        Some(result.join("/"))
-    }
-
     if path == "" {
         None
     }
@@ -115,6 +120,35 @@ pub fn normalize_path(path: &str, working_dir: &str) -> Option<Path> {
 
         Some(Path { relative, absolute })
     }
+}
+
+fn normalize_path_lexically(path: &str) -> Option<String> {
+    let mut result = vec![];
+
+    for segment in path.split("/") {
+        match segment {
+            "." => {},
+            ".." => match result.pop() {
+                Some(s) => {
+                    if s == "" {
+                        return None;
+                    }
+                },
+                None => {
+                    return None;
+                },
+            },
+            s => {
+                result.push(s.to_string());
+            },
+        }
+    }
+
+    if let Some(last) = result.last() && last == "" {
+        result.pop().unwrap();
+    }
+
+    Some(result.join("/"))
 }
 
 #[cfg(test)]

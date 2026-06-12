@@ -9,6 +9,7 @@ use ragit_fs::{
     join4,
     read_string,
     remove_dir_all,
+    remove_file,
     write_string,
 };
 use serde::de::DeserializeOwned;
@@ -202,11 +203,12 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
 async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Error> {
     if let Some((id, interrupt_kind, interrupt)) = context.check_interrupt_from_user()? {
         context.process_interrupt_from_user(id, interrupt_kind, interrupt, config).await?;
-        context.store()?;
 
-        if interrupt_kind == InterruptKind::Instruction {
-            context.remove_done_mark()?;
+        if interrupt_kind == InterruptKind::Instruction && context.is_marked_done()? {
+            context.has_to_remove_done_mark = true;
         }
+
+        context.store()?;
     }
 
     if context.is_marked_done()? {
@@ -491,7 +493,10 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
     let mut new_context = Context::new(working_dir, old_context.is_in_global_index_dir)?;
     new_context.neukgu_id = old_context.neukgu_id;
     new_context.store()?;
-    new_context.remove_done_mark()?;
+
+    if exists(&join3(working_dir, "logs", "done")?) {
+        remove_file(&join3(working_dir, "logs", "done")?)?;
+    }
 
     if config.agents.big == Model::Mock {
         reset_mock_state(working_dir)?;

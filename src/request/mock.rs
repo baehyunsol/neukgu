@@ -426,6 +426,22 @@ edition = "2024"
             Some("no such file"),
         ),
         MockRequest::new(
+            "<write><path>d1/d2/x.txt</path><mode>create</mode><content>Hello!!</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<run><path>d1/d2/</path><command>git init</command></run>",
+            None,
+        ),
+        MockRequest::new(
+            "<run><path>d1/d2/</path><command>git status</command><stdout>../stat.txt</stdout></run>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>d1/stat.txt</path></read>",
+            Some("branch"),
+        ),
+        MockRequest::new(
             "<write>\n<mode>create</mode>\n<path>logs/summary-git.md</path>\n<content>\nI have tested git and it's working.\n</content>\n</write>",
             None,
         ),

@@ -455,7 +455,18 @@ impl ToolCall {
                 }
 
                 let stdout_path = if let Some(stdout) = stdout {
-                    match check_write_path(stdout, &context.working_dir, None)? {
+                    let mut stdout = stdout.to_string();
+
+                    if let Some(run_at) = &run_at {
+                        stdout = match run_at.abs_or_join(&stdout, &context.working_dir) {
+                            Some(p) => p.to_string(),
+                            None => {
+                                return Ok(Err(ToolCallError::InvalidPath(stdout.to_string())));
+                            },
+                        };
+                    }
+
+                    match check_write_path(&stdout, &context.working_dir, None)? {
                         Ok(path) => Some(path),
                         Err(e) => {
                             return Ok(Err(e));
@@ -466,7 +477,18 @@ impl ToolCall {
                 };
 
                 let stderr_path = if let Some(stderr) = stderr {
-                    match check_write_path(stderr, &context.working_dir, None)? {
+                    let mut stderr = stderr.to_string();
+
+                    if let Some(run_at) = &run_at {
+                        stderr = match run_at.abs_or_join(&stderr, &context.working_dir) {
+                            Some(p) => p.to_string(),
+                            None => {
+                                return Ok(Err(ToolCallError::InvalidPath(stderr.to_string())));
+                            },
+                        };
+                    }
+
+                    match check_write_path(&stderr, &context.working_dir, None)? {
                         Ok(path) => Some(path),
                         Err(e) => {
                             return Ok(Err(e));
@@ -1322,6 +1344,7 @@ impl ToolCallError {
                 PatchError::MultipleMatch => String::from("I found multiple matches in the file that can apply your patch. Please give me more contexts so that I can decide where to patch."),
                 PatchError::NoUpdate => String::from("I can't apply the patch because the patch only has context lines, and there're no lines to remove or update. Please specify what lines to remove or delete."),
             },
+            ToolCallError::CannotRemoveNonExistFile { path } => format!("You can't remove `{path}` because the file doesn't exist."),
             ToolCallError::RunPermissionDeniedByUser { command, not_responding } => format!(
                 "The user denied to give you a permission to run `{}`.{}",
                 join_command_args(command),
@@ -1344,6 +1367,15 @@ If you want to run the binary in another directory, use `<path>` parameter, like
 <path>path-to-run-binary/</path>
 <command>your-command</command>
 </run>"
+                } else if binary == "ls" {
+                    "
+
+If you want to list the directory, use `<read>` tool with the directory's path, like this:
+
+<read>
+<path>path-to-the-directory/</path>
+</read>
+"
                 } else {
                     ""
                 },

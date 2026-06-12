@@ -163,6 +163,14 @@ For example, you have lots of crates in your directory and you want to build one
 <path>crates/api/</path>
 <command>cargo test</command>
 </run>
+
+If `<path>` and `<stdout>` are both set, `<stdout>` is relative to `<path>`. For example, the below tool-call will run the code in `foo/bar/`, and dump the result at `foo/baz.txt`
+
+<run>
+<path>foo/bar/</path>
+<command>git log</command>
+<stdout>../baz.txt</stdout>
+</run>
 "#),
             ToolKind::Ask => format!(r#"
 {index}. Ask

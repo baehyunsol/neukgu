@@ -167,6 +167,7 @@ pub struct FeContext {
     pub question_from_user_elapsed: Option<u64>,
     pub config: Config,
     pub initialized_at: Instant,
+    pub is_in_global_index_dir: bool,
 
     // If it experienced an API error (status code not 200..300) in
     // the current turn, the status code is recorded here.
@@ -352,6 +353,7 @@ impl FeContext {
             snapshots,
             config: Config::load(working_dir)?,
             initialized_at: Instant::now(),
+            is_in_global_index_dir: be_context.is_in_global_index_dir,
             truncation,
             previews: HashMap::new(),
             has_new_turn: false,

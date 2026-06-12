@@ -35,7 +35,7 @@ pub struct LogId(pub String);
 impl LogId {
     pub fn new() -> Self {
         let now = Local::now();
-        LogId(format!("{:07}-{:07}", now.timestamp_millis().max(0) as u64 % 1_000_000_000 / 100, rand::random::<u32>() % 10_000_000))
+        LogId(format!("{:08}-{:05}", now.timestamp_millis().max(0) as u64 % 2_000_000_000 / 20, rand::random::<u32>() % 100_000))
     }
 }
 
@@ -151,7 +151,7 @@ impl Logger {
             }
 
             // It makes extra_content files are almost always ordered by creation time.
-            sleep(Duration::from_millis(100));
+            sleep(Duration::from_millis(20));
             Ok(Some(log_id))
         }
 

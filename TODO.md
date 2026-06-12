@@ -209,19 +209,6 @@
   - ripgrep의 stdout을 redirect한 다음에, 결과물의 첫번째 200줄만 확인했음
   - 근데 이게 무지무지하게 길어서 이거 혼자서 200KiB를 넘겨버렸음...
   - 그렇게되니까 아직 10턴도 안됐는데 중간 턴들이 생략되기 시작하면서 context가 개판이 됐음...
-130. deploy any model locally
-  - huggingface 링크를 하나 주고 "이 모델을 로컬에서 openai-compatible하게 API로 띄워줘"라고 부탁하고 싶음. 이미지도 지원해야함
-  - 이러니까 문제가, 늑구에서는 백그라운드에 프로세스를 띄울 방법이 없음...
-    - 그나마 제일 간단한 거는 `<run>`에다가 옵션을 추가해서 그게 떠 있으면 백그라운드에서 돌게 놔두는 거임
-    - 일단 stateful 해지면 문제가 엄청 많아지거든? 정리를 해보자...
-      - 늑구를 껐다가 다시 돌아오면 서버가 내려갔을텐데 AI는 그걸 알 방법이 없음
-      - 롤백 불가능
-      - 서버를 올리는게 가능하면 내리는 것도 가능해야함. 이거는 지가 알아서 `<run>`으로 하려나?
-  - serve라는 tool을 만들까?
-  - 아니면, 이런 건 ㅇㄸ? 서버 프로세스를 띄우고, 특정 url (아마 localhost겠지)로 request를 날리고, response를 기억한 다음에, 서버 프로세스를 죽이고 response만 반환 -> 이렇게를 통째로 tool로 묶는 거임!!
-    - "서버 프로세스"라는 건 어떻게 표현?? binary를 만들어야 하나? 지금은 binary를 만드는 능력이 너무 떨어짐 ㅠㅠ
-  - 지금도 구현은 가능: server program, test program, manage program을 각각 만들 거임. test program은 server에 요청을 보내고 응답이 제대로 왔는지 확인. manage program은 server program과 test program을 각각 띄운 다음에 test가 끝날 때까지 기다리고 (timeout 걸어도 되고), 끝나면 server program을 죽임
-    - 이렇게 시키면 너무 복잡하잖아? 그럼 이걸 SKILL로 만들자!!
 132. web search tool -> 이거 내가 만들어버리면 안됨??
   - built-in web search가 있으면 그걸 쓰고, 없으면 내가 만든 걸 쓰는 거지
   - 구글에 http로 직접 요청 날린 다음에 결과물 분석하면 됨 -> 이거는 걍 늑구한테 만들어달라고 하면 바로 될 듯?
@@ -267,8 +254,6 @@
   - ollama 0.24.0 linux에서 쓰니까 message 안에 content/reasoning/role이 들어있거든? 셋다 string. 근데 또 웃긴건 ollama 문서에는 field 이름이 reasoning이 아니고 thinking이라고 돼 있음...
   - deepinfra uses the field name "reasoning_content", and neukgu's current implementation also uses this field
   - how about using all the 3 keys? make all of them optional and just choose whatever one...
-158. `<run>`에다가 path랑 stderr을 같이 줄 경우, 지금은 둘을 별개로 취급하고 있지만 AI는 stderr이 path에 대한 상대경로라고 생각하네 -> 근데 ai가 맞는 듯?
-  - 사실 어떻게 해도 헷갈림. 이거는 프롬프트에 더 자세히 적어둬야함!
 159. https://github.com/developer0hye/office2pdf
   - 한국인이 claude로 만든 라이브러리 ㅋㅋㅋ
   - docx/xlsx/pptx -> pdf인데 pure-rust라서 더 좋음!!
@@ -375,6 +360,7 @@
 179. permission config ui에다가 "allow all", "deny all", "ask all" 버튼 추가!
 180. 시스템 프롬프트에다가 cwd랑 오늘 날짜 정도는 알려주자. 그리고 "사용자가 명시하지 않는 이상 cwd 밖으로 나가지 마세요"라고도 하자!!
 181. InvalidLogId -> `Path` 관련된 초대형 refactoring 한 다음에 GUI에서 이 오류가 자주 보임...
+  - FailedToAcquireWriteLock도 자주 보이는 중... mock으로 sleep 꺼놓고 테스트하는데 거의 3번에 한번 꼴로 등장
 
 ## mock API
 

@@ -29,7 +29,6 @@ use ragit_fs::{
     join4,
     normalize,
     read_string,
-    remove_file,
     write_string,
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +60,7 @@ pub struct Context {
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,  // never hidden
     pub is_in_global_index_dir: bool,
+    pub has_to_remove_done_mark: bool,
 
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
@@ -83,6 +83,7 @@ pub struct ContextJson {
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
+    pub has_to_remove_done_mark: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -118,6 +119,7 @@ impl Context {
             is_in_global_index_dir,
             available_binaries,
             global_index_dir,
+            has_to_remove_done_mark: false,
             logger,
             new_config: None,
         })
@@ -140,6 +142,7 @@ impl Context {
             hidden_turns: context_json.hidden_turns.clone(),
             pinned_turns: context_json.pinned_turns.clone(),
             is_in_global_index_dir: context_json.is_in_global_index_dir,
+            has_to_remove_done_mark: context_json.has_to_remove_done_mark,
             ..Context::new(working_dir, false)?
         })
     }
@@ -165,6 +168,7 @@ impl Context {
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
             is_in_global_index_dir: self.is_in_global_index_dir,
+            has_to_remove_done_mark: self.has_to_remove_done_mark,
         }
     }
 
@@ -256,14 +260,14 @@ impl Context {
     // 2. The LLM is gonna do this anyway, so we can save time and cost by skipping
     //    the LLM api.
     //
-    // # 2.
-    pub fn get_fake_turn(&self) -> Option<(String, TurnKind)> {
+    // # 2. Remove `logs/done`
+    pub fn get_fake_turn(&mut self) -> Option<(String, TurnKind)> {
         let session_starts: Vec<&TurnSummary> = self.history.iter().filter(
             |turn| turn.kind == TurnKind::SessionStart
         ).collect();
 
         match session_starts.len() {
-            0 => Some((
+            0 => return Some((
                 String::from(
 "Let's first check what I have in the working directory.
 <read>
@@ -275,7 +279,7 @@ impl Context {
             )),
             1 => match session_starts[0].result {
                 TurnResultSummary::ParseError => unreachable!(),
-                TurnResultSummary::ToolCallError => Some((
+                TurnResultSummary::ToolCallError => return Some((
                     String::from(
 "Okay, I can't get the list of files in the working directory. But there must be neukgu-instruction.md. Let's read the instructions.
 <read>
@@ -285,7 +289,7 @@ impl Context {
                     ),
                     TurnKind::SessionStart,
                 )),
-                TurnResultSummary::ToolCallSuccess => Some((
+                TurnResultSummary::ToolCallSuccess => return Some((
                     String::from(
 "Okay, I see the instruction file. Let's read the instructions.
 <read>
@@ -296,7 +300,24 @@ impl Context {
                     TurnKind::SessionStart,
                 )),
             },
-            _ => None,
+            _ => {},
+        }
+
+        if self.has_to_remove_done_mark {
+            self.has_to_remove_done_mark = false;
+            Some((
+                String::from("
+Let me remove `logs/done` and continue working.
+<remove>
+<path>logs/done</path>
+</remove>
+                "),
+                TurnKind::RemoveDoneMark,
+            ))
+        }
+
+        else {
+            None
         }
     }
 
@@ -451,17 +472,7 @@ impl Context {
     }
 
     pub fn is_marked_done(&self) -> Result<bool, Error> {
-        Ok(exists(&join3(&self.working_dir, "logs", "done")?))
-    }
-
-    pub fn remove_done_mark(&self) -> Result<(), Error> {
-        let done_mark = join3(&self.working_dir, "logs", "done")?;
-
-        if exists(&done_mark) {
-            remove_file(&done_mark)?;
-        }
-
-        Ok(())
+        Ok(!self.has_to_remove_done_mark && exists(&join3(&self.working_dir, "logs", "done")?))
     }
 }
 
