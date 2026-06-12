@@ -357,10 +357,13 @@
         - When a context finishes (logs/done), it's switched to the caller.
         - Let's say context P spawned context C. C finished its work and passed the context back to P. Then the user switched to C and resumed it. What happens when C finishes?
 178. opus에서는 thinking.enabled가 지원이 안되고 thinking.adaptive만 된대...
-179. permission config ui에다가 "allow all", "deny all", "ask all" 버튼 추가!
 180. 시스템 프롬프트에다가 cwd랑 오늘 날짜 정도는 알려주자. 그리고 "사용자가 명시하지 않는 이상 cwd 밖으로 나가지 마세요"라고도 하자!!
 181. InvalidLogId -> `Path` 관련된 초대형 refactoring 한 다음에 GUI에서 이 오류가 자주 보임...
   - FailedToAcquireWriteLock도 자주 보이는 중... mock으로 sleep 꺼놓고 테스트하는데 거의 3번에 한번 꼴로 등장
+182. run 명령어의 permission 검사를 할 때 path와 stdout이 동시에 있는 경우 문제가 있음.
+  - 둘이 동시에 있으면 `.abs_or_join`을 이용해서 stdout을 다시 계산해야하거든? 근데 `ask_permission_to_user` 안에서 그 계산을 하는게 좀 많이 이상함
+  - 그렇다고 `ToolCall::run` 안에서 `ask_permission_to_user`를 하기도 좀 이상한게, `check_read_path`보다 `ask_permission_to_user`가 뒤에 오는 건 말이 안됨. 권한이 없어도 그 파일이 존재하는지 아닌지를 알 수 있는 거잖아!
+  - 하다보니까 추가로 이상한 거: `check_read_path`랑 `check_write_path`가 `Result<Result<(), ToolCallError>, Error>`를 반환하는데, 그냥 `Result<(), ToolCallError>`를 반환하는게 맞지 않음? 저 함수들에서 오류가 발생하면 백엔드를 죽이는게 아니고 그냥 AI한테 그대로 알려줘야지... 예를 들어서, `check_write_path` 안에서 `parent()`나 `join()`이 실패하는 건 애초에 AI가 만들어낸 path가 이상한 거니까 당연히 ToolCallError고, `create_dir_all`이 실패하는 것도 (높은 확률로 권한 문제) 그냥 AI한테 알려주면 깔끔하게 해결될 문제...
 
 ## mock API
 
