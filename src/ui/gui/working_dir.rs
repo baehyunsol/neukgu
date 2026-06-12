@@ -1876,7 +1876,9 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
             );
         },
         QuestionKind::ToolPermission { kind, path, preview } => {
-            column.push(text!("path: {path}").size(context.zoom * 14.0).into());
+            if let Some(path) = path {
+                column.push(text!("path: {path}").size(context.zoom * 14.0).into());
+            }
 
             match preview {
                 PermissionPreview::String(s) => {

@@ -1,4 +1,4 @@
-use super::{gray, set_round_bg};
+use super::{blue, button, gray, green, red, set_round_bg};
 use crate::{
     Config,
     Model,
@@ -34,6 +34,7 @@ pub enum SetProjectConfig {
     ToggleSkill(String, bool),
     SetToolPermission(ToolPermissionKind, PermissionConfig),
     SetRunPermission(String, PermissionConfig),
+    SetAllPermissions(PermissionConfig),
     OpenaiEtc1BaseUrl(String),
     OpenaiEtc1Model(String),
     OpenaiEtc2BaseUrl(String),
@@ -106,6 +107,15 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
         },
         SetProjectConfig::SetRunPermission(bin, p) => {
             config.run_permissions.insert(bin, p);
+        },
+        SetProjectConfig::SetAllPermissions(new) => {
+            for p in config.tool_permissions.values_mut() {
+                *p = new;
+            }
+
+            for binary in list_binaries() {
+                config.run_permissions.insert(binary.to_string(), new);
+            }
         },
         SetProjectConfig::OpenaiEtc1BaseUrl(url) => {
             if url.is_empty() {
@@ -387,6 +397,11 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
         Column::from_vec(vec![
             text!("Permissions").size(zoom * 14.0).into(),
             Column::from_vec(permission_radios).spacing(zoom * 8.0).into(),
+            Row::from_vec(vec![
+                button("Allow all", SetProjectConfig::SetAllPermissions(PermissionConfig::Allow), green(), zoom).into(),
+                button("Deny all", SetProjectConfig::SetAllPermissions(PermissionConfig::Deny), red(), zoom).into(),
+                button("Ask all", SetProjectConfig::SetAllPermissions(PermissionConfig::Ask), blue(), zoom).into(),
+            ]).spacing(zoom * 8.0).into(),
         ])
             .align_x(Horizontal::Center)
             .spacing(zoom * 8.0)

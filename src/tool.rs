@@ -136,7 +136,7 @@ pub enum ToolCall {
         question: QuestionToUser,
     },
     Chrome {
-        input: String,
+        input: WebOrFile,
         output: String,
         script: Option<String>,
     },
@@ -648,20 +648,6 @@ impl ToolCall {
             },
             // TODO: error if `script` is set and `input` is not an html
             ToolCall::Chrome { script, input, output } => {
-                let raw_input = input.to_string();
-
-                // What a naive algorithm...
-                let input = if input.starts_with("http://") || input.starts_with("https://") {
-                    WebOrFile::Web(input.to_string())
-                } else {
-                    let path = match normalize_path(input, &context.working_dir) {
-                        Some(path) => path,
-                        None => {
-                            return Ok(Err(ToolCallError::InvalidPath(input.to_string())));
-                        },
-                    };
-                    WebOrFile::File(path)
-                };
                 let output = match check_write_path(output, &context.working_dir, None)? {
                     Ok(path) => path,
                     Err(e) => {
@@ -669,17 +655,45 @@ impl ToolCall {
                     },
                 };
 
-                let url = {
-                    if let WebOrFile::File(_) = &input {
-                        let file_path = match check_read_path(&raw_input, &context.working_dir)? {
+                match input {
+                    WebOrFile::Web(url) => {
+                        // TODO: It occasionally panics on MacOS, when it launches the browser multiple times in a session.
+                        let browser = Browser::new(BrowserLaunchOptions {
+                            window_size: Some((1920, 1080)),
+                            ..BrowserLaunchOptions::default()
+                        }).map_err(from_browser_error)?;
+                        let tab = browser.new_tab().map_err(from_browser_error)?;
+                        let mut script_output = None;
+                        tab.navigate_to(url).map_err(from_browser_error)?;
+
+                        // TODO: timeout?
+                        // TODO: test with larger objects (maybe truncate the result?)
+                        if let Some(script) = script {
+                            script_output = Some(format!("{:?}", tab.evaluate(script, false).map_err(from_browser_error)?));
+                        }
+
+                        // Some pages take time to load.
+                        sleep(Duration::from_millis(2_000)).await;
+
+                        let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
+                        let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
+                        write_bytes(&output.absolute, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
+                        Ok(Ok(ToolCallSuccess::ChromeWeb { input: url.to_string(), output_path: output, output_image: image_id, script_output }))
+                    },
+                    WebOrFile::File(input) => {
+                        let input = match check_read_path(input, &context.working_dir)? {
                             Ok(path) => path,
                             Err(e) => {
                                 return Ok(Err(e));
                             },
                         };
 
-                        if file_path.absolute.to_ascii_lowercase().ends_with(".svg") {
-                            let svg_data = read_string(&file_path.absolute)?;
+                        if input.absolute.ends_with(".svg") {
+                            if script.is_some() {
+                                return Ok(Err(ToolCallError::SvgWithScript));
+                            }
+
+                            let svg_data = read_string(&input.absolute)?;
 
                             // VIBE NOTE: gemini 3.1 wrote this code (svg to png)
                             let mut opt = resvg::usvg::Options::default();
@@ -702,35 +716,38 @@ impl ToolCall {
 
                             let png_data = read_bytes(&output.absolute)?;
                             let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
-                            return Ok(Ok(ToolCallSuccess::Chrome { input, output_path: output, output_image: image_id, script_output: None }));
+                            return Ok(Ok(ToolCallSuccess::Svg { input, output_path: output, output_image: image_id }));
                         }
-                    }
 
-                    input.to_url()
-                };
+                        // FIXME: redundant code
+                        else {
+                            let url = format!("file://{}", input.absolute);
 
-                // TODO: It occasionally panics on MacOS, when it launches the browser multiple times in a session.
-                let browser = Browser::new(BrowserLaunchOptions {
-                    window_size: Some((1920, 1080)),
-                    ..BrowserLaunchOptions::default()
-                }).map_err(from_browser_error)?;
-                let tab = browser.new_tab().map_err(from_browser_error)?;
-                let mut script_output = None;
-                tab.navigate_to(&url).map_err(from_browser_error)?;
+                            // TODO: It occasionally panics on MacOS, when it launches the browser multiple times in a session.
+                            let browser = Browser::new(BrowserLaunchOptions {
+                                window_size: Some((1920, 1080)),
+                                ..BrowserLaunchOptions::default()
+                            }).map_err(from_browser_error)?;
+                            let tab = browser.new_tab().map_err(from_browser_error)?;
+                            let mut script_output = None;
+                            tab.navigate_to(&url).map_err(from_browser_error)?;
 
-                // TODO: timeout?
-                // TODO: test with larger objects (maybe truncate the result?)
-                if let Some(script) = script {
-                    script_output = Some(format!("{:?}", tab.evaluate(script, false).map_err(from_browser_error)?));
+                            // TODO: timeout?
+                            // TODO: test with larger objects (maybe truncate the result?)
+                            if let Some(script) = script {
+                                script_output = Some(format!("{:?}", tab.evaluate(script, false).map_err(from_browser_error)?));
+                            }
+
+                            // Some pages take time to load.
+                            sleep(Duration::from_millis(2_000)).await;
+
+                            let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
+                            let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
+                            write_bytes(&output.absolute, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
+                            Ok(Ok(ToolCallSuccess::ChromeFile { input, output_path: output, output_image: image_id, script_output }))
+                        }
+                    },
                 }
-
-                // Some pages take time to load.
-                sleep(Duration::from_millis(2_000)).await;
-
-                let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
-                let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
-                write_bytes(&output.absolute, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
-                Ok(Ok(ToolCallSuccess::Chrome { input, output_path: output, output_image: image_id, script_output }))
             },
             ToolCall::ImageEdit { input, prompt, size, output } => {
                 if let Model::Disabled | Model::Mock = config.agents.image_edit {
@@ -844,14 +861,17 @@ impl ToolCall {
                 format!("{to:?}").to_ascii_lowercase(),
                 truncate_chars(&question.question, 42),
             ),
-            ToolCall::Chrome { script, input, output } => format!(
-                "open chrome and render `{input}` to `{output}`{}",
-                if let Some(script) = script {
-                    format!(" (script: {})", truncate_chars(script, 42))
-                } else {
-                    String::new()
-                },
-            ),
+            ToolCall::Chrome { script, input, output } => {
+                let (WebOrFile::Web(input) | WebOrFile::File(input)) = input;
+                format!(
+                    "open chrome and render `{input}` to `{output}`{}",
+                    if let Some(script) = script {
+                        format!(" (script: {})", truncate_chars(script, 42))
+                    } else {
+                        String::new()
+                    },
+                )
+            },
             ToolCall::ImageEdit { input, prompt, .. } => format!(
                 "editing `{input}` {:?}",
                 truncate_chars(prompt, 42),
@@ -928,11 +948,22 @@ pub enum ToolCallSuccess {
         to: AskTo,
         answer: UserAnswer,
     },
-    Chrome {
-        input: WebOrFile,
+    ChromeWeb {
+        input: String,
         output_path: Path,
         output_image: ImageId,
         script_output: Option<String>,
+    },
+    ChromeFile {
+        input: Path,
+        output_path: Path,
+        output_image: ImageId,
+        script_output: Option<String>,
+    },
+    Svg {
+        input: Path,
+        output_path: Path,
+        output_image: ImageId,
     },
     ImageEdit {
         input: Path,
@@ -1062,26 +1093,29 @@ impl ToolCallSuccess {
                 vec![LLMToken::String(s)]
             },
             ToolCallSuccess::Ask { answer, .. } => vec![LLMToken::String(answer.to_string())],
-            ToolCallSuccess::Chrome { input, output_path, output_image, script_output } => {
-                let input_path = match input {
-                    WebOrFile::Web(url) => url.to_string(),
-                    WebOrFile::File(path) => path.absolute.to_string(),
-                };
-                let input_rendered = match input {
-                    WebOrFile::Web(url) => url.to_string(),
-                    WebOrFile::File(path) => path.to_string(),
+            ToolCallSuccess::ChromeWeb { output_path, output_image, script_output, .. } |
+            ToolCallSuccess::ChromeFile { output_path, output_image, script_output, .. } => {
+                let input = match self {
+                    ToolCallSuccess::ChromeWeb { input, .. } => input.to_string(),
+                    ToolCallSuccess::ChromeFile { input, .. } => input.to_string(),
+                    _ => unreachable!(),
                 };
 
                 vec![
                     LLMToken::String(format!(
-                        "Successfully opened `{input_rendered}`{}{}, captured a screenshot, and saved it to `{output_path}`.{}",
-                        if input_path.ends_with(".svg") { "" } else { " with chrome" },
+                        "Successfully opened `{input}`{}, captured a screenshot, and saved it to `{output_path}`.{}",
                         if script_output.is_some() { ", ran javascript" } else { "" },
                         if let Some(script_output) = script_output { format!("\nscript output: {script_output}") } else { String::new() },
                     )),
                     LLMToken::Image(*output_image),
                 ]
             },
+            ToolCallSuccess::Svg { input, output_path, output_image } => vec![
+                    LLMToken::String(format!(
+                        "Successfully opened `{input}`, captured a screenshot, and saved it to `{output_path}`.\nNOTE: For svg files, the harness uses rust resvg library to render the files instead of using chrome. If you really want to use chrome, convert the file to html (or anything other than svg) and try again.",
+                    )),
+                    LLMToken::Image(*output_image),
+            ],
             ToolCallSuccess::ImageEdit { input, output_path, output_image, .. } => vec![
                 LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
                 LLMToken::Image(*output_image),
@@ -1116,7 +1150,7 @@ Answered a user question. NOTE: this QA has nothing to do with the current work 
             ToolCallSuccess::ReadDir { path, .. } => Ok(Some((path.absolute.to_string(), None))),
 
             // TODO: what if AI reads a directory with chrome?
-            ToolCallSuccess::Chrome { input: WebOrFile::File(path), .. } => Ok(Some((parent(&path.absolute)?, Some(basename(&path.absolute)?)))),
+            ToolCallSuccess::ChromeFile { input, .. } => Ok(Some((parent(&input.absolute)?, Some(basename(&input.absolute)?)))),
             _ => Ok(None),
         }
     }
@@ -1129,7 +1163,7 @@ pub enum ToolCallError {
     // permission errors (by user)
     ToolPermissionDeniedByUser {
         kind: ToolPermissionKind,
-        path: Path,
+        path: Option<Path>,
         not_responding: bool,
     },
     RunPermissionDeniedByUser {
@@ -1245,6 +1279,9 @@ pub enum ToolCallError {
     UserRejectedToRespond,
     WebSearchDisabled,
 
+    // chrome errors
+    SvgWithScript,
+
     // image-edit errors
     NotAnImage {
         path: Path,
@@ -1299,8 +1336,9 @@ impl ToolCallError {
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
             ToolCallError::ToolPermissionDeniedByUser { kind, path, not_responding } => format!(
-                "The user denied to give you a permission to {} `{path}`. The harness asked {:?} to the user and the user {}.",
+                "The user denied to give you a permission to {}{}. The harness asked {:?} to the user and the user {}.",
                 kind.describe(),
+                if let Some(path) = path { format!(" `{path}`") } else { String::new() },
                 kind.question(),
                 if *not_responding {
                     "didn't respond"

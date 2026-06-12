@@ -6,6 +6,7 @@ use super::{
     ToolCallError,
     ToolCallSuccess,
     UserAnswer,
+    WebOrFile,
     ask_question_to_user,
     normalize_path,
 };
@@ -36,6 +37,7 @@ pub enum ToolPermissionKind {
     WriteExt,
     Remove,
     RemoveExt,
+    Chrome,
 }
 
 impl ToolPermissionKind {
@@ -47,6 +49,7 @@ impl ToolPermissionKind {
             ToolPermissionKind::WriteExt,
             ToolPermissionKind::Remove,
             ToolPermissionKind::RemoveExt,
+            ToolPermissionKind::Chrome,
         ]
     }
 
@@ -58,6 +61,7 @@ impl ToolPermissionKind {
             ToolPermissionKind::WriteExt => "Will you allow me to write to an external file?",
             ToolPermissionKind::Remove => "Will you allow me to remove a file?",
             ToolPermissionKind::RemoveExt => "Will you allow me to remove an external file?",
+            ToolPermissionKind::Chrome => "Will you allow me to use chrome?",
         }
     }
 
@@ -70,6 +74,7 @@ impl ToolPermissionKind {
             ToolPermissionKind::WriteExt => "write to an external file",
             ToolPermissionKind::Remove => "remove a file",
             ToolPermissionKind::RemoveExt => "remove an external file",
+            ToolPermissionKind::Chrome => "use chrome",
         }
     }
 
@@ -81,6 +86,7 @@ impl ToolPermissionKind {
             ToolPermissionKind::WriteExt => "write-ext-file",
             ToolPermissionKind::Remove => "remove-file",
             ToolPermissionKind::RemoveExt => "remove-ext-file",
+            ToolPermissionKind::Chrome => "chrome",
         }
     }
 }
@@ -109,61 +115,76 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
 
     match tool {
         ToolCall::Read { path, .. } => {
-            tools.push((ToolPermissionKind::Read, path.to_string(), PermissionPreview::None));
+            tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::None));
         },
         ToolCall::Write { path, content, .. } => {
-            tools.push((ToolPermissionKind::Write, path.to_string(), PermissionPreview::String(content.to_string())));
+            tools.push((ToolPermissionKind::Write, Some(path.to_string()), PermissionPreview::String(content.to_string())));
         },
         ToolCall::Patch { path, diff } => {
-            tools.push((ToolPermissionKind::Write, path.to_string(), PermissionPreview::Diff(diff.to_vec())));
+            tools.push((ToolPermissionKind::Write, Some(path.to_string()), PermissionPreview::Diff(diff.to_vec())));
         },
         ToolCall::Remove { path } => {
-            tools.push((ToolPermissionKind::Remove, path.to_string(), PermissionPreview::None));
+            tools.push((ToolPermissionKind::Remove, Some(path.to_string()), PermissionPreview::None));
         },
         ToolCall::Run { command, path, stdout, stderr, .. } => {
+            let mut stdout = stdout.clone();
+            let mut stderr = stderr.clone();
+
             if let Some(path) = path {
-                tools.push((ToolPermissionKind::Read, path.to_string(), PermissionPreview::None));
+                tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::None));
+            }
+
+            if path.is_some() && (stdout.is_some() || stderr.is_some()) {
+                // we have to re-calculate the path
+                // see issue 182
+                todo!();
             }
 
             if let Some(stdout) = stdout {
-                tools.push((ToolPermissionKind::Write, stdout.to_string(), PermissionPreview::None));
+                tools.push((ToolPermissionKind::Write, Some(stdout.to_string()), PermissionPreview::None));
             }
 
             if let Some(stderr) = stderr {
-                tools.push((ToolPermissionKind::Write, stderr.to_string(), PermissionPreview::None));
+                tools.push((ToolPermissionKind::Write, Some(stderr.to_string()), PermissionPreview::None));
             }
 
             runs.push(command.to_vec());
         },
         ToolCall::Ask { .. } => {},
         ToolCall::Chrome { input, output, .. } => {
-            tools.push((ToolPermissionKind::Read, input.to_string(), PermissionPreview::None));
-            tools.push((ToolPermissionKind::Write, output.to_string(), PermissionPreview::None));
+            if let WebOrFile::File(input) = input {
+                tools.push((ToolPermissionKind::Read, Some(input.to_string()), PermissionPreview::None));
+            }
+
+            tools.push((ToolPermissionKind::Write, Some(output.to_string()), PermissionPreview::None));
+            tools.push((ToolPermissionKind::Chrome, None, PermissionPreview::None));
         },
         ToolCall::ImageEdit { input, output, .. } => {
-            tools.push((ToolPermissionKind::Read, input.to_string(), PermissionPreview::None));
-            tools.push((ToolPermissionKind::Write, output.to_string(), PermissionPreview::None));
+            tools.push((ToolPermissionKind::Read, Some(input.to_string()), PermissionPreview::None));
+            tools.push((ToolPermissionKind::Write, Some(output.to_string()), PermissionPreview::None));
         },
     }
 
     for (permission_kind, path, preview) in tools.into_iter() {
-        let path = match normalize_path(&path, &context.working_dir) {
-            Some(path) => path,
+        let (path, permission_kind) = match path.map(|path| normalize_path(&path, &context.working_dir)) {
+            Some(Some(path)) => {
+                let permission_kind = match (permission_kind, path.relative.is_none()) {
+                    (ToolPermissionKind::Read, true) => ToolPermissionKind::ReadExt,
+                    (ToolPermissionKind::Write, true) => ToolPermissionKind::WriteExt,
+                    (ToolPermissionKind::Remove, true) => ToolPermissionKind::RemoveExt,
+                    (p, _) => p,
+                };
+                (Some(path), permission_kind)
+            },
 
             // If it's an invalid path, we don't have to check permission because harness will raise an error.
-            None => continue,
-        };
-
-        let permission_kind = match (permission_kind, path.relative.is_none()) {
-            (ToolPermissionKind::Read, true) => ToolPermissionKind::ReadExt,
-            (ToolPermissionKind::Write, true) => ToolPermissionKind::WriteExt,
-            (ToolPermissionKind::Remove, true) => ToolPermissionKind::RemoveExt,
-            (p, _) => p,
+            Some(None) => continue,
+            None => (None, permission_kind),
         };
         let permission = config.tool_permissions.get(&permission_kind).unwrap_or(&PermissionConfig::Ask);
 
         match permission {
-            PermissionConfig::Allow => break,
+            PermissionConfig::Allow => continue,
             PermissionConfig::Deny => {
                 return Ok(Err(ToolCallError::ToolPermissionDeniedByUser { kind: permission_kind, path: path.clone(), not_responding: false }));
             },
@@ -173,7 +194,7 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
         let interrupt_id = InterruptId::new();
         let question = QuestionToUser {
             question: permission_kind.question().to_string(),
-            kind: QuestionKind::ToolPermission { kind: permission_kind, path: path.to_string(), preview },
+            kind: QuestionKind::ToolPermission { kind: permission_kind, path: path.as_ref().map(|path| path.to_string()), preview },
         };
 
         let (permission, not_responding) = match ask_question_to_user(interrupt_id, &question, context, config).await? {

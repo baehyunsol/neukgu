@@ -4,6 +4,7 @@ use crate::tool::{
     ParseCommandError,
     QuestionKind,
     QuestionToUser,
+    WebOrFile,
     WriteMode,
     parse_command,
     parse_line_diff,
@@ -557,6 +558,12 @@ impl ToolCall {
                             arg: String::from("input"),
                         });
                     },
+                };
+                // TODO: any better heuristics?
+                let input = if input.starts_with("http://") || input.starts_with("https://") {
+                    WebOrFile::Web(input)
+                } else {
+                    WebOrFile::File(input)
                 };
                 let output = match parse_string_arg(args, "output") {
                     Some(output) => output,

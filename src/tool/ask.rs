@@ -36,7 +36,7 @@ pub enum QuestionKind {
     },
     ToolPermission {
         kind: ToolPermissionKind,
-        path: String,
+        path: Option<String>,
         preview: PermissionPreview,
     },
     RunPermission {
