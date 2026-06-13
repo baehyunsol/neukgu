@@ -1977,7 +1977,7 @@ fn render_find_result<'f, 'm, 'c>(
         }
 
         else if m.line_number != curr_line_no + 1 {
-            lines.push(Space::new().height(context.zoom * 14.0).into());
+            lines.push(text!("@@").size(context.zoom * 14.0).into());
         }
 
         curr_line_no = m.line_number;

@@ -1,8 +1,85 @@
+use super::{Path, ToolCallError, check_read_path, check_write_path, normalize_path};
 use crate::{Error, subprocess};
 use ragit_fs::{FileError, exists, into_abs_path, is_symlink, join, join3};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::symlink;
+
+pub fn calc_run_paths(
+    run_at: &Option<String>,
+    stdout: &Option<String>,
+    stderr: &Option<String>,
+    working_dir: &str,
+    check_permissions: bool,
+) -> Result<Result<(Option<Path>, Option<Path>, Option<Path>), ToolCallError>, Error> {
+    let run_at = match run_at {
+        Some(run_at) if check_permissions => match check_read_path(run_at, working_dir)? {
+            Ok(run_at) => Some(run_at),
+            Err(e) => return Ok(Err(e)),
+        },
+        Some(run_at) => match normalize_path(run_at, working_dir) {
+            Some(run_at) => Some(run_at),
+            None => return Ok(Err(ToolCallError::InvalidPath(run_at.to_string()))),
+        },
+        None => None,
+    };
+
+    let stdout = match stdout {
+        Some(stdout) => {
+            let stdout = match &run_at {
+                Some(run_at) => match run_at.abs_or_join(stdout, working_dir) {
+                    Some(path) => path.to_string(),
+                    None => return Ok(Err(ToolCallError::InvalidPath(stdout.to_string()))),
+                },
+                None => stdout.to_string(),
+            };
+
+            if check_permissions {
+                match check_write_path(&stdout, working_dir, None)? {
+                    Ok(path) => Some(path),
+                    Err(e) => return Ok(Err(e)),
+                }
+            }
+
+            else {
+                match normalize_path(&stdout, working_dir) {
+                    Some(path) => Some(path),
+                    None => return Ok(Err(ToolCallError::InvalidPath(stdout.to_string()))),
+                }
+            }
+        },
+        None => None,
+    };
+
+    let stderr = match stderr {
+        Some(stderr) => {
+            let stderr = match &run_at {
+                Some(run_at) => match run_at.abs_or_join(stderr, working_dir) {
+                    Some(path) => path.to_string(),
+                    None => return Ok(Err(ToolCallError::InvalidPath(stderr.to_string()))),
+                },
+                None => stderr.to_string(),
+            };
+
+            if check_permissions {
+                match check_write_path(&stderr, working_dir, None)? {
+                    Ok(path) => Some(path),
+                    Err(e) => return Ok(Err(e)),
+                }
+            }
+
+            else {
+                match normalize_path(&stderr, working_dir) {
+                    Some(path) => Some(path),
+                    None => return Ok(Err(ToolCallError::InvalidPath(stderr.to_string()))),
+                }
+            }
+        },
+        None => None,
+    };
+
+    Ok(Ok((run_at, stdout, stderr)))
+}
 
 pub fn list_binaries() -> [&'static str; 6] {
     [

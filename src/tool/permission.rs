@@ -9,6 +9,7 @@ use super::{
     WebOrFile,
     ask_question_to_user,
     normalize_path,
+    run,
 };
 use crate::{Config, Context, Error, InterruptId};
 use serde::{Deserialize, Serialize};
@@ -127,26 +128,30 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
             tools.push((ToolPermissionKind::Remove, Some(path.to_string()), PermissionPreview::None));
         },
         ToolCall::Run { command, path, stdout, stderr, .. } => {
-            let mut stdout = stdout.clone();
-            let mut stderr = stderr.clone();
+            match run::calc_run_paths(
+                path,
+                stdout,
+                stderr,
+                &context.working_dir,
+                false,  // check permissions
+            )? {
+                Ok((path, stdout, stderr)) => {
+                    if let Some(path) = path {
+                        tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::None));
+                    }
 
-            if let Some(path) = path {
-                tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::None));
-            }
+                    if let Some(stdout) = stdout {
+                        tools.push((ToolPermissionKind::Write, Some(stdout.to_string()), PermissionPreview::None));
+                    }
 
-            if path.is_some() && (stdout.is_some() || stderr.is_some()) {
-                // we have to re-calculate the path
-                // see issue 182
-                todo!();
-            }
+                    if let Some(stderr) = stderr {
+                        tools.push((ToolPermissionKind::Write, Some(stderr.to_string()), PermissionPreview::None));
+                    }
+                },
 
-            if let Some(stdout) = stdout {
-                tools.push((ToolPermissionKind::Write, Some(stdout.to_string()), PermissionPreview::None));
-            }
-
-            if let Some(stderr) = stderr {
-                tools.push((ToolPermissionKind::Write, Some(stderr.to_string()), PermissionPreview::None));
-            }
+                // It will be caught later by another function.
+                Err(_) => {},
+            };
 
             runs.push(command.to_vec());
         },

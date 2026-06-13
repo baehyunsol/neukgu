@@ -32,7 +32,7 @@ impl Request {
     }
 
     pub async fn send_mock_request(&self, working_dir: &str) -> Result<Response, Error> {
-        // sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
+        sleep(Duration::from_millis(3000 + rand::random::<u64>() % 4096)).await;
         let mut state = MockState::load(working_dir)?;
         state.check_prev_turn_output(&self.query)?;
         let response = state.get_next_turn();

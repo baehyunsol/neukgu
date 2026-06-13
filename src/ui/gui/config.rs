@@ -109,8 +109,8 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
             config.run_permissions.insert(bin, p);
         },
         SetProjectConfig::SetAllPermissions(new) => {
-            for p in config.tool_permissions.values_mut() {
-                *p = new;
+            for permission in ToolPermissionKind::all() {
+                config.tool_permissions.insert(permission, new);
             }
 
             for binary in list_binaries() {

@@ -441,61 +441,15 @@ impl ToolCall {
             },
             ToolCall::Run { timeout, command, path, env, stdout, stderr } => {
                 let mut env = env.to_vec();
-                let mut run_at = None;
-
-                if let Some(path) = path {
-                    match check_read_path(path, &context.working_dir)? {
-                        Ok(path) => {
-                            run_at = Some(path);
-                        },
-                        Err(e) => {
-                            return Ok(Err(e));
-                        },
-                    }
-                }
-
-                let stdout_path = if let Some(stdout) = stdout {
-                    let mut stdout = stdout.to_string();
-
-                    if let Some(run_at) = &run_at {
-                        stdout = match run_at.abs_or_join(&stdout, &context.working_dir) {
-                            Some(p) => p.to_string(),
-                            None => {
-                                return Ok(Err(ToolCallError::InvalidPath(stdout.to_string())));
-                            },
-                        };
-                    }
-
-                    match check_write_path(&stdout, &context.working_dir, None)? {
-                        Ok(path) => Some(path),
-                        Err(e) => {
-                            return Ok(Err(e));
-                        },
-                    }
-                } else {
-                    None
-                };
-
-                let stderr_path = if let Some(stderr) = stderr {
-                    let mut stderr = stderr.to_string();
-
-                    if let Some(run_at) = &run_at {
-                        stderr = match run_at.abs_or_join(&stderr, &context.working_dir) {
-                            Some(p) => p.to_string(),
-                            None => {
-                                return Ok(Err(ToolCallError::InvalidPath(stderr.to_string())));
-                            },
-                        };
-                    }
-
-                    match check_write_path(&stderr, &context.working_dir, None)? {
-                        Ok(path) => Some(path),
-                        Err(e) => {
-                            return Ok(Err(e));
-                        },
-                    }
-                } else {
-                    None
+                let (run_at, stdout_path, stderr_path) = match run::calc_run_paths(
+                    path,
+                    stdout,
+                    stderr,
+                    &context.working_dir,
+                    true,  // check permissions
+                )? {
+                    Ok((p1, p2, p3)) => (p1, p2, p3),
+                    Err(e) => return Ok(Err(e)),
                 };
 
                 // If `command` is empty, that's a parse error.
