@@ -237,7 +237,7 @@ impl Context {
 
         Ok(Request {
             model: config.agents.big,
-            system_prompt: system_prompt(config),
+            system_prompt: system_prompt(config, &self.working_dir),
             history,
             query,
             enable_web_search: false,

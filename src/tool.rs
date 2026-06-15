@@ -96,7 +96,13 @@ pub use read::{
     check_read_path,
     read_file,
 };
-pub use run::{ParseCommandError, init_and_load_available_binaries, list_binaries, parse_command};
+pub use run::{
+    ParseCommandError,
+    init_and_load_available_binaries,
+    list_binaries,
+    parse_command,
+    to_bash,
+};
 pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -162,7 +168,7 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::TooManyReadWithoutSummary));
                 }
 
-                let path = match check_read_path(path, &context.working_dir)? {
+                let path = match check_read_path(path, &context.working_dir) {
                     Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
@@ -309,7 +315,7 @@ impl ToolCall {
                 }
             },
             ToolCall::Write { path, mode, content } => {
-                let path = match check_write_path(path, &context.working_dir, Some(*mode))? {
+                let path = match check_write_path(path, &context.working_dir, Some(*mode)) {
                     Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
@@ -382,7 +388,7 @@ impl ToolCall {
                 }))
             },
             ToolCall::Patch { path, diff } => {
-                let path = match check_write_path(path, &context.working_dir, None)? {
+                let path = match check_write_path(path, &context.working_dir, None) {
                     Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
@@ -447,7 +453,7 @@ impl ToolCall {
                     stderr,
                     &context.working_dir,
                     true,  // check permissions
-                )? {
+                ) {
                     Ok((p1, p2, p3)) => (p1, p2, p3),
                     Err(e) => return Ok(Err(e)),
                 };
@@ -602,7 +608,7 @@ impl ToolCall {
             },
             // TODO: error if `script` is set and `input` is not an html
             ToolCall::Chrome { script, input, output } => {
-                let output = match check_write_path(output, &context.working_dir, None)? {
+                let output = match check_write_path(output, &context.working_dir, None) {
                     Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
@@ -635,7 +641,7 @@ impl ToolCall {
                         Ok(Ok(ToolCallSuccess::ChromeWeb { input: url.to_string(), output_path: output, output_image: image_id, script_output }))
                     },
                     WebOrFile::File(input) => {
-                        let input = match check_read_path(input, &context.working_dir)? {
+                        let input = match check_read_path(input, &context.working_dir) {
                             Ok(path) => path,
                             Err(e) => {
                                 return Ok(Err(e));
@@ -708,13 +714,13 @@ impl ToolCall {
                     return Ok(Err(ToolCallError::ImageEditDisabled));
                 }
 
-                let input = match check_read_path(input, &context.working_dir)? {
+                let input = match check_read_path(input, &context.working_dir) {
                     Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
                     },
                 };
-                let output = match check_write_path(output, &context.working_dir, None)? {
+                let output = match check_write_path(output, &context.working_dir, None) {
                     Ok(path) => path,
                     Err(e) => {
                         return Ok(Err(e));
@@ -1183,6 +1189,7 @@ pub enum ToolCallError {
     CannotCreateParentDirectory {
         parent: String,
         path: Path,
+        error: Option<String>,
     },
     WriteModeError {
         path: Path,
@@ -1311,8 +1318,9 @@ impl ToolCallError {
 
                 format!("You can't create a directory with that tool. If you want to create a directory `{path}`, just create a file inside the directory. Then all the intermediate directories will be created.")
             },
-            ToolCallError::CannotCreateParentDirectory { parent, path } => format!(
-                "Tried to create parent directory of `{path}`, but it failed. `{parent}` already exists and is not a directory",
+            ToolCallError::CannotCreateParentDirectory { parent, path, error } => format!(
+                "Tried to create parent directory of `{path}`, but it failed.\nParent directory: `{parent}`{}",
+                if let Some(e) = error { format!("\nError: {e}") } else { String::new() },
             ),
             ToolCallError::WriteModeError { path, mode, exists } => match (mode, exists) {
                 (WriteMode::Create, true) => format!("You can't create `{path}` because it already exists. Try with \"truncate\" or \"append\"."),

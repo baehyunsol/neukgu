@@ -737,11 +737,11 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     if context.bg_job.is_some() {
-        turns.push(text!("Processing...").size(context.zoom * 14.0).into());
+        turns.push(text!("Processing...").color(white()).size(context.zoom * 14.0).into());
     }
 
     if let Some(error) = &context.bg_error {
-        turns.push(text!("{error}").size(context.zoom * 14.0).color(red()).into());
+        turns.push(text!("{error}").color(red()).size(context.zoom * 14.0).into());
     }
 
     // Without this, chat_input will hide the error message
@@ -760,7 +760,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
     let mut full_view = vec![
         Row::from_vec(vec![
-            text!("{}", context.chat.title.as_ref().unwrap_or(&String::from("(untitled)"))).size(context.zoom * 18.0).into(),
+            text!("{}", context.chat.title.as_ref().unwrap_or(&String::from("(untitled)"))).color(white()).size(context.zoom * 18.0).into(),
             if context.curr_popup.is_some() {
                 disabled_button("Change", blue(), context.zoom).into()
             } else {
@@ -781,7 +781,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view.push(text!(
             "find: {pattern:?}, found {matches} result{}",
             if matches == 1 { "" } else { "s" },
-        ).size(context.zoom * 14.0).into());
+        ).color(white()).size(context.zoom * 14.0).into());
     }
 
     full_view.push(turns_colored.into());
@@ -792,6 +792,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ).style(|_| set_bg(black())).into());
 
     let full_view = Column::from_vec(full_view);
+    let full_view = Container::new(full_view).style(|_| set_bg(gray(0.16)));
     let chat_config_ui_in_container = Container::new(
         Column::from_vec(vec![
             Row::from_vec(vec![
@@ -874,6 +875,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
+            .color(white())
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
         let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
@@ -976,8 +978,8 @@ pub fn render_turn<'n, 'cn, 'cx>(
 
     Container::new(Column::from_vec(vec![
         Column::from_vec(vec![
-            text!("{name}").size(context.zoom * 18.0).into(),
-            text!("({})", prettify_timestamp(timestamp)).size(context.zoom * 14.0).into(),
+            text!("{name}").color(white()).size(context.zoom * 18.0).into(),
+            text!("({})", prettify_timestamp(timestamp)).color(white()).size(context.zoom * 14.0).into(),
         ])
             .width(context.window_size.width)
             .align_x(align_name)
@@ -1099,7 +1101,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
     let mut button: Element<Message> = Container::new(
         Row::from_vec(vec![
             Column::from_vec(vec![
-                text!("{enter_button}").size(zoom * 14.0).into()
+                text!("{enter_button}").color(white()).size(zoom * 14.0).into()
             ])
                 .width(Length::Fill)
                 .align_x(Horizontal::Center)

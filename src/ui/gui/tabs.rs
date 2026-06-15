@@ -295,6 +295,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                     Task::none()
                 }
             },
+            (Key::Character("c"), true, false, true) => {
+                context.scratch_pad.toggle_calendar();
+                context.keep_scroll()
+            },
             (Key::Character("m"), true, false, true) => {
                 let mut tasks = vec![
                     focus(context.scratch_pad.text_editor_id.clone()),

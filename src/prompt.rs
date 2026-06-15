@@ -1,3 +1,4 @@
+use chrono::Local;
 use crate::{Config, SkillConfig, ToolKind};
 use std::collections::HashMap;
 
@@ -236,7 +237,7 @@ You can optionally set the size of the edited image. You can use `<size>` tag wi
     }
 }
 
-pub fn system_prompt(config: &Config) -> String {
+pub fn system_prompt(config: &Config, cwd: &str) -> String {
     let mut tool_descriptions = Vec::with_capacity(config.activated_tools.len());
 
     for (i, tool) in config.activated_tools.iter().enumerate() {
@@ -253,6 +254,10 @@ pub fn system_prompt(config: &Config) -> String {
         Some(skill_descriptions) => format!("{skill_descriptions}\n\n---\n\n"),
         None => String::new(),
     };
+
+    // It invalidates the prompt cache everyday... but we can afford that!!
+    let date = Local::now().to_rfc3339();
+    let date = date.get(0..10).unwrap();
 
     format!(r#"
 You're neukgu (늑구), an AI coding agent.
@@ -271,6 +276,9 @@ You can use {tool_count} tools to accomplish your task: {tool_concat}. You use X
 You have to regularly write summaries of your work at `logs/summary-XXX.md`. The file must be in `logs/` directory, the file name must start with "summary", and the file extension must be "md".
 When you're done, create a file `logs/done`, and write your final summary there. Then I'll give you feedback.
 When you write a summary, it must include 1) what you've done so far 2) what you've done since the last time you wrote a summary 3) what you've learnt so far 4) what you've learnt since the last time you wrote a summary and 5) what are the remaining things to do.
+
+Today's date is {date}. Use this information only when necessary.
+The current working directory is `{cwd}`. Use this information only when necessary. Don't try to read/write files outside of the working directory, unless the user explicitly asks.
 
 ---
 

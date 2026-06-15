@@ -113,6 +113,7 @@ const HELP_MESSAGE: &str = r#"
 
 - Ctrl+Shift+Esc: close scratch pad
 - Ctrl+Shift+Up/Down: scroll scratch pad to top/bottom
+- Ctrl+Shift+C: open calendar
 - Ctrl+Shift+E: expand/collapse scratch pad
 - Ctrl+Shift+M: open memo
 - Ctrl+Shift+P: open slide rule
@@ -842,7 +843,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         Column::from_vec(vec![
             Row::from_vec(vec![
-                text!("{title}").size(context.zoom * 14.0).into(),
+                text!("{title}").color(white()).size(context.zoom * 14.0).into(),
                 Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             Row::from_vec(vec![
@@ -862,7 +863,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let c = Column::from_vec(vec![
         Column::from_vec(vec![
             Row::from_vec(vec![
-                text!("{}", context.now).size(context.zoom * 14.0).into(),
+                text!("{}", context.now).color(white()).size(context.zoom * 14.0).into(),
                 render_battery_state(context),
             ])
                 .spacing(context.zoom * 8.0)
@@ -951,12 +952,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         {
             let (version, commit, build_profile) = build_info();
             Container::new(
-                text!("version: {version} ({commit}), build-profile: {build_profile}").size(context.zoom * 12.0)
+                text!("version: {version} ({commit}), build-profile: {build_profile}").color(white()).size(context.zoom * 12.0)
             )
                 .padding(context.zoom * 8.0)
                 .into()
         },
     ]).spacing(context.zoom * 8.0);
+    let c = Container::new(c).style(|_| set_bg(gray(0.16)));
 
     let mut full_view_stacked: Element<IcedMessage> = Scrollable::new(c)
         .id(context.main_view_id.clone())
@@ -1000,7 +1002,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::Skill { name }) = &context.curr_popup {
         let skill_editor = Scrollable::new(
             Column::from_vec(vec![
-                text!("name").size(context.zoom * 18.0).into(),
+                text!("name").color(white()).size(context.zoom * 18.0).into(),
                 TextInput::new("name", &context.short_text_editor_content)
                     .width(context.window_size.width)
                     .size(context.zoom * 14.0)
@@ -1008,7 +1010,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .on_input(IcedMessage::EditShortText)
                     .on_submit(IcedMessage::FocusLongTextEdit)
                     .into(),
-                text!("description").size(context.zoom * 18.0).into(),
+                text!("description").color(white()).size(context.zoom * 18.0).into(),
                 TextEditor::new(&context.long_text_editor_content)
                     .width(context.window_size.width)
                     .size(context.zoom * 14.0)
@@ -1016,7 +1018,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .min_height(300)
                     .on_action(IcedMessage::EditLongText)
                     .into(),
-                text!("body").size(context.zoom * 18.0).into(),
+                text!("body").color(white()).size(context.zoom * 18.0).into(),
                 TextEditor::new(&context.extra_text_editor_content)
                     .width(context.window_size.width)
                     .size(context.zoom * 14.0)
@@ -1076,7 +1078,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::ChatSystemPrompts) = &context.curr_popup {
         let mut column: Vec<Element<IcedMessage>> = context.system_prompts.iter().enumerate().map(
             |(i, system_prompt)| Row::from_vec(vec![
-                Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).size(context.zoom * 14.0))
+                Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).color(white()).size(context.zoom * 14.0))
                     .width(context.zoom * 500.0)
                     .height(context.zoom * 100.0)
                     .padding(context.zoom * 8.0)
@@ -1124,7 +1126,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::Error(e)) = &context.curr_popup {
         let error = Column::from_vec(vec![
             text!("ERROR").color(red()).size(context.zoom * 21.0).into(),
-            text!("{e}").size(context.zoom * 14.0).into(),
+            text!("{e}").color(white()).size(context.zoom * 14.0).into(),
         ])
             .padding(context.zoom * 20.0)
             .spacing(context.zoom * 20.0)
@@ -1139,7 +1141,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     else if let Some(Popup::AskDeleteProject { project_name, working_dir }) = &context.curr_popup {
         let ask = Column::from_vec(vec![
-            text!("Delete project `{project_name}`?").size(context.zoom * 14.0).into(),
+            text!("Delete project `{project_name}`?").color(white()).size(context.zoom * 14.0).into(),
             button("(Y)es", IcedMessage::DeleteProject { project_name: project_name.to_string(), working_dir: working_dir.to_string() }, green(), context.zoom).into(),
         ])
             .spacing(context.zoom * 20.0)
@@ -1154,7 +1156,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     else if let Some(Popup::AskDeleteSkill(name)) = &context.curr_popup {
         let ask = Column::from_vec(vec![
-            text!("Delete skill `{name}`?").size(context.zoom * 14.0).into(),
+            text!("Delete skill `{name}`?").color(white()).size(context.zoom * 14.0).into(),
             button("(Y)es", IcedMessage::DeleteSkill(name.to_string()), green(), context.zoom).into(),
         ])
             .spacing(context.zoom * 20.0)
@@ -1170,9 +1172,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::AskDeleteChat { id, title }) = &context.curr_popup {
         let ask = Column::from_vec(vec![
             if let Some(title) = title {
-                text!("Delete chat `{title}`?").size(context.zoom * 14.0).into()
+                text!("Delete chat `{title}`?").color(white()).size(context.zoom * 14.0).into()
             } else {
-                text!("Delete untitled chat?").size(context.zoom * 14.0).into()
+                text!("Delete untitled chat?").color(white()).size(context.zoom * 14.0).into()
             },
             button("(Y)es", IcedMessage::DeleteChat(*id), green(), context.zoom).into(),
         ])
@@ -1188,7 +1190,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     else if let Some(Popup::AskDeleteChatSystemPrompt(i)) = context.curr_popup {
         let ask = Column::from_vec(vec![
-            text!("Are you sure to delete this system prompt?").size(context.zoom * 14.0).into(),
+            text!("Are you sure to delete this system prompt?").color(white()).size(context.zoom * 14.0).into(),
             button("(Y)es", IcedMessage::DeleteChatSystemPrompt(i), green(), context.zoom).into(),
         ])
             .spacing(context.zoom * 20.0)
@@ -1216,12 +1218,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 Column::from_vec(vec![
                     text_editor.into(),
                     if job_id.is_some() {
-                        text!("Finding...").size(context.zoom * 14.0).into()
+                        text!("Finding...").color(white()).size(context.zoom * 14.0).into()
                     } else {
                         Space::new().into()
                     },
                     if let Some(error) = error {
-                        text!("{error}").size(context.zoom * 14.0).color(red()).into()
+                        text!("{error}").color(white()).size(context.zoom * 14.0).color(red()).into()
                     } else {
                         Space::new().into()
                     },
@@ -1350,9 +1352,9 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
             Container::new(
                 Column::from_vec(vec![
-                    text!("{path}{elapsed}").size(context.zoom * 14.0).width(context.window_size.width).into(),
+                    text!("{path}{elapsed}").color(white()).size(context.zoom * 14.0).width(context.window_size.width).into(),
                     if let Some(error) = &project.error {
-                        text!("{error}").size(context.zoom * 14.0).color(red()).into()
+                        text!("{error}").color(red()).size(context.zoom * 14.0).into()
                     } else {
                         Row::from_vec(buttons).spacing(context.zoom * 4.0).into()
                     },
@@ -1394,6 +1396,7 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                         chat.title.as_ref().unwrap_or(&String::from("untitled")),
                         prettify_timestamp(chat.updated_at),
                     )
+                        .color(white())
                         .size(context.zoom * 14.0)
                         .width(context.window_size.width)
                         .into(),
@@ -1419,9 +1422,9 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let mut column: Vec<Element<IcedMessage>> = vec![draw_bg(
         Row::from_vec(vec![
-            text!("1. ").size(context.zoom * 14.0).into(),
+            text!("1. ").color(white()).size(context.zoom * 14.0).into(),
             circle(context.zoom * 6.0, white()),
-            text!("Index").size(context.zoom * 14.0).into(),
+            text!("Index").color(white()).size(context.zoom * 14.0).into(),
         ])
             .spacing(context.zoom * 4.0)
             .align_y(Vertical::Center),
@@ -1432,10 +1435,10 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     column.extend(context.current_tabs.iter().enumerate().map(
         |(i, tab)| {
-            let mut texts: Vec<Element<IcedMessage>> = vec![text!("{}", tab.title).size(context.zoom * 14.0).into()];
+            let mut texts: Vec<Element<IcedMessage>> = vec![text!("{}", tab.title).color(white()).size(context.zoom * 14.0).into()];
 
             if let Some(status) = &tab.status {
-                texts.push(text!("{status}").size(context.zoom * 14.0).into());
+                texts.push(text!("{status}").color(white()).size(context.zoom * 14.0).into());
             }
 
             if let Some(error) = &tab.error {
@@ -1444,7 +1447,7 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
             let tab_view = draw_bg(
                 Row::from_vec(vec![
-                    text!("{}. ", i + 2).size(context.zoom * 14.0).into(),
+                    text!("{}. ", i + 2).color(white()).size(context.zoom * 14.0).into(),
                     circle(context.zoom * 6.0, tab.flag),
                     if texts.len() == 1 { texts.remove(0).into() } else { Column::from_vec(texts).into() },
                 ])
@@ -1507,9 +1510,9 @@ fn render_skills_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage>
         |(name, maybe_skill)| Container::new(
             Row::from_vec(vec![
                 Column::from_vec(vec![
-                    text!("{name}").size(context.zoom * 18.0).into(),
+                    text!("{name}").color(white()).size(context.zoom * 18.0).into(),
                     Container::new(match maybe_skill {
-                        Ok(skill) => text!("{}", skill.description).size(context.zoom * 14.0),
+                        Ok(skill) => text!("{}", skill.description).color(white()).size(context.zoom * 14.0),
                         Err(e) => text!("ERROR: {e}").color(red()).size(context.zoom * 14.0),
                     })
                         .padding(context.zoom * 8.0)
@@ -1581,7 +1584,7 @@ fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessag
 
 fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     fn cell<'c>(on: bool, color: Color, zoom: f32) -> Element<'c, IcedMessage> {
-        let mut cell = Container::new(text!(" ").size(zoom * 14.0));
+        let mut cell = Container::new(text!(" ").size(zoom * 12.0));
         let background = if on {
             Some(Background::Color(color))
         } else {
@@ -1651,7 +1654,7 @@ fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage
 
 fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId, Vec<MatchPreview>)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut column: Vec<Element<IcedMessage>> = vec![
-        text!("Find: {regex}").size(context.zoom * 14.0).into(),
+        text!("Find: {regex}").color(white()).size(context.zoom * 14.0).into(),
     ];
     let chat_titles: HashMap<ChatId, String> = context.recent_chats.iter().filter_map(
         |chat| match &chat.title {
@@ -1664,16 +1667,16 @@ fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId
         |(chat_id, previews)| {
             let mut column = vec![
                 Row::from_vec(vec![
-                    text!("{}", chat_titles.get(chat_id).cloned().unwrap_or(String::from("untitled chat"))).size(context.zoom * 18.0).into(),
+                    text!("{}", chat_titles.get(chat_id).cloned().unwrap_or(String::from("untitled chat"))).color(white()).size(context.zoom * 18.0).into(),
                     button("Open", IcedMessage::NewTab { tab: Tab::Chat(*chat_id), force_new_tab: false }, green(), context.zoom).into(),
                 ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             ];
 
             for preview in previews.iter() {
                 let row: Vec<Element<IcedMessage>> = vec![
-                    text!("{}{}", if preview.pre_truncated { "..." } else { "" }, preview.pre).size(context.zoom * 14.0).into(),
+                    text!("{}{}", if preview.pre_truncated { "..." } else { "" }, preview.pre).color(white()).size(context.zoom * 14.0).into(),
                     Container::new(text!("{}", preview.matched).color(black()).size(context.zoom * 14.0)).style(|_| set_bg(white())).into(),
-                    text!("{}{}", preview.post, if preview.post_truncated { "..." } else { "" }).size(context.zoom * 14.0).into(),
+                    text!("{}{}", preview.post, if preview.post_truncated { "..." } else { "" }).color(white()).size(context.zoom * 14.0).into(),
                 ];
 
                 column.push(Row::from_vec(row).into());
@@ -1689,7 +1692,7 @@ fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId
     ));
 
     if matches.is_empty() {
-        column.push(text!("No matches found").size(context.zoom * 14.0).into());
+        column.push(text!("No matches found").color(white()).size(context.zoom * 14.0).into());
     }
 
     into_popup(

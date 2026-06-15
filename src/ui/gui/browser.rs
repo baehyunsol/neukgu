@@ -1202,7 +1202,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let entries_colored = Container::new(entries_scrollable).style(|_| set_bg(black()));
     let mut full_view = vec![
-        Container::new(text!("{}", context.cwd).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
+        Container::new(text!("{}", context.cwd).color(white()).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
         render_buttons(context),
         entries_colored.into(),
     ];
@@ -1213,6 +1213,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ).style(|_| set_bg(black())).into());
 
     let full_view = Column::from_vec(full_view);
+    let full_view = Container::new(full_view).style(|_| set_bg(gray(0.16)));
 
     let full_view_with_text_input = Stack::from_vec(vec![
         full_view.into(),
@@ -1627,7 +1628,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     let mut row = vec![];
 
     if let Some(i) = context.selected_entry && i == index {
-        row.push(text!(">> ").size(context.zoom * 14.0).into());
+        row.push(text!(">> ").color(white()).size(context.zoom * 14.0).into());
     }
 
     if context.curr_popup.is_some() {
@@ -1673,7 +1674,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         },
     };
 
-    let mut truncated_name = text!("{truncated_name} {size}").size(context.zoom * 14.0);
+    let mut truncated_name = text!("{truncated_name} {size}").color(white()).size(context.zoom * 14.0);
 
     if is_hovered {
         truncated_name = truncated_name.color(black());

@@ -1,4 +1,4 @@
-use super::{Path, ToolCallError, check_read_path, check_write_path, normalize_path};
+use super::{Path, ToolCallError, check_read_path, check_write_path, join_command_args, normalize_path};
 use crate::{Error, subprocess};
 use ragit_fs::{FileError, exists, into_abs_path, is_symlink, join, join3};
 use regex::Regex;
@@ -11,15 +11,15 @@ pub fn calc_run_paths(
     stderr: &Option<String>,
     working_dir: &str,
     check_permissions: bool,
-) -> Result<Result<(Option<Path>, Option<Path>, Option<Path>), ToolCallError>, Error> {
+) -> Result<(Option<Path>, Option<Path>, Option<Path>), ToolCallError> {
     let run_at = match run_at {
-        Some(run_at) if check_permissions => match check_read_path(run_at, working_dir)? {
+        Some(run_at) if check_permissions => match check_read_path(run_at, working_dir) {
             Ok(run_at) => Some(run_at),
-            Err(e) => return Ok(Err(e)),
+            Err(e) => return Err(e),
         },
         Some(run_at) => match normalize_path(run_at, working_dir) {
             Some(run_at) => Some(run_at),
-            None => return Ok(Err(ToolCallError::InvalidPath(run_at.to_string()))),
+            None => return Err(ToolCallError::InvalidPath(run_at.to_string())),
         },
         None => None,
     };
@@ -29,22 +29,22 @@ pub fn calc_run_paths(
             let stdout = match &run_at {
                 Some(run_at) => match run_at.abs_or_join(stdout, working_dir) {
                     Some(path) => path.to_string(),
-                    None => return Ok(Err(ToolCallError::InvalidPath(stdout.to_string()))),
+                    None => return Err(ToolCallError::InvalidPath(stdout.to_string())),
                 },
                 None => stdout.to_string(),
             };
 
             if check_permissions {
-                match check_write_path(&stdout, working_dir, None)? {
+                match check_write_path(&stdout, working_dir, None) {
                     Ok(path) => Some(path),
-                    Err(e) => return Ok(Err(e)),
+                    Err(e) => return Err(e),
                 }
             }
 
             else {
                 match normalize_path(&stdout, working_dir) {
                     Some(path) => Some(path),
-                    None => return Ok(Err(ToolCallError::InvalidPath(stdout.to_string()))),
+                    None => return Err(ToolCallError::InvalidPath(stdout.to_string())),
                 }
             }
         },
@@ -56,29 +56,29 @@ pub fn calc_run_paths(
             let stderr = match &run_at {
                 Some(run_at) => match run_at.abs_or_join(stderr, working_dir) {
                     Some(path) => path.to_string(),
-                    None => return Ok(Err(ToolCallError::InvalidPath(stderr.to_string()))),
+                    None => return Err(ToolCallError::InvalidPath(stderr.to_string())),
                 },
                 None => stderr.to_string(),
             };
 
             if check_permissions {
-                match check_write_path(&stderr, working_dir, None)? {
+                match check_write_path(&stderr, working_dir, None) {
                     Ok(path) => Some(path),
-                    Err(e) => return Ok(Err(e)),
+                    Err(e) => return Err(e),
                 }
             }
 
             else {
                 match normalize_path(&stderr, working_dir) {
                     Some(path) => Some(path),
-                    None => return Ok(Err(ToolCallError::InvalidPath(stderr.to_string()))),
+                    None => return Err(ToolCallError::InvalidPath(stderr.to_string())),
                 }
             }
         },
         None => None,
     };
 
-    Ok(Ok((run_at, stdout, stderr)))
+    Ok((run_at, stdout, stderr))
 }
 
 pub fn list_binaries() -> [&'static str; 6] {
@@ -199,6 +199,39 @@ fn try_create_bin_link(bin: &str, working_dir: &str) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+pub fn to_bash(
+    command: &[String],
+    path: &Option<String>,
+    env: &[(String, String)],
+    stdout: &Option<String>,
+    stderr: &Option<String>,
+) -> String {
+    let cd = match path {
+        Some(path) => format!("cd {path}; "),
+        None => String::new(),
+    };
+    let command = join_command_args(command);
+    let env = if env.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " {} ",
+            env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" "),
+        )
+    };
+    let redir = match (stdout, stderr) {
+        (Some(stdout), Some(stderr)) if stdout == stderr => format!(" &> {stdout}"),
+        (Some(stdout), Some(stderr)) => format!(" > {stdout} 2> {stderr}"),
+        (Some(stdout), None) => format!(" > {stdout}"),
+        (None, Some(stderr)) => format!(" 2> {stderr}"),
+        (None, None) => String::new(),
+    };
+
+    format!(
+        "{cd}{env}{command}{redir}",
+    )
 }
 
 // VIBE NOTE: The parsing stuff is written by sonnet (via neukgu)

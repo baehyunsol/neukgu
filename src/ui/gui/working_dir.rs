@@ -1320,10 +1320,10 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         |(i, p)| render_turn_preview(i, &p, context)
     ).collect();
 
-    turns.push(text!("{}", context.fe_context.curr_status()).size(context.zoom * 14.0).into());
+    turns.push(text!("{}", context.fe_context.curr_status()).color(white()).size(context.zoom * 14.0).into());
 
     if let Some(error) = context.fe_context.curr_error() {
-        turns.push(text!("{error}").size(context.zoom * 14.0).color(red()).into());
+        turns.push(text!("{error}").color(white()).size(context.zoom * 14.0).color(red()).into());
     }
 
     // Without this, interrupt_text_editor will hide the error message
@@ -1341,7 +1341,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     let turns_colored = Container::new(turns_scrollable).style(|_| set_bg(black()));
     let mut full_view = vec![
-        Container::new(text!("{}", context.fe_context.top_bar()).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
+        Container::new(text!("{}", context.fe_context.top_bar()).color(white()).size(context.zoom * 14.0)).padding(context.zoom * 8.0).into(),
         render_buttons(context),
     ];
 
@@ -1349,10 +1349,15 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let matches = context.fe_context.iter_previews().iter().filter(
             |preview| context.find_result.contains_key(&preview.preview_title_truncated)
         ).count();
-        full_view.push(text!(
-            "find: {pattern:?}, found {matches} result{}",
-            if matches == 1 { "" } else { "s" },
-        ).size(context.zoom * 14.0).into());
+        full_view.push(
+            text!(
+                "find: {pattern:?}, found {matches} result{}",
+                if matches == 1 { "" } else { "s" },
+            )
+                .color(white())
+                .size(context.zoom * 14.0)
+                .into(),
+        );
     }
 
     full_view.push(turns_colored.into());
@@ -1363,6 +1368,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     ).style(|_| set_bg(black())).into());
 
     let full_view = Column::from_vec(full_view);
+    let full_view = Container::new(full_view).style(|_| set_bg(gray(0.16)));
     let interrupt_kind_config_ui = Container::new(
         Column::from_vec(vec![
             Row::from_vec(vec![
@@ -1582,6 +1588,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     else if let Some(Popup::UserQuestion(_, _) | Popup::Log(_) | Popup::Help | Popup::Prompt | Popup::Instruction) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
+            .color(white())
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
         let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
@@ -1700,26 +1707,30 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
             p.preview_title_truncated.get(*end..).unwrap(),
         );
         Row::from_vec(vec![
-            text!("{pre}").size(context.zoom * 14.0).into(),
+            text!("{pre}").color(white()).size(context.zoom * 14.0).into(),
             Container::new(text!("{m}").color(black()).size(context.zoom * 14.0)).style(|_| set_bg(white())).into(),
-            text!("{post}").size(context.zoom * 14.0).into(),
+            text!("{post}").color(white()).size(context.zoom * 14.0).into(),
         ]).into()
     } else {
-        text!("{}", p.preview_title_truncated).size(context.zoom * 14.0).into()
+        text!("{}", p.preview_title_truncated).color(white()).size(context.zoom * 14.0).into()
     };
 
     let turn_row = Row::from_vec(vec![
-        text!("{index:>3}. ").size(context.zoom * 14.0).into(),
+        text!("{index:>3}. ").color(white()).size(context.zoom * 14.0).into(),
         Column::from_vec(vec![
-            text!("[{}]", p.timestamp).size(context.zoom * 14.0).into(),
-            text!("({})", prettify_timestamp(p.timestamp_millis)).size(context.zoom * 14.0).into(),
+            text!("[{}]", p.timestamp).color(white()).size(context.zoom * 14.0).into(),
+            text!("({})", prettify_timestamp(p.timestamp_millis)).color(white()).size(context.zoom * 14.0).into(),
         ]).into(),
         Column::from_vec(vec![
             Row::from_vec(vec![
                 preview_title,
                 turn_result,
             ]).into(),
-            text!("(LLM: {}, TOOL: {})", prettify_time(p.llm_elapsed_ms), prettify_time(p.tool_elapsed_ms)).width(Length::FillPortion(2)).size(context.zoom * 14.0).into(),
+            text!("(LLM: {}, TOOL: {})", prettify_time(p.llm_elapsed_ms), prettify_time(p.tool_elapsed_ms))
+                .color(white())
+                .size(context.zoom * 14.0)
+                .width(Length::FillPortion(2))
+                .into(),
         ]).width(Length::Fill).into(),
     ]).width(Length::Fill).align_y(Vertical::Center).spacing(context.zoom * 4.0);
 
@@ -1748,7 +1759,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
     let mut result = vec![];
 
     if let Some(i) = context.selected_turn && i == index {
-        result.push(text!(">> ").size(context.zoom * 14.0).into());
+        result.push(text!(">> ").color(white()).size(context.zoom * 14.0).into());
     }
 
     result.extend(vec![roll_back.into(), context_engineering.into(), with_mouse_area]);
@@ -1762,17 +1773,17 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
 
 fn render_turn<'t, 'c>(index: usize, turn: &'t Turn, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut turn_content = vec![
-        text!("# {index}. {}", turn.preview().preview_title).size(context.zoom * 18.0).into(),
-        text!("<|LLM|>").size(context.zoom * 14.0).into(),
+        text!("# {index}. {}", turn.preview().preview_title).color(white()).size(context.zoom * 18.0).into(),
+        text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
         Container::new(
             render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], &context.fe_context.working_dir, context.zoom, context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
-        text!("<|result|>").size(context.zoom * 14.0).into(),
+        text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
         Container::new(
             render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), &context.fe_context.working_dir, context.zoom, context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
     ];
-    turn_content.push(text!("{}", turn.introduce_agents()).size(context.zoom * 14.0).into());
+    turn_content.push(text!("{}", turn.introduce_agents()).color(white()).size(context.zoom * 14.0).into());
 
     let mut buttons = vec![];
 
@@ -1826,7 +1837,7 @@ pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clon
 ) -> Column<'c, Message> {
     Column::from_vec(llm_tokens.iter().map(
         |token| match token {
-            LLMToken::String(s) => text!("{s}").size(zoom * 14.0).width(Length::Fill).into(),
+            LLMToken::String(s) => text!("{s}").color(white()).size(zoom * 14.0).width(Length::Fill).into(),
             LLMToken::Image(id) => MouseArea::new(
                 Image::new(ImageHandle::from_path(id.path(working_dir).unwrap()))
                     .width(Length::Fixed(zoom * 480.0))
@@ -1841,7 +1852,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
     let elapsed_secs = Instant::now().duration_since(context.user_response_timeout_counter.clone()).as_secs();
     let Some((_, QuestionToUser { question, kind })) = &context.llm_request else { unreachable!() };
     let mut column: Vec<Element<IcedMessage>> = vec![
-        text!("{question}").size(context.zoom * 18.0).into(),
+        text!("{question}").color(white()).size(context.zoom * 18.0).into(),
     ];
 
     match kind {
@@ -1868,7 +1879,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 Row::from_vec(vec![
                     button("Answer", IcedMessage::AnswerLLMRequest, green(), context.zoom).into(),
                     button("Dismiss", IcedMessage::DismissLLMRequest, red(), context.zoom).into(),
-                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
+                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).color(white()).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
                     .spacing(context.zoom * 20.0)
@@ -1877,14 +1888,25 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         },
         QuestionKind::ToolPermission { kind, path, preview } => {
             if let Some(path) = path {
-                column.push(text!("path: {path}").size(context.zoom * 14.0).into());
+                column.push(text!("path: {path}").color(white()).size(context.zoom * 14.0).into());
             }
 
             match preview {
-                PermissionPreview::String(s) => {
+                PermissionPreview::String(_) | PermissionPreview::Diff(_) => {
+                    column.push(text!("content:").color(white()).size(context.zoom * 14.0).into());
+                },
+                PermissionPreview::Command(_) => {
+                    column.push(text!("command:").color(white()).size(context.zoom * 14.0).into());
+                },
+                PermissionPreview::None => {},
+            }
+
+            match preview {
+                PermissionPreview::String(s) | PermissionPreview::Command(s) => {
                     column.push(Scrollable::new(
                         Container::new(
                             text!("{s}")
+                                .color(white())
                                 .size(context.zoom * 14.0)
                         )
                             .padding(context.zoom * 4.0)
@@ -1911,7 +1933,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                     button(&format!("Always allow {}", kind.short_name() ), IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
                     button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
                     button(&format!("Always deny {}", kind.short_name()), IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
-                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
+                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).color(white()).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
                     .spacing(context.zoom * 20.0)
@@ -1921,7 +1943,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         QuestionKind::RunPermission { command } => {
             column.push(
                 Container::new(
-                    text!("{}", join_command_args(command)).size(context.zoom * 14.0)
+                    text!("{}", join_command_args(command)).color(white()).size(context.zoom * 14.0)
                 )
                     .padding(context.zoom * 4.0)
                     .width(context.window_size.width)
@@ -1935,7 +1957,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                     button(&format!("Always allow {binary}"), IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
                     button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
                     button(&format!("Always deny {binary}"), IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
-                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).size(context.zoom * 14.0).into(),
+                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).color(white()).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
                     .spacing(context.zoom * 20.0)
@@ -1959,7 +1981,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
 
 fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {
     if summaries.is_empty() {
-        return into_popup(text!("(There are no summaries yet.)").size(context.zoom * 14.0).into(), context);
+        return into_popup(text!("(There are no summaries yet.)").color(white()).size(context.zoom * 14.0).into(), context);
     }
 
     into_popup(
@@ -1987,7 +2009,7 @@ fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedCo
                         chars.into_iter().collect()
                     };
                     let summary_preview = Container::new(
-                        text!("{summary_preview}{}", if truncated { "..." } else { "" }).size(context.zoom * 14.0)
+                        text!("{summary_preview}{}", if truncated { "..." } else { "" }).color(white()).size(context.zoom * 14.0)
                     ).style(|_| Style {
                         background: Some(Background::Color(gray(0.15))),
                         border: Border {
@@ -2000,8 +2022,8 @@ fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedCo
 
                     Container::new(Column::from_vec(vec![
                         Row::from_vec(vec![
-                            text!("{}", summary.title).size(context.zoom * 18.0).into(),
-                            text!("({})", prettify_timestamp(summary.timestamp_millis)).size(context.zoom * 12.0).into(),
+                            text!("{}", summary.title).color(white()).size(context.zoom * 18.0).into(),
+                            text!("({})", prettify_timestamp(summary.timestamp_millis)).color(white()).size(context.zoom * 12.0).into(),
                         ]).spacing(context.zoom * 4.0).align_y(Vertical::Bottom).into(),
                         summary_preview.into(),
                         if truncated {
@@ -2032,8 +2054,8 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
         Scrollable::new(
             Column::from_vec(vec![
                 Row::from_vec(vec![
-                    text!("{}", summary.title).size(context.zoom * 18.0).into(),
-                    text!("[{}] ({})", summary.timestamp, prettify_timestamp(summary.timestamp_millis)).size(context.zoom * 12.0).into(),
+                    text!("{}", summary.title).color(white()).size(context.zoom * 18.0).into(),
+                    text!("[{}] ({})", summary.timestamp, prettify_timestamp(summary.timestamp_millis)).color(white()).size(context.zoom * 12.0).into(),
                 ]).spacing(context.zoom * 4.0).align_y(Vertical::Bottom).into(),
                 TextEditor::new(&context.long_text_editor_content)
                     .width(context.window_size.width)
@@ -2069,11 +2091,11 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
                         Space::new().into()
                     },
                     Space::new().width(context.zoom * 8.0).into(),
-                    text!("{} (", change.path).size(context.zoom * 14.0).into(),
+                    text!("{} (", change.path).color(white()).size(context.zoom * 14.0).into(),
                     text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
-                    text!(", ").size(context.zoom * 14.0).into(),
+                    text!(", ").color(white()).size(context.zoom * 14.0).into(),
                     text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
-                    text!(")").size(context.zoom * 14.0).into(),
+                    text!(")").color(white()).size(context.zoom * 14.0).into(),
                 ]).align_y(Vertical::Center).into(),
                 render_udiff(&change.udiff, context.window_size.width, context.zoom, false),
             ]).into()
@@ -2088,11 +2110,11 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
                     Space::new().into()
                 },
                 Space::new().width(context.zoom * 8.0).into(),
-                text!("{} (", change.path).size(context.zoom * 14.0).into(),
+                text!("{} (", change.path).color(white()).size(context.zoom * 14.0).into(),
                 text!("+{add}").size(context.zoom * 14.0).color(green()).into(),
-                text!(", ").size(context.zoom * 14.0).into(),
+                text!(", ").color(white()).size(context.zoom * 14.0).into(),
                 text!("-{remove}").size(context.zoom * 14.0).color(red()).into(),
-                text!(")").size(context.zoom * 14.0).into(),
+                text!(")").color(white()).size(context.zoom * 14.0).into(),
             ]).align_y(Vertical::Center).into()
         };
 
@@ -2120,7 +2142,7 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
     let insert_log_title_at = changes.len();
     changes.extend(log_changes.iter().map(|change| render_file_change(change, context, &mut all_logs_expanded)));
     changes.insert(0, Row::from_vec(vec![
-        text!("File Changes").size(context.zoom * 18.0).into(),
+        text!("File Changes").color(white()).size(context.zoom * 18.0).into(),
         if all_files_expanded {
             button("Collapse all", IcedMessage::ExpandAllFileChanges { log: false, expand: false }, white(), context.zoom).into()
         } else {
@@ -2128,7 +2150,7 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
         },
     ]).align_y(Vertical::Center).spacing(context.zoom * 12.0).into());
     changes.insert(insert_log_title_at + 1, Row::from_vec(vec![
-        text!("Log Changes").size(context.zoom * 18.0).into(),
+        text!("Log Changes").color(white()).size(context.zoom * 18.0).into(),
         if all_logs_expanded {
             button("Collapse all", IcedMessage::ExpandAllFileChanges { log: true, expand: false }, white(), context.zoom).into()
         } else {

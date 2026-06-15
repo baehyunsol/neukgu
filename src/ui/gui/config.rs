@@ -1,4 +1,4 @@
-use super::{blue, button, gray, green, red, set_round_bg};
+use super::{blue, button, gray, green, red, set_round_bg, white};
 use crate::{
     Config,
     Model,
@@ -279,7 +279,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
             ).collect()).spacing(zoom * 8.0).into()
         };
 
-        panels.push(panel_container(Row::from_vec(vec![text!("{title}").size(zoom * 14.0).into(), radios]).align_y(Vertical::Center).into(), zoom));
+        panels.push(panel_container(Row::from_vec(vec![text!("{title}").color(white()).size(zoom * 14.0).into(), radios]).align_y(Vertical::Center).into(), zoom));
     }
 
     let curr_q = match config.user_response_timeout {
@@ -288,7 +288,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
         _ => Questionable::Maybe,
     };
     panels.push(panel_container(Column::from_vec(vec![
-        text!("Will you answer neukgu's questions?").size(zoom * 14.0).into(),
+        text!("Will you answer neukgu's questions?").color(white()).size(zoom * 14.0).into(),
         Row::from_vec(vec![
             Radio::new("Always", Questionable::Always, Some(curr_q), SetProjectConfig::AgentQuestionable)
                 .spacing(zoom * 8.0)
@@ -339,7 +339,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
 
     panels.push(panel_container(
         Column::from_vec(vec![
-            text!("Tools").size(zoom * 14.0).into(),
+            text!("Tools").color(white()).size(zoom * 14.0).into(),
             Column::from_vec(tool_checkboxes).spacing(zoom * 8.0).into(),
         ])
             .align_x(Horizontal::Center)
@@ -353,7 +353,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
     for kind in ToolPermissionKind::all() {
         let kind_str = kind.short_name();
         permission_radios.push(Row::from_vec(vec![
-            text!("{}{kind_str}:", " ".repeat(16 - kind_str.len())).size(zoom * 14.0).into(),
+            text!("{}{kind_str}:", " ".repeat(16 - kind_str.len())).color(white()).size(zoom * 14.0).into(),
             Radio::new("Allow", PermissionConfig::Allow, Some(config.tool_permissions.get(&kind).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetToolPermission(kind, p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
@@ -374,7 +374,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
 
     for binary in list_binaries() {
         permission_radios.push(Row::from_vec(vec![
-            text!("{}{binary}:", " ".repeat(16 - binary.len())).size(zoom * 14.0).into(),
+            text!("{}{binary}:", " ".repeat(16 - binary.len())).color(white()).size(zoom * 14.0).into(),
             Radio::new("Allow", PermissionConfig::Allow, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
@@ -395,7 +395,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
 
     panels.push(panel_container(
         Column::from_vec(vec![
-            text!("Permissions").size(zoom * 14.0).into(),
+            text!("Permissions").color(white()).size(zoom * 14.0).into(),
             Column::from_vec(permission_radios).spacing(zoom * 8.0).into(),
             Row::from_vec(vec![
                 button("Allow all", SetProjectConfig::SetAllPermissions(PermissionConfig::Allow), green(), zoom).into(),
@@ -425,7 +425,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
 
         panels.push(panel_container(
             Column::from_vec(vec![
-                text!("Skills").size(zoom * 14.0).into(),
+                text!("Skills").color(white()).size(zoom * 14.0).into(),
                 Column::from_vec(skill_checkboxes).spacing(zoom * 8.0).into(),
             ])
                 .align_x(Horizontal::Center)
@@ -465,7 +465,7 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
 
 pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, SetChatConfig> {
     Row::from_vec(vec![
-        text!("Model:").size(zoom * 14.0).into(),
+        text!("Model:").color(white()).size(zoom * 14.0).into(),
         PickList::new(
             Model::all().into_iter().filter(
                 |model| model.is_real() && model.is_llm()
@@ -530,7 +530,7 @@ pub fn chat_config_ui2<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
 
 pub fn chat_config_ui3<'c>(config: &'c ChatConfig, system_prompts: &[String], zoom: f32) -> Element<'c, SetChatConfig> {
     let mut column: Vec<Element<SetChatConfig>> = vec![
-        text!("System prompt").size(zoom * 14.0).into(),
+        text!("System prompt").color(white()).size(zoom * 14.0).into(),
     ];
 
     for (i, system_prompt) in system_prompts.iter().enumerate() {
@@ -542,7 +542,7 @@ pub fn chat_config_ui3<'c>(config: &'c ChatConfig, system_prompts: &[String], zo
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .into(),
-            Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).size(zoom * 14.0))
+            Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).color(white()).size(zoom * 14.0))
                 .width(zoom * 400.0)
                 .height(zoom * 80.0)
                 .padding(zoom * 8.0)
@@ -563,9 +563,9 @@ fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2
     zoom: f32,
 ) -> Element<'c, Message> {
     Column::from_vec(vec![
-        text!("{title}").size(zoom * 14.0).into(),
+        text!("{title}").color(white()).size(zoom * 14.0).into(),
         Row::from_vec(vec![
-            text!("base url:").size(zoom * 14.0).into(),
+            text!("base url:").color(white()).size(zoom * 14.0).into(),
             TextInput::new("", base_url.as_ref().map_or("", |s| s))
                 .size(zoom * 14.0)
                 .on_input(set_base_url)
@@ -573,7 +573,7 @@ fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2
                 .into(),
         ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
         Row::from_vec(vec![
-            text!("   model:").size(zoom * 14.0).into(),
+            text!("   model:").color(white()).size(zoom * 14.0).into(),
             TextInput::new("", model_name.as_ref().map_or("", |s| s))
                 .size(zoom * 14.0)
                 .on_input(set_model)

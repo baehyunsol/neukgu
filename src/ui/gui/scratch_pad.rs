@@ -1,10 +1,16 @@
-use super::{black, blue, button, disabled_button, gold, gray, red, white};
-use super::file_change::render_udiff;
-use super::slide_rule::{
-    self,
-    IcedContext as SlideRuleContext,
-    IcedMessage as SlideRuleMessage,
+use super::{
+    black,
+    blue,
+    button,
+    disabled_button,
+    gold,
+    gray,
+    red,
+    set_round_bg,
+    skyblue,
+    white,
 };
+use super::file_change::render_udiff;
 use iced::{Background, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::border::{Border, Radius};
@@ -26,6 +32,12 @@ use iced::widget::text_editor::{
 };
 use std::sync::Arc;
 
+mod calendar;
+mod slide_rule;
+
+use calendar::{IcedContext as CalendarContext, IcedMessage as CalendarMessage};
+use slide_rule::{IcedContext as SlideRuleContext, IcedMessage as SlideRuleMessage};
+
 pub struct IcedContext {
     pub window_size: Size,
     pub alignment: Horizontal,
@@ -41,6 +53,7 @@ pub struct IcedContext {
     pub text_editor_context: String,
     pub image_path: String,
     pub slide_rule_context: SlideRuleContext,
+    pub calendar_context: CalendarContext,
 
     pub text_editor_content: TextEditorContent,
 }
@@ -60,6 +73,7 @@ impl IcedContext {
             text_editor_context: String::new(),
             image_path: String::new(),
             slide_rule_context: SlideRuleContext::new(),
+            calendar_context: CalendarContext::new(),
             text_editor_content: TextEditorContent::new(),
         }
     }
@@ -78,7 +92,7 @@ impl IcedContext {
             Tab::TextEdit => {
                 self.text_editor_context = self.text_editor_content.text();
             },
-            Tab::Hidden | Tab::Image | Tab::SlideRule => {},
+            Tab::Hidden | Tab::Image | Tab::SlideRule | Tab::Calendar => {},
         }
     }
 
@@ -149,6 +163,16 @@ impl IcedContext {
         }
     }
 
+    pub fn toggle_calendar(&mut self) {
+        self.save_context();
+
+        if self.tab == Tab::Calendar {
+            self.tab = Tab::Hidden;
+        } else {
+            self.tab = Tab::Calendar;
+        }
+    }
+
     pub fn zoom_in(&mut self) -> Task<IcedMessage> {
         if self.zoom < 2.4 {
             self.zoom += 0.1;
@@ -175,6 +199,7 @@ pub enum IcedMessage {
     ToggleExpand,
     SetAlignment(Horizontal),
     UpdateSlideRule(SlideRuleMessage),
+    UpdateCalendar(CalendarMessage),
     EditText(TextEditorAction),
     ZoomIn,
     ZoomOut,
@@ -189,6 +214,7 @@ pub enum Tab {
     TextEdit,
     Image,
     SlideRule,
+    Calendar,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +278,12 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::UpdateSlideRule(m) => {
             return slide_rule::update(&mut context.slide_rule_context, m).map(IcedMessage::UpdateSlideRule);
+        },
+        IcedMessage::UpdateCalendar(CalendarMessage::Notify(m)) => {
+            return Task::done(IcedMessage::Notify(m));
+        },
+        IcedMessage::UpdateCalendar(m) => {
+            return calendar::update(&mut context.calendar_context, m).map(IcedMessage::UpdateCalendar);
         },
         IcedMessage::EditText(a) => {
             context.text_editor_content.perform(a);
@@ -357,6 +389,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
             .into(),
         Tab::Image => ImageViewer::new(ImageHandle::from_path(&context.image_path)).into(),
         Tab::SlideRule => slide_rule::view(&context.slide_rule_context, context.window_size, context.zoom).map(IcedMessage::UpdateSlideRule),
+        Tab::Calendar => calendar::view(&context.calendar_context, context.window_size, context.zoom).map(IcedMessage::UpdateCalendar),
     };
 
     if let Some(title) = &context.title {

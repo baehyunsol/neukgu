@@ -579,7 +579,7 @@ impl FeContext {
     }
 
     pub fn get_system_prompt(&self) -> String {
-        system_prompt(&self.config)
+        system_prompt(&self.config, &self.working_dir)
     }
 
     pub fn get_instruction(&self) -> Result<String, Error> {

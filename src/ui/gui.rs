@@ -22,7 +22,6 @@ mod logs;
 mod model_store;
 mod popup;
 mod scratch_pad;
-mod slide_rule;
 mod tab;
 mod tabs;
 mod worker;

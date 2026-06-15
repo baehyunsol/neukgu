@@ -142,9 +142,20 @@
   - vis agent가 돌면 GUI에서는 어떻게 보임?
   - chat 하다가도 비슷한 수요가 생김. AI가 한 대답이 아주 긴 텍스트일 때, 그 텍스트를 그대로 주면서 "이걸 그림으로 설명해줘" 하면 괜찮을 듯? viz agent를 재활용하면 됨!!
 96. Issues (literally, like github)
-  - Issues are stored in `.neukgu/`.
-  - It provides github-like interface.
-  - Neukgu will read the issues and tries to fix them, and close them.
+  - SodigyPrivate의 TODO.md에서 하는 걸 늑구 안에서 할 수 있게 구현할 거임
+  - issue-space라는 단위가 있음. 각 space가 하나의 TODO.md에 해당
+  - issue-space는 여러개의 issue로 이뤄짐. 하나의 issue는 id (u32), title (String), body (String)로 이뤄짐
+  - 개별 issue는 open/close가 가능. 개별 issue의 title, body를 직접 수정 가능. issue의 history를 추적 가능.
+  - 각 issue를 git repository로 감싸고, history 추적을 git에다가 일임하기..??
+  - issue를 어디에 저장해? 이거를 local file로 저장하면 맥북<->랩탑<->데스크탑 공유가 안됨...
+    - 이거를 git으로 관리를 시키고 git을 이용해서 공유를 할까??
+    - 굳이 git으로 안해도 공유 가능키는 함 ㅋㅋ
+  - 이거를 neukgu working dir에 대응시켜? 말아?
+    - Sodigy같은 경우를 생각하면 대응시키는게 나음
+    - 회사에서 하는 걸 생각하면 여러 dir에 걸친 issue-space를 만드는게 나음
+    - 늑구한테 이슈 번호 던져주면서 "이 이슈 해결해줘"라고 하려면 working dir에 대응시키는게 나음
+    - 이 둘을 섞을 수도 있음. 모든 issue-space는 global하게 존재하지만, 특정 dir과 연결시킬 수 있음
+      - 이렇게 하면 기기간 공유가 안되는데??
 97. Custom tools
   - 지금 생각은 "어차피 나 혼자 쓸 건데 필요할 때마다 tool을 만들어서 neukgu에 built-in으로 추가하면 되는 거 아님?"이긴 한데, 그때그때 임시로 필요한 tool이 생길 확률이 높으니 script-able tool이 필요하기는 함!!
   - 포토샵으로 이것저것하려면 custom tool이 압도적으로 편리!!
@@ -322,8 +333,6 @@
   - local skill로 등록
     - ncode같은 경우를 생각하면 local working dir에 직접 넣는 기능도 필요
     - 나혼자 쓸 거라고 생각하면 불필요한 기능...
-174. `logs/done` 쓴 다음에 다시 시작하면 자동으로 done 파일 삭제되잖아? 삭제되었다는 흔적을 남겨야함!!
-  - 안 남기니까 다음번에 done 쓸 때 일단 truncate로 쓰고 오류나서 create로 다시 씀...
 177. loop engineering
   - https://x.com/addyosmani/status/2064127981161959567
   - Instead of writing prompts, you give goals to the agent and it will create a loop.
@@ -357,13 +366,13 @@
         - When a context finishes (logs/done), it's switched to the caller.
         - Let's say context P spawned context C. C finished its work and passed the context back to P. Then the user switched to C and resumed it. What happens when C finishes?
 178. opus에서는 thinking.enabled가 지원이 안되고 thinking.adaptive만 된대...
-180. 시스템 프롬프트에다가 cwd랑 오늘 날짜 정도는 알려주자. 그리고 "사용자가 명시하지 않는 이상 cwd 밖으로 나가지 마세요"라고도 하자!!
 181. InvalidLogId -> `Path` 관련된 초대형 refactoring 한 다음에 GUI에서 이 오류가 자주 보임...
   - FailedToAcquireWriteLock도 자주 보이는 중... mock으로 sleep 꺼놓고 테스트하는데 거의 3번에 한번 꼴로 등장
-182. run 명령어의 permission 검사를 할 때 path와 stdout이 동시에 있는 경우 문제가 있음.
-  - 둘이 동시에 있으면 `.abs_or_join`을 이용해서 stdout을 다시 계산해야하거든? 근데 `ask_permission_to_user` 안에서 그 계산을 하는게 좀 많이 이상함
-  - 그렇다고 `ToolCall::run` 안에서 `ask_permission_to_user`를 하기도 좀 이상한게, `check_read_path`보다 `ask_permission_to_user`가 뒤에 오는 건 말이 안됨. 권한이 없어도 그 파일이 존재하는지 아닌지를 알 수 있는 거잖아!
-  - 하다보니까 추가로 이상한 거: `check_read_path`랑 `check_write_path`가 `Result<Result<(), ToolCallError>, Error>`를 반환하는데, 그냥 `Result<(), ToolCallError>`를 반환하는게 맞지 않음? 저 함수들에서 오류가 발생하면 백엔드를 죽이는게 아니고 그냥 AI한테 그대로 알려줘야지... 예를 들어서, `check_write_path` 안에서 `parent()`나 `join()`이 실패하는 건 애초에 AI가 만들어낸 path가 이상한 거니까 당연히 ToolCallError고, `create_dir_all`이 실패하는 것도 (높은 확률로 권한 문제) 그냥 AI한테 알려주면 깔끔하게 해결될 문제...
+183. `ToolCall::run`에서 Error 반환하는 경우를 좀 더 줄이고 싶음. 예를 들어서, `ToolCall::Write { .. }`에서 `write_string`하다가 오류가 났다? 그럼 그 오류를 그대로 AI한테 던져주는게 맞는 듯...
+184. Change themes
+  - 일단, 모든 element의 색깔을 직접 지정해야함. (ui::gui::colors의 함수들 이용)
+  - ui::gui::colors의 모든 색깔을 일거에 뒤집는 코드를 집어넣어야함. ... 그러면 테마 변경 가능!!
+  - 이거 하고 있는데 생각보다 빡셈. TextInput, TextEditor, Radio, Checkbox, Slider등은 기본 테마가 적용되어 있는데 그걸 다 다시 설정해야함...
 
 ## mock API
 

@@ -115,7 +115,7 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
 
         Container::new(
             Column::from_vec(vec![
-                text!("{env_var}{agent_names}").size(zoom * 14.0).into(),
+                text!("{env_var}{agent_names}").color(white()).size(zoom * 14.0).into(),
                 TextInput::new("", value)
                     .id(id)
                     .size(zoom * 14.0)
@@ -137,7 +137,7 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
         }).padding(zoom * 20.0).into()
     }
 
-    let mut column: Vec<Element<IcedMessage>> = vec![text!("Enter API Keys").size(zoom * 18.0).into()];
+    let mut column: Vec<Element<IcedMessage>> = vec![text!("Enter API Keys").color(white()).size(zoom * 18.0).into()];
     column.push(input(
         &api_keys_context.missing_api_keys[0].0,
         &api_keys_context.missing_api_keys[0].1,

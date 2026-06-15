@@ -10,6 +10,7 @@ use super::{
     ask_question_to_user,
     normalize_path,
     run,
+    to_bash,
 };
 use crate::{Config, Context, Error, InterruptId};
 use serde::{Deserialize, Serialize};
@@ -96,6 +97,7 @@ impl ToolPermissionKind {
 pub enum PermissionPreview {
     String(String),
     Diff(Vec<LineDiff>),
+    Command(String),
     None,
 }
 
@@ -127,25 +129,27 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
         ToolCall::Remove { path } => {
             tools.push((ToolPermissionKind::Remove, Some(path.to_string()), PermissionPreview::None));
         },
-        ToolCall::Run { command, path, stdout, stderr, .. } => {
+        ToolCall::Run { command, path, env, stdout, stderr, .. } => {
+            let bash = to_bash(command, path, env, stdout, stderr);
+
             match run::calc_run_paths(
                 path,
                 stdout,
                 stderr,
                 &context.working_dir,
                 false,  // check permissions
-            )? {
+            ) {
                 Ok((path, stdout, stderr)) => {
                     if let Some(path) = path {
-                        tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::None));
+                        tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::Command(bash.to_string())));
                     }
 
                     if let Some(stdout) = stdout {
-                        tools.push((ToolPermissionKind::Write, Some(stdout.to_string()), PermissionPreview::None));
+                        tools.push((ToolPermissionKind::Write, Some(stdout.to_string()), PermissionPreview::Command(bash.to_string())));
                     }
 
                     if let Some(stderr) = stderr {
-                        tools.push((ToolPermissionKind::Write, Some(stderr.to_string()), PermissionPreview::None));
+                        tools.push((ToolPermissionKind::Write, Some(stderr.to_string()), PermissionPreview::Command(bash.to_string())));
                     }
                 },
 
@@ -197,8 +201,17 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
         }
 
         let interrupt_id = InterruptId::new();
+        let question = format!(
+            "{}{}",
+            permission_kind.question(),
+            match tool {
+                ToolCall::Run { .. } => " (while running a command)",
+                ToolCall::Chrome { .. } => " (while using chrome)",
+                _ => "",
+            },
+        );
         let question = QuestionToUser {
-            question: permission_kind.question().to_string(),
+            question,
             kind: QuestionKind::ToolPermission { kind: permission_kind, path: path.as_ref().map(|path| path.to_string()), preview },
         };
 

@@ -179,24 +179,24 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
     }
 }
 
-pub fn check_read_path(path: &str, working_dir: &str) -> Result<Result<Path, ToolCallError>, Error> {
+pub fn check_read_path(path: &str, working_dir: &str) -> Result<Path, ToolCallError> {
     let path = match normalize_path(path, working_dir) {
         Some(path) => path,
         None => {
-            return Ok(Err(ToolCallError::InvalidPath(path.to_string())));
+            return Err(ToolCallError::InvalidPath(path.to_string()));
         },
     };
 
     if path.is_index_dir() && !path.is_skills_dir() {
-        return Ok(Err(ToolCallError::CannotReadIndexDir));
+        return Err(ToolCallError::CannotReadIndexDir);
     }
 
     // If the file is a symlink, `exists` checks the existence of the pointee, not the pointer
     if !exists(&path.absolute) && !is_symlink(&path.absolute) {
-        return Ok(Err(ToolCallError::NoSuchFile { path }));
+        return Err(ToolCallError::NoSuchFile { path });
     }
 
-    Ok(Ok(path))
+    Ok(path)
 }
 
 impl Context {
