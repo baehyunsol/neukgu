@@ -228,7 +228,7 @@ impl IcedContext {
             },
             Popup::Image(_) => todo!(),
             Popup::Find { .. } => todo!(),
-            Popup::FileBrowser => todo!(),
+            Popup::FileSelector => todo!(),
         }
 
         Ok(())
@@ -415,7 +415,7 @@ pub enum Popup {
     CodeBlock { code: String, ext: Option<String> },
     Image(ImageId),
     Find { re: Option<String>, error: Option<String> },
-    FileBrowser,
+    FileSelector,
 }
 
 impl Popup {
@@ -535,7 +535,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.chat_view_scrolled = o;
         },
         IcedMessage::OpenPopup { curr, prev } => {
-            if let Popup::Image(_) | Popup::Find { .. } | Popup::FileBrowser = &curr {
+            if let Popup::Image(_) | Popup::Find { .. } | Popup::FileSelector = &curr {
                 return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented yet"))));
             }
 
@@ -796,7 +796,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let chat_config_ui_in_container = Container::new(
         Column::from_vec(vec![
             Row::from_vec(vec![
-                button("Attach", IcedMessage::OpenPopup { curr: Popup::FileBrowser, prev: None }, skyblue(), context.zoom).into(),
+                button("Attach", IcedMessage::OpenPopup { curr: Popup::FileSelector, prev: None }, skyblue(), context.zoom).into(),
                 chat_config_ui1(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig).into(),
             ])
                 .spacing(context.zoom * 8.0)

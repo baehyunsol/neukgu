@@ -16,6 +16,7 @@ mod config;
 mod error;
 mod file_change;
 mod file_editor;
+mod file_selector;
 mod git;
 mod index;
 mod logs;

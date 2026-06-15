@@ -208,8 +208,6 @@
   - 아주 가벼운 ragit을 만드는 거지
   - 파일 길이가 웬만큼 짧으면, 파일 내용과 질문을 통으로 다 주고 응답을 받으면 됨
   - 파일이 아니더라도 이런 수요가 엄청 많음! AI가 쓴 대답이 길어서 읽기 귀찮을 때도 있고, command run result가 길어서 읽기 귀찮을 때도 있고... 대충 Copy 버튼이 있는 경우에는 다 적용 가능할 듯??
-124. attach image files in chat
-  - 그러려면 파일 브라우저를 popup으로 띄워야하는데...
 125. 다른 세션을 볼 수 있는 ui를 만들자
   - 세션이 통째로 한 파일 (혹은 dir)로 돼 있고, ui에서 그 파일을 읽어서 보여주는 거임
   - 19, 94, 105번 이슈에 다 영향을 줄 수 있음.
@@ -311,7 +309,10 @@
   - search (like I did with hgit)
     - author/file-glob/content로 검색 (and 조건)
       - content로 검색할 경우 diff 안에 등장하는 line들에 대해서 regex로 검색함... -> 이거 cache를 잘해야할 듯! timeout은 적당히 10초로 걸자!!
-166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index (working-dir 만들 때 파일 추가)에 넣자
+166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index, browser (working-dir 만들 때 파일 추가)에 넣자
+  - 생각해보면, index의 create-working-dir에서는 attach-file이 필요한데 browser에서는 필요없을 거 같지 않음?? 애초에 파일이 있는 곳에서 시작할 거잖아... ㄴㄴ 걍 붙여주자 ㅋㅋ
+  - 여기서 사소한 문제... index나 browser에서는 file browser를 popup으로 띄워야하잖아? 근데 create_working_dir도 이미 popup이거든? 지금 구현에서 popup 위에 다른 popup이 뜨면 기존의 popup은 초기화가 됨. 이걸 방지하려면 모든 정보를 `Popup::CreateWorkingDir { .. }` 안에다가 집어넣어야하는데... 그건 너무 빡셈 ㅠㅠ
+    - 그나마 해결책을 생각해보자면, "Attach" 버튼을 누르면 Element가 Column 안에 직접 박히는 거임!!
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
 169. summaries
@@ -373,6 +374,7 @@
   - 일단, 모든 element의 색깔을 직접 지정해야함. (ui::gui::colors의 함수들 이용)
   - ui::gui::colors의 모든 색깔을 일거에 뒤집는 코드를 집어넣어야함. ... 그러면 테마 변경 가능!!
   - 이거 하고 있는데 생각보다 빡셈. TextInput, TextEditor, Radio, Checkbox, Slider등은 기본 테마가 적용되어 있는데 그걸 다 다시 설정해야함...
+185. api_key가 env-var에 박혀있는 상태로 gui를 열면, api_key 입력창이 안 뜨겠지??
 
 ## mock API
 

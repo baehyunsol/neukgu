@@ -21,6 +21,7 @@ use super::{
 use super::chat::{ChatMessage, chat_ui};
 use super::config::{SetProjectConfig, config_ui, set_project_config};
 use super::file_editor::{self, IcedContext as FileEditorContext, IcedMessage as FileEditorMessage};
+use super::file_selector::{self, IcedContext as FileSelectorContext, IcedMessage as FileSelectorMessage};
 use super::git::{self, IcedContext as GitInfoContext, IcedMessage as GitInfoMessage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
@@ -164,6 +165,7 @@ pub struct IcedContext {
     pub loaded_file_info: Option<FileInfo>,
     pub file_editor_context: Option<FileEditorContext>,
     pub git_info_context: Option<GitInfoContext>,
+    pub file_selector_context: Option<FileSelectorContext>,
     pub zoom: f32,
     pub new_project_config: Config,
     pub find_option: FindOption,
@@ -207,6 +209,7 @@ impl IcedContext {
             loaded_file_info: None,
             file_editor_context: None,
             git_info_context: None,
+            file_selector_context: None,
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
             find_option: FindOption::Regex,
@@ -560,6 +563,8 @@ pub enum IcedMessage {
     SetProjectConfig(SetProjectConfig),
     FileEditorMessage(FileEditorMessage),
     GitInfoMessage(GitInfoMessage),
+    OpenFileSelector,
+    FileSelectorMessage(FileSelectorMessage),
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
@@ -605,11 +610,28 @@ pub struct FileEntry {
     pub path: String,
     pub is_dir: bool,
     pub symlink: Option<String>,
-    pub has_neukgu_index: bool,
+
+    // If it's None, it hasn't yet checked whether there's a neukgu index.
+    pub has_neukgu_index: Option<bool>,
+
     pub size: Option<u64>,
 
     // Error while reading this entry.
     pub error: Option<String>,
+}
+
+impl FileEntry {
+    pub fn from_cwd(path: &str) -> FileEntry {
+        FileEntry {
+            name: basename(path).unwrap(),
+            path: path.to_string(),
+            is_dir: true,
+            symlink: None,
+            has_neukgu_index: None,
+            size: None,
+            error: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1081,6 +1103,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     GitInfoMessage::Notify(note) => return Ok(Task::done(IcedMessage::Notify(note))),
                     m => return Ok(git::update(c, m)?.map(IcedMessage::GitInfoMessage)),
                 }
+            }
+        },
+        IcedMessage::OpenFileSelector => {
+            context.file_selector_context = Some(FileSelectorContext::new(context.home_dir.to_string()));
+        },
+        IcedMessage::FileSelectorMessage(m) => {
+            if let Some(c) = &mut context.file_selector_context {
+                return Ok(file_selector::update(c, m).map(IcedMessage::FileSelectorMessage));
             }
         },
         IcedMessage::PrepareScratchPad => {
@@ -1644,7 +1674,6 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
     }
 
     let char_count = count_chars(&entry.name);
-    let is_dir = entry.is_dir;
     let is_hovered = if let Some(e) = &context.hovered_entry { e == &entry.name } else { false };
     let truncated_name = if char_count < 42 {
         format!(
@@ -1657,7 +1686,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         format!(
             "{}...{}",
             take_chars(&entry.name, 39),
-            if is_dir { "/" } else { " " },
+            if entry.is_dir { "/" } else { " " },
         )
     };
     let size = match entry.size {
@@ -1724,7 +1753,7 @@ fn render_entry<'e, 'c, 'm>(index: usize, entry: &'e FileEntry, context: &'c Ice
         }
     }
 
-    if entry.has_neukgu_index {
+    if entry.has_neukgu_index.unwrap_or(false) {
         row.push(disabled_button("  ", green(), context.zoom).into());
     }
 
@@ -1770,11 +1799,17 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .min_height(400)
         .on_action(IcedMessage::EditLongText);
 
+    let file_selector = match &context.file_selector_context {
+        Some(c) => file_selector::view(c, true, context.window_size.width * 0.6, context.zoom * 400.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
+        None => button("Attach", IcedMessage::OpenFileSelector, skyblue(), context.zoom).into(),
+    };
+
     into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 short_text_editor.into(),
                 long_text_editor.into(),
+                file_selector,
                 config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
                 button("Create", IcedMessage::CreateWorkingDir { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
@@ -1788,7 +1823,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
     )
 }
 
-fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
+pub fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
     let mut dirs = vec![];
     let mut files = vec![];
 
@@ -1804,7 +1839,7 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
                 path: e.to_string(),
                 is_dir: true,
                 symlink: None,
-                has_neukgu_index,
+                has_neukgu_index: Some(has_neukgu_index),
                 size: None,
                 error,
             });
@@ -1836,7 +1871,7 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
                 path: e.to_string(),
                 is_dir: false,
                 symlink,
-                has_neukgu_index,
+                has_neukgu_index: Some(has_neukgu_index),
                 size: None,
                 error,
             });
@@ -1859,7 +1894,7 @@ fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
                 path: e.to_string(),
                 is_dir: false,
                 symlink: None,
-                has_neukgu_index,
+                has_neukgu_index: Some(has_neukgu_index),
                 size,
                 error,
             });

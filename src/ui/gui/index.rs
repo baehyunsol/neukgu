@@ -26,6 +26,7 @@ use super::config::{
     set_chat_config,
     set_project_config,
 };
+use super::file_selector::{self, IcedContext as FileSelectorContext, IcedMessage as FileSelectorMessage};
 use super::model_store::{self, IcedContext as ModelStoreContext, IcedMessage as ModelStoreMessage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
@@ -154,6 +155,7 @@ pub struct IcedContext {
     pub new_chat_config: ChatConfig,
     pub system_prompts: Vec<String>,
     pub model_store_context: ModelStoreContext,
+    pub file_selector_context: Option<FileSelectorContext>,
     pub short_text_editor_content: String,
 
     // For `Popup::Skill { .. }`, it uses long_text_editor
@@ -197,6 +199,7 @@ impl IcedContext {
             new_chat_config: get_global_chat_config(&global_index_dir).unwrap(),
             system_prompts: get_chat_system_prompts(&global_index_dir).unwrap(),
             model_store_context: ModelStoreContext::new(global_index_dir.to_string()),
+            file_selector_context: None,
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
             extra_text_editor_content: TextEditorContent::new(),
@@ -396,6 +399,8 @@ pub enum IcedMessage {
     SetProjectConfig(SetProjectConfig),
     SetChatConfig(SetChatConfig),
     UpdateModelStore(ModelStoreMessage),
+    OpenFileSelector,
+    FileSelectorMessage(FileSelectorMessage),
     MainViewScrolled(AbsoluteOffset),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
@@ -779,6 +784,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::UpdateModelStore(m) => {
             return Ok(model_store::update(&mut context.model_store_context, m)?.map(IcedMessage::UpdateModelStore));
+        },
+        IcedMessage::OpenFileSelector => {
+            context.file_selector_context = Some(FileSelectorContext::new(context.home_dir.to_string()));
+        },
+        IcedMessage::FileSelectorMessage(m) => {
+            if let Some(c) = &mut context.file_selector_context {
+                return Ok(file_selector::update(c, m).map(IcedMessage::FileSelectorMessage));
+            }
         },
         IcedMessage::MainViewScrolled(o) => {
             context.main_view_scrolled = o;
@@ -1487,11 +1500,17 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         .min_height(400)
         .on_action(IcedMessage::EditLongText);
 
+    let file_selector = match &context.file_selector_context {
+        Some(c) => file_selector::view(c, true, context.window_size.width * 0.6, context.zoom * 400.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
+        None => button("Attach", IcedMessage::OpenFileSelector, skyblue(), context.zoom).into(),
+    };
+
     into_popup(
         Scrollable::new(
             Column::from_vec(vec![
                 short_text_editor.into(),
                 long_text_editor.into(),
+                file_selector,
                 config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::NewProject, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
