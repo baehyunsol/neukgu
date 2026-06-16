@@ -25,6 +25,8 @@ pub enum Error {
     NotAllowedCharInProjectName { name: String, ch: char },
     InvalidLogId(LogId),
     UserInterrupt,
+    CannotAttachFileToChat { path: String },
+    TextTooLongToAttach { path: String, length: usize, limit: usize },
 
     HttpError { status_code: u16 },
     ImageRequestError { status_code: u16, message: String },

@@ -3,6 +3,7 @@ use super::tab::TabId;
 use base64::Engine;
 use crate::{
     ChatId,
+    ChatInput,
     Error,
     LLMToken,
     MatchPreview,
@@ -58,7 +59,7 @@ pub enum JobKind {
     AddChatTurn {
         chat_id: ChatId,
         api_keys: HashMap<String, String>,
-        query: Vec<LLMToken>,
+        input: ChatInput,
     },
     FindInChats {
         regex: String,
@@ -89,6 +90,7 @@ pub enum JobResultKind {
     InvalidCommand { error: String },
     AddChatTurnSuccess,
     AddChatTurnError(String),
+    CannotAttachFileToChat { file: String, error: String },
     FindInChats { regex: String, matches: Vec<(ChatId, Vec<MatchPreview>)> },
     FindInChatsError(String),
     CalcDirectorySize(u64),
@@ -194,7 +196,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     false,
                     &[],
                     &path,
-                    600,  // timeout
+                    600,    // timeout
                     "",     // working_dir (it's None because it's not a neugku dir)
                     false,  // check_interruption
                 ) {
@@ -209,9 +211,19 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::InvalidCommand { error: format!("{e:?}") } }).unwrap();
                 },
             },
-            Job { id, kind: JobKind::AddChatTurn { chat_id, api_keys, query } } => match add_chat_turn_blocked(chat_id, api_keys, query) {
-                Ok(()) => {
-                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnSuccess }).unwrap();
+            Job { id, kind: JobKind::AddChatTurn { chat_id, api_keys, input } } => match get_global_index_dir() {
+                Ok(global_index_dir) => match input.into_query(chat_id, &global_index_dir) {
+                    Ok(query) => match add_chat_turn_blocked(chat_id, api_keys, input, query, &global_index_dir) {
+                        Ok(()) => {
+                            tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnSuccess }).unwrap();
+                        },
+                        Err(e) => {
+                            tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnError(format!("{e:?}")) }).unwrap();
+                        },
+                    },
+                    Err((file, e)) => {
+                        tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::CannotAttachFileToChat { file, error: format!("{e:?}") } }).unwrap();
+                    },
                 },
                 Err(e) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::AddChatTurnError(format!("{e:?}")) }).unwrap();
@@ -404,10 +416,15 @@ fn match_glob_worker(path: &str, matcher: &GlobMatcher, started_at: Instant, tim
     false
 }
 
-fn add_chat_turn_blocked(chat_id: ChatId, api_keys: HashMap<String, String>, query: Vec<LLMToken>) -> Result<(), Error> {
-    let global_index_dir = get_global_index_dir()?;
+fn add_chat_turn_blocked(
+    chat_id: ChatId,
+    api_keys: HashMap<String, String>,
+    input: ChatInput,
+    query: Vec<LLMToken>,
+    global_index_dir: &str,
+) -> Result<(), Error> {
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(add_chat_turn(chat_id, api_keys, query, &global_index_dir))
+    runtime.block_on(add_chat_turn(chat_id, api_keys, input, query, global_index_dir))
 }
 
 fn calc_directory_size(path: &str) -> Result<u64, Error> {

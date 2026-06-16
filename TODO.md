@@ -375,22 +375,39 @@
   - ui::gui::colors의 모든 색깔을 일거에 뒤집는 코드를 집어넣어야함. ... 그러면 테마 변경 가능!!
   - 이거 하고 있는데 생각보다 빡셈. TextInput, TextEditor, Radio, Checkbox, Slider등은 기본 테마가 적용되어 있는데 그걸 다 다시 설정해야함...
 185. api_key가 env-var에 박혀있는 상태로 gui를 열면, api_key 입력창이 안 뜨겠지??
+186. AskQuestionToUser가 있을 때 neukgu gui를 통째로 닫았다가 곧바로 다시 들어가봤음
+  - 다시 들어가니까 get_api_keys popup이 씹히고 (잠깐 떴다가 사라짐) 질문창이 뜸. timeout은 300초부터 다시 세는 중...
+  - 응답을 하니까 잘 돌아감!!
+  - 보면 GUI에 Resume/Pause가 안 뜨고 Respawn이 떠 있음. 아마 원래 있던 백엔드가 계속 살아있어서 그런 듯? Respawn을 누르면 새 백엔드와 기존 백엔드가 충돌해서 새 백엔드가 죽고 기존 백엔드가 계속 돎. 근데 GUI는 새 백엔드가 돌고 있다고 생각. -> 이러면 더 위험!! 물론 Pause/Resume은 정상적으로 가능하지만, reset같은 거 할 때 문제가 생길 듯
+  - 이걸 10초 이상 300초 이하로 기다리고 다시 해봤는데 그래도 동일함.
+    - 생각해보니까 이게 맞지. 백엔드가 유저 대답을 기다리는 동안은 프론트엔드 확인을 안 할 거거든!!
+      - 이건 고쳤음. 백엔드가 유저 대답 기다리는 동안 프론트엔드 죽었는지 계속 확인함
+    - 여기에 문제가 하나 더 있음. 백엔드의 timeout은 계속 흘러가지만 프론트엔드를 껐다 킬 때마다 프론트엔드의 timeout은 300초에서 다시 시작함
+187. Attach image/pdf to chat
+  - 현재 구조:
+    - context가 `Vec<LLMToken>`을 만들어서 background worker한테 넘겨 주고 기다림
+    - context는 `curr_processing_tokens: Vec<LLMToken>`을 갖고 있음
+      - chat view에서 이것도 똑같이 render해줌
+      - background job이 완료되면 curr_processing_tokens를 날림 (진짜 chat에 있는 `Vec<LLMToken>`을 사용)
+    - background worker가 `Vec<LLMToken>`을 받으면 "이건 미완료된 chat turn이야"하고 기억을 하고 있음
+      - 만약 새로운 chat tab을 열었는데 미완료된 chat turn이 있으면 text-input을 그걸로 채움
+    - chat turn이 정상적으로 완료가 돼야지만 text-input이 초기화됨
 
 ## mock API
 
 ```nu
 cd ~/Documents/Rust/neukgu;
-cargo build;
+cargo build --release;
 cd ~/Documents;
 rm -rf ttt;
 rm -rf tttt;
 echo "initializing ttt...";
-~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
+~/Documents/Rust/neukgu/target/release/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
 echo "initializing tttt...";
-~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
+~/Documents/Rust/neukgu/target/release/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
 cd ~/Documents/Rust/neukgu;
 echo "spawning gui...";
-~/Documents/Rust/neukgu/target/debug/neukgu gui ~/Documents/ttt;
+~/Documents/Rust/neukgu/target/release/neukgu gui ~/Documents/ttt;
 ```
 
 ## Real API

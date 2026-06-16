@@ -9,6 +9,8 @@ use crate::{
     WebSearchResult,
     get_global_index_dir,
     init_log_dir,
+    normalize_and_get_id,
+    render_first_10_pages,
     stringify_llm_tokens,
 };
 use crate::request::{self, Config as RequestConfig, Request, Thinking};
@@ -57,7 +59,7 @@ pub struct Chat {
     pub updated_at: i64,
     pub config: Config,
     pub turns: Vec<ChatTurnId>,
-    pub unfinished_chat: Option<Vec<LLMToken>>,
+    pub unfinished_chat: Option<ChatInput>,
 }
 
 impl Chat {
@@ -92,8 +94,14 @@ impl Chat {
         Ok(())
     }
 
-    pub async fn add_turn(&mut self, query: Vec<LLMToken>, fallback_api_keys: HashMap<String, String>, global_index_dir: &str) -> Result<(), Error> {
-        self.unfinished_chat = Some(query.clone());
+    pub async fn add_turn(
+        &mut self,
+        input: ChatInput,
+        query: Vec<LLMToken>,
+        fallback_api_keys: HashMap<String, String>,
+        global_index_dir: &str,
+    ) -> Result<(), Error> {
+        self.unfinished_chat = Some(input);
         self.store(global_index_dir)?;
 
         let mut turns = Vec::with_capacity(self.turns.len());
@@ -186,6 +194,83 @@ impl ChatTurn {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ChatInput {
+    pub attached_files: Vec<String>,
+    pub query: String,
+}
+
+impl ChatInput {
+    pub fn into_query(&self, chat_id: ChatId, global_index_dir: &str) -> Result<Vec<LLMToken>, (String, Error)> {
+        let mut result = vec![];
+        let working_dir = join3(
+            global_index_dir,
+            "chats",
+            &format!("{:016x}", chat_id.0),
+        ).unwrap();
+
+        for file in self.attached_files.iter() {
+            match read_bytes(file) {
+                Ok(bytes) => match String::from_utf8(bytes) {
+                    Ok(s) => {
+                        // TODO: make this limit configurable
+                        if s.len() < 65536 {
+                            return Err((file.to_string(), Error::TextTooLongToAttach { path: file.to_string(), length: s.len(), limit: 65536 }));
+                        }
+
+                        else {
+                            result.push(LLMToken::String(format!("
+<file>
+<path>{file}</path>
+<content>
+{s}
+</content>
+</file>",
+                            )));
+                        }
+                    },
+                    Err(e) => match normalize_and_get_id(e.as_bytes(), &working_dir) {
+                        Ok(img_id) => {
+                            result.push(LLMToken::Image(img_id));
+                        },
+                        _ => match render_first_10_pages(e.as_bytes()) {
+                            Ok(Some((pages, total_pages))) => {
+                                result.push(LLMToken::String(format!("
+{}<file>
+<path>{file}</path>
+<content>
+",
+                                    if total_pages > pages.len() { format!("NOTE: The pdf file has {total_pages} pages, but in order to save your context, I'm only sending you the first {} pages.", pages.len()) } else { String::new() },
+                                )));
+
+                                for page in pages.iter() {
+                                    match normalize_and_get_id(page, &working_dir) {
+                                        Ok(img_id) => {
+                                            result.push(LLMToken::Image(img_id));
+                                        },
+                                        Err(e) => {
+                                            return Err((file.to_string(), e.into()));
+                                        },
+                                    }
+                                }
+
+                                result.push(LLMToken::String(String::from("\n</content>\n</file>")));
+                            },
+                            _ => {
+                                return Err((file.to_string(), Error::CannotAttachFileToChat { path: file.to_string() }));
+                            },
+                        },
+                    },
+                },
+                Err(e) => return Err((file.to_string(), e.into())),
+            }
+        }
+
+        result.push(LLMToken::String(self.query.to_string()));
+        Ok(result)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub model: Model,
     pub thinking: Thinking,
@@ -216,9 +301,15 @@ impl Default for Config {
     }
 }
 
-pub async fn add_chat_turn(chat_id: ChatId, fallback_api_keys: HashMap<String, String>, query: Vec<LLMToken>, global_index_dir: &str) -> Result<(), Error> {
+pub async fn add_chat_turn(
+    chat_id: ChatId,
+    fallback_api_keys: HashMap<String, String>,
+    input: ChatInput,
+    query: Vec<LLMToken>,
+    global_index_dir: &str,
+) -> Result<(), Error> {
     let mut chat = Chat::load(chat_id, global_index_dir)?;
-    chat.add_turn(query, fallback_api_keys, global_index_dir).await?;
+    chat.add_turn(input, query, fallback_api_keys, global_index_dir).await?;
     Ok(())
 }
 

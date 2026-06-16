@@ -719,7 +719,7 @@ impl Context {
                 break;
             }
 
-            sleep(Duration::from_millis(2_000));
+            sleep(Duration::from_millis(1_000));
         }
 
         if is_fe_alive {

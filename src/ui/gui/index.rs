@@ -85,6 +85,7 @@ use iced::widget::text_editor::{
 use ragit_fs::{
     basename,
     create_dir,
+    exists,
     join,
     join3,
     read_string,
@@ -304,6 +305,15 @@ impl IcedContext {
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
         self.syntax_highlight = None;
+        self.file_selector_context = None;
+    }
+
+    pub fn copy_attached_files(&self, project_path: &str) -> Result<(), Error> {
+        if let Some(c) = &self.file_selector_context {
+            c.copy_selected_files(project_path)?;
+        }
+
+        Ok(())
     }
 
     pub fn set_long_text_editor_content(&mut self, c: String) {
@@ -585,10 +595,21 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::NewProject => {
             let project_name = context.short_text_editor_content.to_string();
-            validate_project_name(&project_name)?;
+
+            if let Err(e) = validate_project_name(&project_name) {
+                return Ok(Task::done(IcedMessage::Notify(format!("Error: {e:?}"))));
+            }
+
             let instruction = context.long_text_editor_content.text();
             let project_path = join3(&context.global_index_dir, "projects", &project_name)?;
+
+            if exists(&project_path) {
+                return Ok(Task::done(IcedMessage::Notify(format!("Project `{project_name}` already exists!"))));
+            }
+
             create_dir(&project_path)?;
+            context.copy_attached_files(&project_path)?;
+            context.file_selector_context = None;
             init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), Some(join(&context.global_index_dir, "skills")?), true)?;
             return Ok(Task::batch(vec![
                 Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }),
@@ -787,6 +808,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::OpenFileSelector => {
             context.file_selector_context = Some(FileSelectorContext::new(context.home_dir.to_string()));
+        },
+        IcedMessage::FileSelectorMessage(FileSelectorMessage::Notify(m)) => {
+            return Ok(Task::done(IcedMessage::Notify(m)));
         },
         IcedMessage::FileSelectorMessage(m) => {
             if let Some(c) = &mut context.file_selector_context {
@@ -1501,7 +1525,7 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         .on_action(IcedMessage::EditLongText);
 
     let file_selector = match &context.file_selector_context {
-        Some(c) => file_selector::view(c, true, context.window_size.width * 0.6, context.zoom * 400.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
+        Some(c) => file_selector::view(c, true, context.window_size.width * 0.65, context.zoom * 480.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
         None => button("Attach", IcedMessage::OpenFileSelector, skyblue(), context.zoom).into(),
     };
 

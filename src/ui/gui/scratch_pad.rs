@@ -392,7 +392,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
         Tab::Calendar => calendar::view(&context.calendar_context, context.window_size, context.zoom).map(IcedMessage::UpdateCalendar),
     };
 
-    if let Some(title) = &context.title {
+    if let Some(title) = &context.title && context.tab != Tab::TextEdit {
         content = Column::from_vec(vec![
             text!("{title}").color(black()).size(context.zoom * 18.0).into(),
             content,

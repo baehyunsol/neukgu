@@ -1,6 +1,6 @@
 use super::{black, blue, button, gray, red, set_round_bg, skyblue, white};
 use chrono::{Datelike, Local};
-use iced::{Color, Element, Size, Task};
+use iced::{Element, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{Column, Container, MouseArea, Row, Space, text};
 
@@ -10,6 +10,7 @@ pub struct IcedContext {
     pub start_weekday: Weekday,
     pub hovered_id: Option<(i32, u8, u8)>,
     pub today: (i32, u8, u8),
+    pub selected: Vec<((i32, u8, u8), Weekday, i64)>,
 }
 
 impl IcedContext {
@@ -23,6 +24,7 @@ impl IcedContext {
             start_weekday: Weekday::Monday,
             hovered_id: None,
             today,
+            selected: vec![],
         };
         result.calc_weekday();
         result
@@ -49,13 +51,13 @@ impl IcedContext {
     }
 
     fn clamp(&mut self) {
-        if self.year < 1970 {
-            self.year = 1970;
+        if self.year < 1960 {
+            self.year = 1960;
             self.month = 1;
         }
 
-        else if self.year > 2099 {
-            self.year = 2099;
+        else if self.year > 2199 {
+            self.year = 2199;
             self.month = 12;
         }
     }
@@ -83,8 +85,10 @@ pub enum IcedMessage {
     JumpYear(i32),
     PrevMonth,
     NextMonth,
+    Jump(i32, u8),
     Hover(Option<(i32, u8, u8)>),
-    Select((i32, u8, u8)),
+    Select((i32, u8, u8), Weekday),
+    RemoveSelection(usize),
     Today,
     Notify(String),
 }
@@ -98,6 +102,32 @@ pub enum Weekday {
     Friday,
     Saturday,
     Sunday,
+}
+
+impl Weekday {
+    pub fn from_sunday() -> [Weekday; 7] {
+        [
+            Weekday::Sunday,
+            Weekday::Monday,
+            Weekday::Tuesday,
+            Weekday::Wednesday,
+            Weekday::Thursday,
+            Weekday::Friday,
+            Weekday::Saturday,
+        ]
+    }
+
+    pub fn short(&self) -> &'static str {
+        match self {
+            Weekday::Monday => "Mon",
+            Weekday::Tuesday => "Tue",
+            Weekday::Wednesday => "Wed",
+            Weekday::Thursday => "Thu",
+            Weekday::Friday => "Fri",
+            Weekday::Saturday => "Sat",
+            Weekday::Sunday => "Sun",
+        }
+    }
 }
 
 impl From<Weekday> for u8 {
@@ -147,11 +177,20 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.clamp();
             context.calc_weekday();
         },
+        IcedMessage::Jump(y, m) => {
+            context.year = y;
+            context.month = m;
+            context.clamp();
+            context.calc_weekday();
+        },
+        IcedMessage::RemoveSelection(i) => {
+            context.selected.remove(i);
+        },
         IcedMessage::Hover(id) => {
             context.hovered_id = id;
         },
-        IcedMessage::Select(id) => {
-            return Task::done(IcedMessage::Notify(format!("Not Implemented Yet: {:?}", IcedMessage::Select(id))));
+        IcedMessage::Select(id, weekday) => {
+            context.selected.push((id, weekday, days_from_civil(id.0, id.1, id.2)));
         },
         IcedMessage::Today => {
             let (year, month, _) = context.today;
@@ -188,6 +227,7 @@ pub fn view<'c>(context: &'c IcedContext, window_size: Size, zoom: f32) -> Eleme
             .into(),
         render_calendar(context, zoom),
         button("Today", IcedMessage::Today, blue(), zoom).into(),
+        render_selections(&context.selected, zoom),
         Space::new().width(window_size.width).into(),
     ])
         .spacing(zoom * 8.0)
@@ -202,7 +242,7 @@ fn render_calendar<'c>(context: &'c IcedContext, zoom: f32) -> Element<'c, IcedM
         activated: bool,
         day: u8,
         today: (i32, u8, u8),
-        color: Color,
+        weekday: Weekday,
         zoom: f32,
     ) -> Element<'c, IcedMessage> {
         let bg_color = if !activated {
@@ -211,6 +251,11 @@ fn render_calendar<'c>(context: &'c IcedContext, zoom: f32) -> Element<'c, IcedM
             gray(0.4)
         } else {
             gray(0.2)
+        };
+        let color = match weekday {
+            Weekday::Sunday => red(),
+            Weekday::Saturday => skyblue(),
+            _ => white(),
         };
 
         let mut m = MouseArea::new(
@@ -229,7 +274,7 @@ fn render_calendar<'c>(context: &'c IcedContext, zoom: f32) -> Element<'c, IcedM
             m = m
                 .on_enter(IcedMessage::Hover(Some(cell_id)))
                 .on_exit(IcedMessage::Hover(None))
-                .on_press(IcedMessage::Select(cell_id));
+                .on_press(IcedMessage::Select(cell_id, weekday));
         }
 
         m.into()
@@ -239,30 +284,25 @@ fn render_calendar<'c>(context: &'c IcedContext, zoom: f32) -> Element<'c, IcedM
     let (mut year, mut month, mut day) = (context.year, context.month, 1);
 
     // The calendar starts with Sunday.
-    for _ in 0..(7 + (u8::from(context.start_weekday) + 1) % 7) {
+    // It shows 2 more weeks before and after the month.
+    for _ in 0..(14 + (u8::from(context.start_weekday) + 1) % 7) {
         let (y, m, d) = prev_day(year, month, day);
         year = y;
         month = m;
         day = d;
     }
 
-    for _ in 0..7 {
+    for _ in 0..9 {
         let mut row: Vec<Element<IcedMessage>> = vec![];
 
-        for w in 0..7 {
-            let color = match w {
-                0 => red(),
-                6 => skyblue(),
-                _ => white(),
-            };
-
+        for w in Weekday::from_sunday() {
             row.push(render_cell(
                 (year, month, day),
                 context.hovered_id,
                 context.month == month,
                 day,
                 context.today,
-                color,
+                w,
                 zoom,
             ));
             let (y, m, d) = next_day(year, month, day);
@@ -275,6 +315,23 @@ fn render_calendar<'c>(context: &'c IcedContext, zoom: f32) -> Element<'c, IcedM
     }
 
     Column::from_vec(column).spacing(zoom * 4.0).into()
+}
+
+fn render_selections<'s>(selections: &'s [((i32, u8, u8), Weekday, i64)], zoom: f32) -> Element<'s, IcedMessage> {
+    Column::from_vec(selections.iter().enumerate().map(
+        |(i, ((y, m, d), weekday, count))| {
+            Row::from_vec(vec![
+                text!("{y}-{m:02}-{d:02}, {} (day {count})", weekday.short()).color(black()).size(zoom * 14.0).into(),
+                button("Jump", IcedMessage::Jump(*y, *m), blue(), zoom).into(),
+                button("Remove", IcedMessage::RemoveSelection(i), red(), zoom).into(),
+            ])
+                .align_y(Vertical::Center)
+                .spacing(zoom * 8.0)
+                .into()
+        }
+    ).collect())
+        .spacing(zoom * 8.0)
+        .into()
 }
 
 // VIBE NOTE: gpt 5.5 (via neukgu-chat) wrote this function and I'm not sure if it's correct.

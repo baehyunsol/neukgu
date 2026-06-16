@@ -1107,7 +1107,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let summary = id.get_turn_summary();
 
             if summary.kind == TurnKind::UserQuestion {
-                return Ok(Task::done(IcedMessage::Notify(String::from("User question turn is always hidden!"))));
+                return Ok(Task::done(IcedMessage::Notify(String::from("A user question turn is always hidden!"))));
             }
 
             match (context.fe_context.hidden_turns.remove(&id), context.fe_context.pinned_turns.remove(&id)) {
@@ -1374,16 +1374,16 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             Row::from_vec(vec![
                 Radio::new("instruction", InterruptKind::Instruction, Some(context.interrupt_kind), IcedMessage::SetInterruptKind)
                     .spacing(context.zoom * 8.0)
-                    .text_size(context.zoom * 14.0)
-                    .size(context.zoom * 14.0)
+                    .text_size(context.zoom * 16.0)
+                    .size(context.zoom * 16.0)
                     .into(),
                 Radio::new("question", InterruptKind::Question, Some(context.interrupt_kind), IcedMessage::SetInterruptKind)
                     .spacing(context.zoom * 8.0)
-                    .text_size(context.zoom * 14.0)
-                    .size(context.zoom * 14.0)
+                    .text_size(context.zoom * 16.0)
+                    .size(context.zoom * 16.0)
                     .into(),
             ])
-                .spacing(context.zoom * 4.0)
+                .spacing(context.zoom * 8.0)
                 .height(context.zoom * 48.0)
                 .align_y(Vertical::Center)
                 .into(),

@@ -487,8 +487,17 @@ impl IcedContext {
         self.loaded_file_info = None;
         self.file_editor_context = None;
         self.git_info_context = None;
+        self.file_selector_context = None;
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
+    }
+
+    pub fn copy_attached_files(&self, project_path: &str) -> Result<(), Error> {
+        if let Some(c) = &self.file_selector_context {
+            c.copy_selected_files(project_path)?;
+        }
+
+        Ok(())
     }
 
     pub fn set_text_editor_content(&mut self, c: String) {
@@ -631,6 +640,23 @@ impl FileEntry {
             size: None,
             error: None,
         }
+    }
+
+    pub fn try_from_path(path: &str) -> Result<FileEntry, Error> {
+        if !exists(path) {
+            read_bytes(path)?;
+            unreachable!();
+        }
+
+        Ok(FileEntry {
+            name: basename(path)?,
+            path: path.to_string(),
+            is_dir: is_dir(path),
+            symlink: if is_symlink(path) { todo!() } else { None },
+            has_neukgu_index: None,
+            size: None,
+            error: None,
+        })
     }
 }
 
@@ -988,11 +1014,22 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::CreateWorkingDir { path } => {
             let project_name = context.short_text_editor_content.to_string();
+
+            if let Err(e) = validate_project_name(&project_name) {
+                return Ok(Task::done(IcedMessage::Notify(format!("Error: {e:?}"))));
+            }
+
             let global_index_dir = get_global_index_dir()?;
-            validate_project_name(&project_name)?;
             let instruction = context.long_text_editor_content.text();
             let project_path = join(&path, &project_name)?;
+
+            if exists(&project_path) {
+                return Ok(Task::done(IcedMessage::Notify(format!("Path `{project_path}` already exists!"))));
+            }
+
             create_dir(&project_path)?;
+            context.copy_attached_files(&project_path)?;
+            context.file_selector_context = None;
             init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
@@ -1107,6 +1144,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::OpenFileSelector => {
             context.file_selector_context = Some(FileSelectorContext::new(context.home_dir.to_string()));
+        },
+        IcedMessage::FileSelectorMessage(FileSelectorMessage::Notify(m)) => {
+            return Ok(Task::done(IcedMessage::Notify(m)));
         },
         IcedMessage::FileSelectorMessage(m) => {
             if let Some(c) = &mut context.file_selector_context {
@@ -1800,7 +1840,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .on_action(IcedMessage::EditLongText);
 
     let file_selector = match &context.file_selector_context {
-        Some(c) => file_selector::view(c, true, context.window_size.width * 0.6, context.zoom * 400.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
+        Some(c) => file_selector::view(c, true, context.window_size.width * 0.65, context.zoom * 480.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
         None => button("Attach", IcedMessage::OpenFileSelector, skyblue(), context.zoom).into(),
     };
 

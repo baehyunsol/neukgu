@@ -44,6 +44,7 @@ mod ui;
 pub use chat::{
     Chat,
     ChatId,
+    ChatInput,
     ChatTurn,
     ChatTurnId,
     MatchPreview,

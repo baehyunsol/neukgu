@@ -13,7 +13,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum AskTo {
@@ -99,15 +99,10 @@ pub async fn ask_question_to_user(
             break 'block Err(ToolCallError::UserRejectedToRespond);
         }
 
+        let started_at = Instant::now();
         context.ask_to_user(id, q)?;
 
-        if let Err(Error::FrontendNotAvailable) = context.wait_for_fe() {
-            response = UserResponse::Timeout;
-            break 'block Err(ToolCallError::UserNotResponding);
-        }
-
-        // It waits 3 more seconds than the set timeout because fe is a few seconds slower than be
-        for _ in 0..(config.user_response_timeout + 3) {
+        loop {
             if let Some(response_) = context.check_user_response(id)? {
                 response = response_.clone();
 
@@ -126,6 +121,16 @@ pub async fn ask_question_to_user(
 
             sleep(Duration::from_millis(1_000)).await;
             context.sync_with_fe()?;
+
+            if !context.is_fe_alive()? {
+                response = UserResponse::Timeout;
+                break 'block Err(ToolCallError::UserNotResponding);
+            }
+
+            // It waits 3 more seconds than the set timeout because the frontend is a few seconds slower than the backend.
+            if Instant::now().duration_since(started_at.clone()).as_secs() > config.user_response_timeout + 3 {
+                break;
+            }
         }
 
         response = UserResponse::Timeout;

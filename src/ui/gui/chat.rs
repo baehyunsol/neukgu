@@ -20,7 +20,13 @@ use super::api_key::{
     IcedMessage as GetApiKeysMessage,
     get_api_keys_popup,
 };
+use super::browser::FileEntry;
 use super::config::{SetChatConfig, chat_config_ui1, set_chat_config};
+use super::file_selector::{
+    self,
+    IcedContext as FileSelectorContext,
+    IcedMessage as FileSelectorMessage,
+};
 use super::logs::{LogsContext, render_logs, render_token_usage};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use super::scratch_pad::Content as ScratchPadContent;
@@ -39,6 +45,7 @@ use chrono::Local;
 use crate::{
     Chat,
     ChatId,
+    ChatInput,
     ChatTurn,
     ChatTurnId,
     Error,
@@ -55,10 +62,11 @@ use crate::{
     prettify_timestamp,
     stringify_llm_tokens,
 };
-use iced::{Color, Element, Length, Padding, Size, Task};
+use iced::{Color, ContentFit, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
 use iced::widget::{Column, Container, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::image::{Handle as ImageHandle, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -68,7 +76,7 @@ use iced::widget::text_editor::{
     KeyPress,
     TextEditor,
 };
-use ragit_fs::{join, join3};
+use ragit_fs::{basename, join, join3};
 use regex::Regex;
 use std::collections::hash_map::{Entry, HashMap};
 use std::sync::{Arc, LazyLock};
@@ -77,6 +85,7 @@ const HELP_MESSAGE: &str = "(TODO: write help message)";
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
+    pub home_dir: String,
     pub api_keys: HashMap<String, String>,
     pub get_api_keys_context: GetApiKeysContext,
     pub chat: Chat,
@@ -94,7 +103,7 @@ pub struct IcedContext {
     // An error from the last bg_job.
     pub bg_error: Option<String>,
 
-    pub curr_processing_tokens: Option<Vec<LLMToken>>,
+    pub curr_processing_input: Option<ChatInput>,
     pub window_size: Size,
     pub global_index_dir: String,
     pub working_dir: String,
@@ -112,6 +121,7 @@ pub struct IcedContext {
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
+    pub file_selector_context: FileSelectorContext,
     pub short_text_editor_content: String,
     pub long_text_editor_content: TextEditorContent,
     pub chat_input_content: TextEditorContent,
@@ -123,7 +133,7 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
-    pub fn new(chat_id: ChatId, api_keys: HashMap<String, String>, window_size: Size) -> Result<IcedContext, Error> {
+    pub fn new(home_dir: &str, chat_id: ChatId, api_keys: HashMap<String, String>, window_size: Size) -> Result<IcedContext, Error> {
         let global_index_dir = get_global_index_dir()?;
         let working_dir = join3(&global_index_dir, "chats", &format!("{:016x}", chat_id.0))?;
         let chat = Chat::load(chat_id, &global_index_dir)?;
@@ -135,6 +145,7 @@ impl IcedContext {
         }
 
         let mut context = IcedContext {
+            home_dir: home_dir.to_string(),
             api_keys,
             get_api_keys_context: GetApiKeysContext::new(missing_api_keys),
             chat: chat.clone(),
@@ -144,7 +155,7 @@ impl IcedContext {
             bg_at: None,
             bg_job: None,
             bg_error: None,
-            curr_processing_tokens: None,
+            curr_processing_input: None,
             window_size,
             global_index_dir: global_index_dir.to_string(),
             working_dir: working_dir.to_string(),
@@ -162,6 +173,7 @@ impl IcedContext {
             curr_popup,
             prev_popup: None,
             copy_buffer: None,
+            file_selector_context: FileSelectorContext::new(home_dir.to_string()),
             short_text_editor_content: String::new(),
             long_text_editor_content: TextEditorContent::new(),
             chat_input_content: TextEditorContent::new(),
@@ -226,9 +238,9 @@ impl IcedContext {
                 self.set_long_text_editor_content(code.to_string());
                 self.syntax_highlight = ext;
             },
-            Popup::Image(_) => todo!(),
+            Popup::Image(_) => {},
             Popup::Find { .. } => todo!(),
-            Popup::FileSelector => todo!(),
+            Popup::FileSelector => {},
         }
 
         Ok(())
@@ -276,15 +288,14 @@ impl IcedContext {
         Ok(())
     }
 
-    pub fn fill_turn(&mut self, turn: Vec<LLMToken>) {
-        for token in turn.iter() {
-            match token {
-                LLMToken::String(s) => {
-                    self.set_chat_input_content(s.to_string());
-                },
-                LLMToken::Image(_) => todo!(),
+    pub fn fill_turn(&mut self, turn: ChatInput) {
+        for file in turn.attached_files.iter() {
+            if let Ok(entry) = FileEntry::try_from_path(file) {
+                self.file_selector_context.selected.push(entry);
             }
         }
+
+        self.set_chat_input_content(turn.query);
     }
 
     pub fn zoom_in(&mut self) -> Task<IcedMessage> {
@@ -359,6 +370,7 @@ pub enum IcedMessage {
     SetChatConfig(SetChatConfig),
     EditShortText(String),
     EditChatInput(TextEditorAction),
+    FileSelectorMessage(FileSelectorMessage),
     IsChatInputFocused(bool),
     HoverChatButton,
     UnhoverChatButton,
@@ -535,7 +547,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.chat_view_scrolled = o;
         },
         IcedMessage::OpenPopup { curr, prev } => {
-            if let Popup::Image(_) | Popup::Find { .. } | Popup::FileSelector = &curr {
+            if let Popup::Find { .. } = &curr {
                 return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented yet"))));
             }
 
@@ -607,6 +619,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditChatInput(a) => {
             context.chat_input_content.perform(a);
         },
+        IcedMessage::FileSelectorMessage(FileSelectorMessage::Notify(m)) => {
+            return Ok(Task::done(IcedMessage::Notify(m)));
+        },
+        IcedMessage::FileSelectorMessage(m) => {
+            return Ok(file_selector::update(&mut context.file_selector_context, m).map(IcedMessage::FileSelectorMessage));
+        },
         IcedMessage::IsChatInputFocused(f) => {
             context.is_chat_input_focused = f;
         },
@@ -621,17 +639,20 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::Send => {
             let query = context.chat_input_content.text();
+            let attached_files: Vec<String> = context.file_selector_context.selected.iter().map(
+                |f| f.path.to_string()
+            ).collect();
 
-            if query.is_empty() {
+            if query.is_empty() && attached_files.is_empty() {
                 return Ok(Task::none());
             }
 
-            let query = vec![LLMToken::String(query)];
+            let input = ChatInput { attached_files, query };
             let job_id = JobId::new();
             context.bg_at = Some(Local::now().timestamp_millis());
             context.bg_job = Some(job_id);
             context.bg_error = None;
-            context.curr_processing_tokens = Some(query.clone());
+            context.curr_processing_input = Some(input.clone());
             context.is_chat_button_hovered = false;
 
             return Ok(Task::batch(vec![
@@ -640,7 +661,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     kind: JobKind::AddChatTurn {
                         chat_id: context.chat.id,
                         api_keys: context.api_keys.clone(),
-                        query,
+                        input,
                     },
                 })),
                 snap_to(context.chat_view_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }),
@@ -653,14 +674,21 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.bg_at = None;
                 context.bg_job = None;
                 context.bg_error = None;
-                context.curr_processing_tokens = None;
+                context.curr_processing_input = None;
                 context.set_chat_input_content(String::new());
+                context.file_selector_context = FileSelectorContext::new(context.home_dir.to_string());
             },
             JobResultKind::AddChatTurnError(e) if context.bg_job.is_some() && context.bg_job == job_result.id => {
                 context.bg_at = None;
                 context.bg_job = None;
                 context.bg_error = Some(e.to_string());
-                context.curr_processing_tokens = None;
+                context.curr_processing_input = None;
+            },
+            JobResultKind::CannotAttachFileToChat { file, error } if context.bg_job.is_some() && context.bg_job == job_result.id => {
+                context.bg_at = None;
+                context.bg_job = None;
+                context.bg_error = Some(format!("cannot attach file to chat\nfile: {file}\nerror: {error}"));
+                context.curr_processing_input = None;
             },
             _ => {},
         },
@@ -701,6 +729,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         turns.push(render_turn(
             "User",
             turn.user_at,
+            None,
             &turn.user,
             &None,
             &[],
@@ -712,6 +741,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         turns.push(render_turn(
             turn.model.short_name(),
             turn.assistant_at,
+            None,
             &[LLMToken::String(turn.assistant.to_string())],
             &turn.thinking,
             &turn.web_search_results,
@@ -722,11 +752,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ));
     }
 
-    if let Some(tokens) = &context.curr_processing_tokens {
+    if let Some(input) = &context.curr_processing_input {
         turns.push(render_turn(
             "User",
             context.bg_at.unwrap(),
-            tokens,
+            Some(&input.attached_files),
+            &[LLMToken::String(input.query.to_string())],
             &None,
             &[],
             None,
@@ -793,9 +824,25 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     let full_view = Column::from_vec(full_view);
     let full_view = Container::new(full_view).style(|_| set_bg(gray(0.16)));
+    let attached_files = if context.file_selector_context.selected.is_empty() {
+        Space::new().into()
+    } else {
+        Container::new(
+            file_selector::render_selected_files(
+                &context.file_selector_context.selected,
+                context.window_size.width * 0.5,
+                context.zoom,
+            )
+                .map(IcedMessage::FileSelectorMessage)
+        )
+            .width(context.window_size.width * 0.5)
+            .style(|_| set_bg(gray(0.05)))
+            .into()
+    };
     let chat_config_ui_in_container = Container::new(
         Column::from_vec(vec![
             Row::from_vec(vec![
+                attached_files,
                 button("Attach", IcedMessage::OpenPopup { curr: Popup::FileSelector, prev: None }, skyblue(), context.zoom).into(),
                 chat_config_ui1(&context.chat.config, context.zoom).map(IcedMessage::SetChatConfig).into(),
             ])
@@ -873,6 +920,41 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
     }
 
+    else if let Some(Popup::FileSelector) = context.curr_popup {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Column::from_vec(vec![
+                    file_selector::view(
+                        &context.file_selector_context,
+                        false,
+                        context.window_size.width * 0.75,
+                        context.window_size.height * 0.75,
+                        context.zoom,
+                    )
+                        .map(IcedMessage::FileSelectorMessage)
+                        .into(),
+                    Space::new().width(context.window_size.width).into(),
+                ])
+                    .align_x(Horizontal::Center)
+                    .into(),
+                context,
+            ),
+        ]).into();
+    }
+
+    else if let Some(Popup::Image(id)) = &context.curr_popup {
+        let image_view: Element<_> = into_popup(
+            ImageViewer::new(ImageHandle::from_path(id.path(&context.working_dir).unwrap())).content_fit(ContentFit::Contain).into(),
+            context,
+        ).into();
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            image_view,
+        ]).into();
+    }
+
     else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .color(white())
@@ -921,6 +1003,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 pub fn render_turn<'n, 'cn, 'cx>(
     name: &'n str,
     timestamp: i64,
+    attached_files: Option<&'cn Vec<String>>,
     content: &'cn [LLMToken],
     thinking: &Option<String>,
     web_search_results: &[WebSearchResult],
@@ -997,9 +1080,25 @@ pub fn render_turn<'n, 'cn, 'cx>(
             .align_x(align_name)
             .into(),
         Space::new().height(context.zoom * 12.0).into(),
+        if let Some(attached_files) = attached_files {
+            Row::from_vec(attached_files.iter().map(
+                |path| {
+                    Container::new(
+                        text!("{}", basename(path).unwrap_or(path.to_string()))
+                            .color(white())
+                            .size(context.zoom * 14.0),
+                    )
+                        .padding(context.zoom * 8.0)
+                        .style(|_| set_round_bg(black(), context.zoom))
+                        .into()
+                }
+            ).collect()).spacing(context.zoom * 8.0).into()
+        } else {
+            Space::new().into()
+        },
         render_llm_tokens(
             content.to_vec(),
-            "",  // TODO: working dir
+            &context.working_dir,
             context.zoom,
             context,
         )
