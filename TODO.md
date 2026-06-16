@@ -226,6 +226,7 @@
   - 일단 구현은 했는데 아직 별 의미가 없음. backend가 갑자기 죽더라도 frontend는 그 사실을 모르기 때문에 (확인을 안함) respawn 버튼이 안 뜸. 이걸 자주 확인하기는 너무 비쌀 거 같은데...
 136. "Favorites" button to the browser tab
 141. TextEditor에서 PgUp (인지 PgDn인지)를 누르니까 먹통이 됨. CPU 코어 하나를 100% 쓰던데?
+  - release profile로 하니까 살짝 먹통이 됐다가 금방 돌아옴!
 143. token usage 보면서 비용도 보고싶음... how?
 145. open이라는 crate 깔고 `open::that_detached`하면 url 주고 웹 브라우저 열 수 있음!!
   - web search 결과물에서도 이거 보고, file browser에도 다 붙이자!!
@@ -271,7 +272,8 @@
   - 이거 하기 전에 docx/xlsx/pptx 지원 추가하고 hex viewer도 추가해야할 듯?
 161. more scratch-widgets
   - slide-rule은 구현 완료
-  - 이거말고 또 다른 유용한 widget 있으려나?? 달력?? 지도?? 다 끌리긴 함 ㅋㅋㅋ 그냥 종합 gui 연습장 될 듯? ㅋㅋ
+  - calendar도 구현 완료
+  - 또 뭐하지... 지도?? 이거는 iced로 되려나 ㅋㅋ 지하철 노선도도 만들고 싶음...ㅋㅋ
 162. Agent Client Protocol
   - https://agentclientprotocol.com/get-started/introduction
   - Agent랑 IDE랑 이걸로 통신한대.
@@ -309,10 +311,6 @@
   - search (like I did with hgit)
     - author/file-glob/content로 검색 (and 조건)
       - content로 검색할 경우 diff 안에 등장하는 line들에 대해서 regex로 검색함... -> 이거 cache를 잘해야할 듯! timeout은 적당히 10초로 걸자!!
-166. file-browser-popup을 구현한 다음에 chat (이미지 첨부할 때)이랑 index, browser (working-dir 만들 때 파일 추가)에 넣자
-  - 생각해보면, index의 create-working-dir에서는 attach-file이 필요한데 browser에서는 필요없을 거 같지 않음?? 애초에 파일이 있는 곳에서 시작할 거잖아... ㄴㄴ 걍 붙여주자 ㅋㅋ
-  - 여기서 사소한 문제... index나 browser에서는 file browser를 popup으로 띄워야하잖아? 근데 create_working_dir도 이미 popup이거든? 지금 구현에서 popup 위에 다른 popup이 뜨면 기존의 popup은 초기화가 됨. 이걸 방지하려면 모든 정보를 `Popup::CreateWorkingDir { .. }` 안에다가 집어넣어야하는데... 그건 너무 빡셈 ㅠㅠ
-    - 그나마 해결책을 생각해보자면, "Attach" 버튼을 누르면 Element가 Column 안에 직접 박히는 거임!!
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
 169. summaries

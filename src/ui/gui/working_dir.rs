@@ -162,6 +162,7 @@ It doesn't rollback the configs, though.
 - Esc: close popup
 - (Ctrl)+Up/Down: prev/next turn entry (Ctrl + move faster)
   - If there's a popup, Ctrl+Up/Down will scroll to top/bottom
+- (Shift)+N: prev/next match of the search pattern
 - Left/Right: prev/next turn entry (in turn popup)
 - Ctrl+Plus/Minus: zoom
 - Ctrl+Tab: toggle focus interrupt_text_edit
@@ -326,6 +327,37 @@ impl IcedContext {
         let new_selection = (self.selected_turn.map(|i| i as i32).unwrap_or(-1) + offset).min(self.fe_context.history.len() as i32 - 1).max(0) as usize;
         self.selected_turn = Some(new_selection);
         self.zoom * (new_selection.max(3) - 3) as f32 * 61.0
+    }
+
+    pub fn select_next_find(&mut self, d: i32) -> Option<f32> {
+        let previews = self.fe_context.iter_previews();
+
+        if previews.is_empty() {
+            return None;
+        }
+
+        let mut i = if d > 0 {
+            (self.selected_turn.map(|i| i as i32).unwrap_or(-1) + 1) as usize
+        } else if self.selected_turn == Some(0) {
+            previews.len() - 1
+        } else {
+            self.selected_turn.unwrap_or(previews.len()) - 1
+        };
+
+        for _ in 0..previews.len() {
+            if self.find_result.contains_key(&previews[i % previews.len()].preview_title_truncated) {
+                self.selected_turn = Some(i % previews.len());
+                break;
+            }
+
+            i = (i as i32 + previews.len() as i32 + d) as usize % previews.len();
+        }
+
+        if self.selected_turn.is_some() {
+            Some(self.select_turn(0))
+        } else {
+            None
+        }
     }
 
     pub fn open_popup(&mut self, popup: Popup) -> Result<Task<IcedMessage>, Error> {
@@ -1022,6 +1054,13 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             (Key::Character("="), true, false, false) => {
                 return Ok(context.zoom_in());
+            },
+            (Key::Character("n"), false, false, shift) => {
+                if context.can_click_turn_entry() && !context.find_result.is_empty() {
+                    if let Some(scroll_offset) = context.select_next_find(if shift { -1 } else { 1 }) {
+                        return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
+                    }
+                }
             },
             _ => {},
         },
