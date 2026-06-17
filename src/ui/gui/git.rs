@@ -92,6 +92,7 @@ pub enum IcedMessage {
 #[derive(Clone, Debug)]
 pub struct GitInfo {
     pub is_git_repo: bool,
+    pub branch: Option<String>,  // None if HEAD is detached
     pub staged: Vec<FileDiff>,
     pub unstaged: Vec<FileDiff>,
     pub recent_commits: Vec<CommitInfo>,
@@ -133,8 +134,10 @@ pub struct CommitInfo {
 
 #[derive(Clone, Debug)]
 pub struct FileDiff {
-    pub file_a: String,
-    pub file_b: String,
+    // `None` for `"dev/null"`
+    pub file_a: Option<String>,
+    pub file_b: Option<String>,
+
     pub hunks: Vec<Hunk>,
     pub add: usize,
     pub remove: usize,
@@ -142,10 +145,11 @@ pub struct FileDiff {
 
 impl FileDiff {
     pub fn title(&self) -> String {
-        match (self.file_a.as_str(), self.file_b.as_str()) {
-            ("dev/null", f) | (f, "dev/null") => f.to_string(),
-            (a, b) if a == b => a.to_string(),
-            (a, b) => format!("{a} -> {b}"),
+        match (&self.file_a, &self.file_b) {
+            (None, Some(f)) | (Some(f), None) => f.to_string(),
+            (Some(a), Some(b)) if a == b => a.to_string(),
+            (Some(a), Some(b)) => format!("{a} -> {b}"),
+            (None, None) => unreachable!(),
         }
     }
 }
@@ -161,6 +165,13 @@ pub enum ChangeKind {
 pub enum Tab {
     Changes,
     Commits,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GitOperation {
+    Stage,
+    Unstage,
+    Revert,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
@@ -200,13 +211,40 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             }
         },
         IcedMessage::Stage(i, j) => {
-            return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented: Stage changes"))));
+            let diff = &context.git_info.as_ref().unwrap().unstaged[i];
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: JobId::new(),
+                kind: JobKind::GitOperation {
+                    operation: GitOperation::Stage,
+                    file_a: diff.file_a.clone(),
+                    file_b: diff.file_b.clone(),
+                    hunk: diff.hunks[j].clone(),
+                },
+            })));
         },
         IcedMessage::Unstage(i, j) => {
-            return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented: Unstage changes"))));
+            let diff = &context.git_info.as_ref().unwrap().staged[i];
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: JobId::new(),
+                kind: JobKind::GitOperation {
+                    operation: GitOperation::Unstage,
+                    file_a: diff.file_a.clone(),
+                    file_b: diff.file_b.clone(),
+                    hunk: diff.hunks[j].clone(),
+                },
+            })));
         },
         IcedMessage::Revert(i, j) => {
-            return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented: Revert changes"))));
+            let diff = &context.git_info.as_ref().unwrap().unstaged[i];
+            return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                id: JobId::new(),
+                kind: JobKind::GitOperation {
+                    operation: GitOperation::Revert,
+                    file_a: diff.file_a.clone(),
+                    file_b: diff.file_b.clone(),
+                    hunk: diff.hunks[j].clone(),
+                },
+            })));
         },
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
@@ -232,6 +270,16 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             },
             JobResultKind::GetGitInfoError(e) => {
                 context.error = Some(e.to_string());
+            },
+            JobResultKind::GitOperationSuccess(operation) => match operation {
+                GitOperation::Stage => return Ok(Task::done(IcedMessage::Notify(String::from("Staged.")))),
+                GitOperation::Unstage => return Ok(Task::done(IcedMessage::Notify(String::from("Unstaged.")))),
+                GitOperation::Revert => return Ok(Task::done(IcedMessage::Notify(String::from("reverted.")))),
+            },
+            JobResultKind::GitOperationFail { operation, error } => match operation {
+                GitOperation::Stage => return Ok(Task::done(IcedMessage::Notify(format!("Failed to stage: {error}")))),
+                GitOperation::Unstage => return Ok(Task::done(IcedMessage::Notify(format!("Failed to unstage: {error}")))),
+                GitOperation::Revert => return Ok(Task::done(IcedMessage::Notify(format!("Failed to revert: {error}")))),
             },
             _ => {},
         },
@@ -359,7 +407,13 @@ fn render_changes<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
 }
 
 fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    Column::from_vec(
+    let branch_desc = match (git_info.is_git_repo, &git_info.branch) {
+        (false, _) => String::new(),
+        (true, Some(b)) => format!("branch: {b}"),
+        (true, None) => String::from("Detached HEAD"),
+    };
+    let mut column = vec![text!("{branch_desc}").color(white()).size(context.zoom * 14.0).into()];
+    column.extend(
         git_info.recent_commits.iter().map(
             |commit| {
                 let is_expanded = context.expanded_commits.contains(&commit.commit_hash);
@@ -422,8 +476,10 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
                     .style(|_| set_round_bg(gray(0.2), context.zoom))
                     .into()
             }
-        ).collect()
-    )
+        ),
+    );
+
+    Column::from_vec(column)
         .padding(context.zoom * 8.0)
         .spacing(context.zoom * 8.0)
         .into()
@@ -532,6 +588,32 @@ pub fn get_git_info(path: &str) -> Result<GitInfo, Error> {
     )?;
     let is_git_repo = !String::from_utf8_lossy(&is_git_repo.stderr).contains("fatal: not a git repository");
 
+    let branch = if is_git_repo {
+        let branch_name = subprocess::run(
+            String::from("git"),
+            &[
+                String::from("branch"),
+                String::from("--show-current"),
+            ],
+            false,
+            &[],
+            path,
+            3,
+            "",
+            false,
+        )?;
+        let branch_name = String::from_utf8_lossy(&branch_name.stdout);
+        let branch_name = branch_name.trim();
+
+        if branch_name.is_empty() {
+            None
+        } else {
+            Some(branch_name.to_string())
+        }
+    } else {
+        None
+    };
+
     let unstaged_changes = if is_git_repo {
         let unstaged_changes = subprocess::run(
             String::from("git"),
@@ -618,10 +700,19 @@ pub fn get_git_info(path: &str) -> Result<GitInfo, Error> {
 
     Ok(GitInfo {
         is_git_repo,
+        branch,
         staged: staged_changes,
         unstaged: unstaged_changes,
         recent_commits,
     })
+}
+
+fn path_or_null(path: &str) -> Option<String> {
+    if path == "/dev/null" {
+        None
+    } else {
+        Some(path.to_string())
+    }
 }
 
 static LINE_HEADER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"diff --git "?a/(.+)"? "?b/(.+)"?"#).unwrap());
@@ -660,8 +751,8 @@ fn parse_git_diff(diff: &str) -> Vec<FileDiff> {
                     let add = hunks.iter().map(|h| h.add).sum::<usize>();
                     let remove = hunks.iter().map(|h| h.remove).sum::<usize>();
                     files.push(FileDiff {
-                        file_a: curr_file.0.to_string(),
-                        file_b: curr_file.1.to_string(),
+                        file_a: path_or_null(&curr_file.0),
+                        file_b: path_or_null(&curr_file.1),
                         hunks,
                         add,
                         remove,
@@ -694,8 +785,8 @@ fn parse_git_diff(diff: &str) -> Vec<FileDiff> {
         let add = hunks.iter().map(|h| h.add).sum::<usize>();
         let remove = hunks.iter().map(|h| h.remove).sum::<usize>();
         files.push(FileDiff {
-            file_a: curr_file.0.to_string(),
-            file_b: curr_file.1.to_string(),
+            file_a: path_or_null(&curr_file.0),
+            file_b: path_or_null(&curr_file.1),
             hunks,
             add,
             remove,
@@ -818,4 +909,8 @@ fn load_commit_info(path: &str, commit: GitHash) -> Result<CommitInfo, Error> {
     }
 
     Ok(commit_info)
+}
+
+pub fn git_operation(operation: GitOperation, file_a: Option<String>, file_b: Option<String>, hunk: Hunk) -> Result<(), Error> {
+    todo!()
 }

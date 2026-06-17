@@ -90,6 +90,13 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
         create_dir(&join(global_index_dir, "cargo-targets")?)?;
     }
 
+    // For thumbnails for the file browser.
+    if !exists(&join(global_index_dir, "thumbnails")?) {
+        create_dir(&join(global_index_dir, "thumbnails")?)?;
+        create_dir(&join3(global_index_dir, "thumbnails", ".neukgu")?)?;
+        create_dir(&join4(global_index_dir, "thumbnails", ".neukgu", "images")?)?;
+    }
+
     if !exists(&join(global_index_dir, "config.json")?) {
         write_string(
             &join(global_index_dir, "config.json")?,

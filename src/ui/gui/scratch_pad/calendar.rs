@@ -50,16 +50,22 @@ impl IcedContext {
         format!("{}{m}{}", " ".repeat(rem / 2), " ".repeat(rem / 2 + rem % 2))
     }
 
-    fn clamp(&mut self) {
+    fn clamp(&mut self) -> bool {
+        let mut clamped = false;
+
         if self.year < 1960 {
             self.year = 1960;
             self.month = 1;
+            clamped = true;
         }
 
         else if self.year > 2199 {
             self.year = 2199;
             self.month = 12;
+            clamped = true;
         }
+
+        clamped
     }
 
     fn calc_weekday(&mut self) {
@@ -145,10 +151,12 @@ impl From<Weekday> for u8 {
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
+    let mut clamped = false;
+
     match message {
         IcedMessage::JumpYear(d) => {
             context.year += d;
-            context.clamp();
+            clamped = context.clamp();
             context.calc_weekday();
         },
         IcedMessage::PrevMonth => {
@@ -161,7 +169,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 context.month -= 1;
             }
 
-            context.clamp();
+            clamped = context.clamp();
             context.calc_weekday();
         },
         IcedMessage::NextMonth => {
@@ -174,13 +182,13 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                 context.month += 1;
             }
 
-            context.clamp();
+            clamped = context.clamp();
             context.calc_weekday();
         },
         IcedMessage::Jump(y, m) => {
             context.year = y;
             context.month = m;
-            context.clamp();
+            clamped = context.clamp();
             context.calc_weekday();
         },
         IcedMessage::RemoveSelection(i) => {
@@ -196,13 +204,19 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             let (year, month, _) = context.today;
             context.year = year;
             context.month = month;
-            context.clamp();
+            clamped = context.clamp();
             context.calc_weekday();
         },
         IcedMessage::Notify(_) => unreachable!(),
     }
 
-    Task::none()
+    if clamped {
+        Task::done(IcedMessage::Notify(String::from("Only 1960 ~ 2199 is available.")))
+    }
+
+    else {
+        Task::none()
+    }
 }
 
 pub fn view<'c>(context: &'c IcedContext, window_size: Size, zoom: f32) -> Element<'c, IcedMessage> {

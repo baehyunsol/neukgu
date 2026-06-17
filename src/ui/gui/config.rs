@@ -471,21 +471,21 @@ pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
                 |model| model.is_real() && model.is_llm()
             ).collect::<Vec<_>>(),
             Some(config.model),
-            |model| SetChatConfig::Model(model),
+            SetChatConfig::Model,
         )
             .text_size(zoom * 14.0)
             .width(zoom * 160.0)
             .into(),
         Checkbox::new(config.thinking != Thinking::Disabled)
             .label("Thinking")
-            .on_toggle(|t| SetChatConfig::Thinking(t))
+            .on_toggle(SetChatConfig::Thinking)
             .size(zoom * 14.0)
             .text_size(zoom * 14.0)
             .into(),
         Checkbox::new(config.enable_web_search)
             .label("Web Search")
             .on_toggle_maybe(if config.model.supports_web_search() {
-                Some(|s| SetChatConfig::WebSearch(s))
+                Some(SetChatConfig::WebSearch)
             } else {
                 None
             })

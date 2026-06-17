@@ -44,7 +44,7 @@ use crate::{
     prettify_bytes,
     prettify_time,
     prettify_timestamp,
-    render_first_10_pages,
+    render_first_few_pages_of_pdf,
     subprocess::Output as SubprocessOutput,
     validate_project_name,
 };
@@ -356,7 +356,7 @@ impl IcedContext {
                                 self.image_buffer = vec![(format!("{}x{}", img.width(), img.height()), ImageHandle::from_path(&path))];
                                 None
                             },
-                            _ => match render_first_10_pages(e.as_bytes()) {
+                            _ => match render_first_few_pages_of_pdf(e.as_bytes(), 10, 1200) {
                                 Ok(Some((pages, total_pages))) => {
                                     self.image_buffer = pages.into_iter().enumerate().map(|(i, buffer)| (format!("{}/{total_pages}", i + 1), ImageHandle::from_bytes(buffer))).collect();
                                     None
@@ -410,48 +410,24 @@ impl IcedContext {
                 self.file_editor_context = Some(c);
                 return Ok(focus(editor_id));
             },
-            Popup::FileInfo { is_dir, path, .. } => if is_dir {
-                let job_id = JobId::new();
-                let metadata = std::fs::metadata(&path).map_err(|e| FileError::from_std(e, &path))?;
+            Popup::FileInfo { is_dir, path, .. } => {
+                let file_info = FileInfo::load(is_dir, &path)?;
+                self.loaded_file_info = Some(file_info);
 
-                self.loaded_file_info = Some(FileInfo {
-                    name: basename(&path)?,
-                    path: path.to_string(),
-                    is_symlink: false,
-
-                    // will be updated later
-                    size: 0,
-
-                    modified: metadata.modified().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
-                    created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
-                });
-                self.curr_popup = Some(Popup::FileInfo {
-                    is_dir,
-                    path: path.to_string(),
-                    job_id: Some(job_id),
-                    error: None,
-                });
-                return Ok(Task::done(IcedMessage::BackgroundJob(Job {
-                    id: job_id,
-                    kind: JobKind::CalcDirectorySize { path: path.to_string() },
-                })));
-            } else {
-                let is_symlink = is_symlink(&path);
-                let metadata = if is_symlink {
-                    std::fs::symlink_metadata(&path)
-                } else {
-                    std::fs::metadata(&path)
-                };
-                let metadata = metadata.map_err(|e| FileError::from_std(e, &path))?;
-
-                self.loaded_file_info = Some(FileInfo {
-                    name: basename(&path)?,
-                    path: path.to_string(),
-                    is_symlink,
-                    size: metadata.len(),
-                    modified: metadata.modified().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
-                    created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
-                });
+                // It doesn't load preview! Why do you need a preview when you can just view the file?
+                if is_dir {
+                    let job_id = JobId::new();
+                    self.curr_popup = Some(Popup::FileInfo {
+                        is_dir,
+                        path: path.to_string(),
+                        job_id: Some(job_id),
+                        error: None,
+                    });
+                    return Ok(Task::done(IcedMessage::BackgroundJob(Job {
+                        id: job_id,
+                        kind: JobKind::CalcDirectorySize { path: path.to_string() },
+                    })));
+                }
             },
             Popup::GitInfo { path } => {
                 let job_id = JobId::new();
@@ -560,6 +536,7 @@ pub enum IcedMessage {
     Launch { path: String },
     NewBrowser { dir: String, file: Option<String> },
     Find,
+    FindAgain(String),
     RunCommand,
     SetFindOption(FindOption),
     EditShortText(String),
@@ -698,7 +675,8 @@ pub struct FileInfo {
     pub name: String,
     pub path: String,
     pub is_symlink: bool,
-    pub size: u64,
+    pub size: Option<u64>,  // may be lazily loaded
+    pub preview: Option<FilePreview>,
 
     // timedelta, in milliseconds
     pub modified: Option<u64>,
@@ -706,22 +684,76 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
-    pub fn render(&self, is_calculating_size: bool, error_calculating_size: bool) -> String {
+    // It doesn't calculate size of a directory.
+    // It doesn't load preview of the file.
+    // You have to use background workers to do those.
+    pub fn load(is_dir: bool, path: &str) -> Result<FileInfo, Error> {
+        if is_dir {
+            let metadata = std::fs::metadata(&path).map_err(|e| FileError::from_std(e, &path))?;
+
+            Ok(FileInfo {
+                name: basename(&path)?,
+                path: path.to_string(),
+                is_symlink: false,
+                size: None,  // will be updated later
+                preview: None,  // N/A
+                modified: metadata.modified().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+                created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+            })
+        }
+
+        else {
+            let is_symlink = is_symlink(&path);
+            let metadata = if is_symlink {
+                std::fs::symlink_metadata(&path)
+            } else {
+                std::fs::metadata(&path)
+            };
+            let metadata = metadata.map_err(|e| FileError::from_std(e, &path))?;
+
+            Ok(FileInfo {
+                name: basename(&path)?,
+                path: path.to_string(),
+                is_symlink,
+                size: Some(metadata.len()),
+                preview: None,  // will be updated later
+                modified: metadata.modified().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+                created: metadata.created().map(|t| t.elapsed().map(|t| t.as_millis() as u64).ok()).unwrap_or(None),
+            })
+        }
+    }
+
+    pub fn summary(&self, is_calculating_size: bool) -> String {
         format!(
             "name: {}\nis_symlink: {}\nsize: {}\nmodified: {}\ncreated: {}\n",
             self.name,
             self.is_symlink,
-            if is_calculating_size {
-                String::from("calculating...")
-            } else if error_calculating_size {
-                String::from("???")
-            } else {
-                prettify_bytes(self.size)
+            match self.size {
+                Some(size) => prettify_bytes(size),
+                None if is_calculating_size => String::from("calculating..."),
+                _ => String::from("???"),
             },
             if let Some(t) = self.modified { format!("{} ago", prettify_time(t)) } else { String::from("N/A") },
             if let Some(t) = self.created { format!("{} ago", prettify_time(t)) } else { String::from("N/A") },
         )
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum FilePreview {
+    Text {
+        preview: String,
+        truncated: bool,
+    },
+    Image {
+        thumbnail_path: String,
+        size: (u32, u32),
+    },
+    Pdf {
+        thumbnail_path: String,
+        total_pages: usize,
+    },
+    None,
 }
 
 #[derive(Clone, Debug)]
@@ -797,7 +829,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
     match message {
         IcedMessage::Tick { frame, force_update } => {
             let mut tasks = vec![
-                is_focused(context.command_editor_id.clone()).map(|is_focused| IcedMessage::IsCommandEditorFocused(is_focused)),
+                is_focused(context.command_editor_id.clone()).map(IcedMessage::IsCommandEditorFocused),
             ];
 
             if frame % 4 == 0 || force_update {
@@ -816,6 +848,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 c.window_size = context.window_size;
                 c.zoom = context.zoom;
                 tasks.push(git::update(c, GitInfoMessage::Tick { frame })?.map(IcedMessage::GitInfoMessage));
+            }
+
+            if let Some(c) = &mut context.file_selector_context {
+                tasks.push(file_selector::update(c, FileSelectorMessage::Tick { frame }).map(IcedMessage::FileSelectorMessage));
             }
 
             return Ok(Task::batch(tasks));
@@ -1072,6 +1108,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 kind: job,
             })));
         },
+        IcedMessage::FindAgain(regex) => {
+            context.curr_popup = Some(Popup::Find { job_id: None, error: None });
+            context.short_text_editor_content = regex;
+            return Ok(Task::done(IcedMessage::Find));
+        },
         IcedMessage::RunCommand => {
             let job_id = JobId::new();
             let started_at = Local::now().timestamp_millis();
@@ -1144,6 +1185,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::OpenFileSelector => {
             context.file_selector_context = Some(FileSelectorContext::new(context.home_dir.to_string()));
+        },
+        IcedMessage::FileSelectorMessage(FileSelectorMessage::BackgroundJob(j)) => {
+            return Ok(Task::done(IcedMessage::BackgroundJob(j)));
         },
         IcedMessage::FileSelectorMessage(FileSelectorMessage::Notify(m)) => {
             return Ok(Task::done(IcedMessage::Notify(m)));
@@ -1220,7 +1264,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             JobResultKind::CalcDirectorySize(size) => match &mut context.curr_popup {
                 Some(Popup::FileInfo { job_id, .. }) if *job_id == job_result.id => {
                     *job_id = None;
-                    context.loaded_file_info.as_mut().unwrap().size = *size;
+                    context.loaded_file_info.as_mut().unwrap().size = Some(*size);
                 },
                 _ => {},
             },
@@ -1231,7 +1275,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 },
                 _ => {},
             },
-            JobResultKind::GetGitInfo(_) | JobResultKind::GetGitInfoError(_) => match &mut context.git_info_context {
+            JobResultKind::GetFilePreview { .. } => {
+                if let Some(c) = &mut context.file_selector_context {
+                    return Ok(file_selector::update(c, FileSelectorMessage::BackgroundJobResult(job_result)).map(IcedMessage::FileSelectorMessage));
+                }
+            },
+            JobResultKind::GetGitInfo(_) | JobResultKind::GetGitInfoError(_) | JobResultKind::GitOperationSuccess(_) | JobResultKind::GitOperationFail { .. } => match &mut context.git_info_context {
                 Some(c) => {
                     return Ok(git::update(c, GitInfoMessage::BackgroundJobResult(job_result))?.map(IcedMessage::GitInfoMessage));
                 },
@@ -1574,7 +1623,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         };
 
         let file_info = context.loaded_file_info.as_ref().unwrap();
-        let content = file_info.render(is_working, error.is_some());
+        let content = file_info.summary(is_working);
         let mut column = vec![
             text!("{}", file_info.path).size(context.zoom * 18.0).into(),
             text!("{content}").size(context.zoom * 14.0).into(),
@@ -1812,7 +1861,7 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         Scrollable::new(
             Column::from_vec(vec![
                 text_editor.into(),
-                config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
+                config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Init", IcedMessage::Init { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
@@ -1850,7 +1899,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
                 short_text_editor.into(),
                 long_text_editor.into(),
                 file_selector,
-                config_ui(&context.new_project_config, context.zoom).map(|m| IcedMessage::SetProjectConfig(m)).into(),
+                config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::CreateWorkingDir { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
@@ -2099,7 +2148,14 @@ fn render_find_result<'f, 'm, 'c>(
     }
 
     Column::from_vec(vec![
-        text!("find {regex:?}").size(context.zoom * 14.0).into(),
+        Row::from_vec(vec![
+            text!("find: {regex}").size(context.zoom * 14.0).into(),
+            button("Copy", IcedMessage::CopyString(regex.to_string()), blue(), context.zoom).into(),
+            button("Refresh", IcedMessage::FindAgain(regex.to_string()), green(), context.zoom).into(),
+        ])
+            .spacing(context.zoom * 4.0)
+            .align_y(Vertical::Center)
+            .into(),
         text!(
             "{} result{}{}",
             match_count,

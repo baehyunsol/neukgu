@@ -654,7 +654,7 @@ fn parse_string_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Strin
 fn parse_command_arg(args: &HashMap<Vec<u8>, Vec<u8>>, arg: &str) -> Option<Result<Vec<String>, ParseError>> {
     let command = args.get(arg.as_bytes())?;
     let command = String::from_utf8_lossy(command);
-    Some(parse_command(&command).map_err(|e| ParseError::InvalidCommand(e)))
+    Some(parse_command(&command).map_err(ParseError::InvalidCommand))
 }
 
 pub static ENV_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([a-zA-Z0-9_-]+)\s*\=\s*(.+)").unwrap());

@@ -1,15 +1,19 @@
-use super::git::{GitInfo, get_git_info};
+use super::browser::FilePreview;
+use super::git::{GitInfo, GitOperation, get_git_info, git_operation};
 use super::tab::TabId;
 use base64::Engine;
 use crate::{
     ChatId,
     ChatInput,
     Error,
+    Hunk,
     LLMToken,
     MatchPreview,
     add_chat_turn,
     find_pattern_in_chats,
     get_global_index_dir,
+    normalize_image,
+    render_first_few_pages_of_pdf,
 };
 use crate::subprocess::{self, Output};
 use crate::tool::parse_command;
@@ -19,7 +23,11 @@ use ragit_fs::{
     file_size,
     is_dir,
     is_symlink,
+    join,
+    read_bytes,
+    read_bytes_offset,
     read_dir,
+    read_string,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -67,8 +75,17 @@ pub enum JobKind {
     CalcDirectorySize {
         path: String,
     },
+    GetFilePreview {
+        path: String,
+    },
     GetGitInfo {
         path: String,
+    },
+    GitOperation {
+        operation: GitOperation,
+        file_a: Option<String>,
+        file_b: Option<String>,
+        hunk: Hunk,
     },
 }
 
@@ -95,8 +112,11 @@ pub enum JobResultKind {
     FindInChatsError(String),
     CalcDirectorySize(u64),
     CalcDirectorySizeError(String),
+    GetFilePreview { path: String, preview: FilePreview },
     GetGitInfo(GitInfo),
     GetGitInfoError(String),
+    GitOperationSuccess(GitOperation),
+    GitOperationFail { operation: GitOperation, error: String },
     WorkerError(String),
 }
 
@@ -245,12 +265,25 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::CalcDirectorySizeError(format!("{e:?}")) }).unwrap();
                 },
             },
+            Job { id, kind: JobKind::GetFilePreview { path } } => {
+                if let Ok(preview) = get_file_preview(&path) {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GetFilePreview { path, preview } }).unwrap();
+                }
+            },
             Job { id, kind: JobKind::GetGitInfo { path } } => match get_git_info(&path) {
                 Ok(i) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GetGitInfo(i) }).unwrap();
                 },
                 Err(e) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GetGitInfoError(format!("{e:?}")) }).unwrap();
+                },
+            },
+            Job { id, kind: JobKind::GitOperation { operation, file_a, file_b, hunk } } => match git_operation(operation, file_a, file_b, hunk) {
+                Ok(()) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GitOperationSuccess(operation) }).unwrap();
+                },
+                Err(e) => {
+                    tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GitOperationFail { operation, error: format!("{e:?}") } }).unwrap();
                 },
             },
         }
@@ -445,4 +478,60 @@ fn calc_directory_size(path: &str) -> Result<u64, Error> {
     }
 
     Ok(result)
+}
+
+fn get_file_preview(path: &str) -> Result<FilePreview, Error> {
+    if is_dir(path) {
+        return Ok(FilePreview::None);
+    }
+
+    let thumbnail_dir = join(
+        &get_global_index_dir()?,
+        "thumbnails",
+    )?;
+    let file_size = file_size(path)?;
+
+    if file_size <= 512 {
+        if let Ok(s) = read_string(path) {
+            return Ok(FilePreview::Text { preview: s, truncated: false });
+        }
+    }
+
+    // I don't want to waste time reading a very big file.
+    else if file_size > 0x07ff_ffff {
+        return Ok(FilePreview::None);
+    }
+
+    else {
+        let prefix = read_bytes_offset(path, 0, 512)?;
+
+        // If the file is valid utf-8, one of these must be valid utf-8.
+        match (
+            String::from_utf8(prefix[..509].to_vec()),
+            String::from_utf8(prefix[..510].to_vec()),
+            String::from_utf8(prefix[..511].to_vec()),
+            String::from_utf8(prefix[..512].to_vec()),
+        ) {
+            (_, _, _, Ok(s)) |
+            (_, _, Ok(s), _) |
+            (_, Ok(s), _, _) |
+            (Ok(s), _, _, _) => {
+                return Ok(FilePreview::Text { preview: s, truncated: true });
+            },
+            _ => {},
+        }
+    }
+
+    let bytes = read_bytes(path)?;
+
+    match normalize_image(&bytes, &thumbnail_dir, 96) {
+        Ok(image_id) => Ok(FilePreview::Image { thumbnail_path: image_id.path(&thumbnail_dir)?, size: (image_id.width, image_id.height) }),
+        Err(_) => match render_first_few_pages_of_pdf(&bytes, 1, 96) {
+            Ok(Some((pages, total_pages))) => match normalize_image(&pages[0], &thumbnail_dir, 80) {
+                Ok(image_id) => Ok(FilePreview::Pdf { thumbnail_path: image_id.path(&thumbnail_dir)?, total_pages }),
+                Err(_) => Ok(FilePreview::None),
+            },
+            _ => Ok(FilePreview::None),
+        },
+    }
 }

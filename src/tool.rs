@@ -15,9 +15,8 @@ use crate::{
     clean_sandbox,
     export_to_sandbox,
     from_browser_error,
-    image,
     import_from_sandbox,
-    normalize_and_get_id,
+    normalize_image,
     prettify_bytes,
     prettify_time,
     subprocess,
@@ -636,7 +635,7 @@ impl ToolCall {
                         sleep(Duration::from_millis(2_000)).await;
 
                         let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
-                        let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
+                        let image_id = normalize_image(&png_data, &context.working_dir, 1200)?;
                         write_bytes(&output.absolute, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
                         Ok(Ok(ToolCallSuccess::ChromeWeb { input: url.to_string(), output_path: output, output_image: image_id, script_output }))
                     },
@@ -675,7 +674,7 @@ impl ToolCall {
                             // the VIBE ends here
 
                             let png_data = read_bytes(&output.absolute)?;
-                            let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
+                            let image_id = normalize_image(&png_data, &context.working_dir, 1200)?;
                             return Ok(Ok(ToolCallSuccess::Svg { input, output_path: output, output_image: image_id }));
                         }
 
@@ -702,7 +701,7 @@ impl ToolCall {
                             sleep(Duration::from_millis(2_000)).await;
 
                             let png_data = tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true).map_err(from_browser_error)?;
-                            let image_id = image::normalize_and_get_id(&png_data, &context.working_dir)?;
+                            let image_id = normalize_image(&png_data, &context.working_dir, 1200)?;
                             write_bytes(&output.absolute, &png_data, ragit_fs::WriteMode::CreateOrTruncate)?;
                             Ok(Ok(ToolCallSuccess::ChromeFile { input, output_path: output, output_image: image_id, script_output }))
                         }
@@ -728,7 +727,7 @@ impl ToolCall {
                 };
 
                 let input_image_id = match read_bytes(&input.absolute) {
-                    Ok(bytes) => match normalize_and_get_id(&bytes, &context.working_dir) {
+                    Ok(bytes) => match normalize_image(&bytes, &context.working_dir, 1200) {
                         Ok(id) => id,
                         Err(_) => {
                             return Ok(Err(ToolCallError::NotAnImage { path: input }));
@@ -757,7 +756,7 @@ impl ToolCall {
                 };
 
                 let generated_image_bytes = response.data[0].decode_base64()?;
-                let generated_image = ::image::load_from_memory(&generated_image_bytes)?;
+                let generated_image = image::load_from_memory(&generated_image_bytes)?;
 
                 write_bytes(
                     &output.absolute,
@@ -765,7 +764,7 @@ impl ToolCall {
                     ragit_fs::WriteMode::CreateOrTruncate,
                 )?;
 
-                let generated_image_id = normalize_and_get_id(&generated_image_bytes, &context.working_dir)?;
+                let generated_image_id = normalize_image(&generated_image_bytes, &context.working_dir, 1200)?;
                 Ok(Ok(ToolCallSuccess::ImageEdit {
                     input,
                     prompt: prompt.to_string(),

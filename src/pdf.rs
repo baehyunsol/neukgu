@@ -1,4 +1,4 @@
-use crate::{Error, ImageId, check_interruption, hash_bytes, load_json, normalize_and_get_id};
+use crate::{Error, ImageId, check_interruption, hash_bytes, load_json, normalize_image};
 use hayro::{RenderSettings, render};
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::palette::css::WHITE;
@@ -33,7 +33,7 @@ impl PdfId {
     // }
 }
 
-pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error> {
+pub fn render_pdf(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error> {
     let pdf = Pdf::new(bytes.to_vec())?;
     let id = ((hash_bytes(bytes) & 0xffff_ffff_ffff) << 16) as u64 | pdf.pages().len() as u64;
     let id = PdfId(id);
@@ -59,7 +59,7 @@ pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error
             },
         );
         let png_bytes = pixmap.into_png()?;
-        let image_id = normalize_and_get_id(&png_bytes, working_dir)?;
+        let image_id = normalize_image(&png_bytes, working_dir, 1200)?;
         pages.push(image_id);
 
         if check_interruption(working_dir)? {
@@ -75,14 +75,14 @@ pub fn render_and_get_id(bytes: &[u8], working_dir: &str) -> Result<PdfId, Error
     Ok(id)
 }
 
-pub fn render_first_10_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, Error> {
+pub fn render_first_few_pages_of_pdf(bytes: &[u8], few: usize, resolution: u32) -> Result<Option<(Vec<Vec<u8>>, usize)>, Error> {
     match Pdf::new(bytes.to_vec()) {
         // hayro sometimes treats non-pdf files as a zero-page pdf file
         Ok(pdf) if pdf.pages().len() > 0 => {
             let total_pages = pdf.pages().len();
             let mut pages = vec![];
 
-            for page in pdf.pages().iter().take(10) {
+            for page in pdf.pages().iter().take(few) {
                 let pixmap = render(
                     page,
                     &Default::default(),
@@ -99,8 +99,8 @@ pub fn render_first_10_pages(bytes: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize
                 let png_bytes = pixmap.into_png()?;
                 let mut image_buffer = image::load_from_memory(&png_bytes)?;
 
-                if image_buffer.width() > 1200 || image_buffer.height() > 1200 {
-                    image_buffer = image_buffer.resize(1200, 1200, image::imageops::FilterType::Triangle);
+                if image_buffer.width() > resolution || image_buffer.height() > resolution {
+                    image_buffer = image_buffer.resize(resolution, resolution, image::imageops::FilterType::Triangle);
                 }
 
                 let bytes = vec![];

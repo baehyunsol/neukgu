@@ -14,10 +14,19 @@ use super::{
 };
 use super::browser::{
     FileEntry,
+    FileInfo,
+    FilePreview,
     load_entries,
 };
+use super::worker::{
+    Job,
+    JobId,
+    JobKind,
+    JobResult,
+    JobResultKind,
+};
 use crate::Error;
-use iced::{Background, Element, Task};
+use iced::{Background, ContentFit, Element, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::widget::{Column, Id, MouseArea, Row, Space, text};
@@ -27,6 +36,7 @@ use iced::widget::button::{
     Style as ButtonStyle,
 };
 use iced::widget::container::{Container, Style};
+use iced::widget::image::{Handle as ImageHandle, Image};
 use iced::widget::operation::snap_to;
 use iced::widget::scrollable::{RelativeOffset, Scrollable};
 use ragit_fs::{
@@ -35,11 +45,12 @@ use ragit_fs::{
     exists,
     extension,
     file_name,
+    is_dir,
     join,
     parent,
     set_extension,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub struct IcedContext {
@@ -49,6 +60,8 @@ pub struct IcedContext {
     pub entries: Vec<FileEntry>,
     pub selected: Vec<FileEntry>,
     pub selected_set: HashSet<String>,
+    pub file_info: HashMap<String, FileInfo>,
+    pub loaded_preview: HashSet<String>,
     pub hovered: Option<String>,
     pub entry_scroll_id: Id,
     pub error: Option<String>,
@@ -70,6 +83,8 @@ impl IcedContext {
             entries,
             selected: vec![],
             selected_set: HashSet::new(),
+            file_info: HashMap::new(),
+            loaded_preview: HashSet::new(),
             hovered: None,
             entry_scroll_id: Id::unique(),
             error,
@@ -110,16 +125,34 @@ impl IcedContext {
 
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
+    Tick { frame: usize },
     Up,
     Chdir(String),
     Select(FileEntry),
     Unselect(String),
     Hover(Option<String>),
+    BackgroundJob(Job),
+    BackgroundJobResult(JobResult),
     Notify(String),
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
     match message {
+        IcedMessage::Tick { frame } => {
+            // If I load file preview too frequently, that would be too expensive.
+            if frame % 4 == 0 && let Some(path) = &context.hovered && !context.loaded_preview.contains(path) {
+                context.loaded_preview.insert(path.to_string());
+
+                if let Ok(file_info) = FileInfo::load(is_dir(path), path) {
+                    context.file_info.insert(path.to_string(), file_info);
+                }
+
+                return Task::done(IcedMessage::BackgroundJob(Job {
+                    id: JobId::new(),
+                    kind: JobKind::GetFilePreview { path: path.to_string() },
+                }));
+            }
+        },
         IcedMessage::Up => match parent(&context.cwd) {
             Ok(cwd) => return Task::done(IcedMessage::Chdir(cwd)),
             Err(e) => {
@@ -157,6 +190,15 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         IcedMessage::Hover(e) => {
             context.hovered = e;
+        },
+        IcedMessage::BackgroundJob(_) => unreachable!(),
+        IcedMessage::BackgroundJobResult(job_result) => match job_result.kind {
+            JobResultKind::GetFilePreview { path, preview } => {
+                if let Some(file_info) = context.file_info.get_mut(&path) {
+                    file_info.preview = Some(preview);
+                }
+            },
+            _ => {},
         },
         IcedMessage::Notify(_) => unreachable!(),
     }
@@ -280,7 +322,6 @@ fn render_file_browser<'c>(context: &'c IcedContext, width: f32, height: f32, zo
         if entry.error.is_none() {
             m = m
                 .on_enter(IcedMessage::Hover(Some(entry.path.to_string())))
-                .on_exit(IcedMessage::Hover(None))
                 .on_press(if entry.is_dir {
                     IcedMessage::Chdir(entry.path.to_string())
                 } else {
@@ -290,6 +331,47 @@ fn render_file_browser<'c>(context: &'c IcedContext, width: f32, height: f32, zo
 
         entries.push(m.into());
     }
+
+    let file_info: Element<IcedMessage> = match context.hovered.as_ref().map(|path| context.file_info.get(path)) {
+        Some(Some(file_info)) => Column::from_vec(vec![
+            text!("{}", file_info.summary(false)).color(white()).size(zoom * 12.0).into(),
+            match &file_info.preview {
+                Some(FilePreview::Text { preview, truncated }) => Container::new(
+                    text!("{preview}{}", if *truncated { "..." } else { "" })
+                        .color(white())
+                        .size(zoom * 12.0),
+                )
+                    .width(width * 0.3)
+                    .padding(zoom * 4.0)
+                    .style(|_| set_bg(gray(0.2)))
+                    .into(),
+                Some(FilePreview::Image { thumbnail_path, size: (w, h) }) => Column::from_vec(vec![
+                    Image::new(ImageHandle::from_path(thumbnail_path))
+                        .content_fit(ContentFit::Contain)
+                        .into(),
+                    text!("{w}x{h}").color(white()).size(zoom * 12.0).into(),
+                    Space::new().width(width * 0.3).into(),
+                ])
+                    .align_x(Horizontal::Center)
+                    .spacing(zoom * 8.0)
+                    .into(),
+                Some(FilePreview::Pdf { thumbnail_path, total_pages }) => Column::from_vec(vec![
+                    Image::new(ImageHandle::from_path(thumbnail_path))
+                        .content_fit(ContentFit::Contain)
+                        .into(),
+                    text!("{total_pages} page{}", if *total_pages == 1 { "" } else { "s" }).color(white()).size(zoom * 12.0).into(),
+                    Space::new().width(width * 0.3).into(),
+                ])
+                    .align_x(Horizontal::Center)
+                    .spacing(zoom * 8.0)
+                    .into(),
+                Some(FilePreview::None) => text!("Cannot load preview").color(white()).size(zoom * 12.0).into(),
+                None => text!("Loading file preview...").color(white()).size(zoom * 12.0).into(),
+            },
+        ]).spacing(zoom * 4.0).into(),
+        None => Space::new().into(),
+        _ => text!("Loading file info...").color(white()).size(zoom * 12.0).into(),
+    };
 
     Row::from_vec(vec![
         Scrollable::new(
@@ -304,14 +386,9 @@ fn render_file_browser<'c>(context: &'c IcedContext, width: f32, height: f32, zo
             .id(context.entry_scroll_id.clone())
             .into(),
         Scrollable::new(
-            // TODO: render this side
-            // 1. Preview text files (first few hundred bytes)
-            // 2. Preview image (make a small thumbnail)
-            // 3. ... or what else?
-            // -> In order to do this, I have to connect this to background workers.
-            Container::new(Space::new())
-                .width(width * 0.3)
-                .style(|_| set_bg(gray(0.2))),
+            Container::new(file_info)
+                .padding(zoom * 4.0)
+                .width(width * 0.3),
         )
             .into(),
     ])

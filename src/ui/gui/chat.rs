@@ -449,12 +449,17 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick { frame, force_update } => {
+            let mut tasks = vec![
+                is_focused(context.chat_input_id.clone()).map(IcedMessage::IsChatInputFocused),
+            ];
+
             if frame % 4 == 0 || force_update {
                 context.chat = Chat::load(context.chat.id, &context.global_index_dir)?;
                 context.load_chat_turns()?;
             }
 
-            return Ok(is_focused(context.chat_input_id.clone()).map(|is_focused| IcedMessage::IsChatInputFocused(is_focused)));
+            tasks.push(file_selector::update(&mut context.file_selector_context, FileSelectorMessage::Tick { frame }).map(IcedMessage::FileSelectorMessage));
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
@@ -619,6 +624,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::EditChatInput(a) => {
             context.chat_input_content.perform(a);
         },
+        IcedMessage::FileSelectorMessage(FileSelectorMessage::BackgroundJob(j)) => {
+            return Ok(Task::done(IcedMessage::BackgroundJob(j)));
+        },
         IcedMessage::FileSelectorMessage(FileSelectorMessage::Notify(m)) => {
             return Ok(Task::done(IcedMessage::Notify(m)));
         },
@@ -689,6 +697,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.bg_job = None;
                 context.bg_error = Some(format!("cannot attach file to chat\nfile: {file}\nerror: {error}"));
                 context.curr_processing_input = None;
+            },
+            JobResultKind::GetFilePreview { .. } => {
+                return Ok(file_selector::update(&mut context.file_selector_context, FileSelectorMessage::BackgroundJobResult(job_result)).map(IcedMessage::FileSelectorMessage));
             },
             _ => {},
         },
@@ -881,7 +892,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 &context.get_api_keys_context,
                 context,
                 context.zoom,
-            ).map(|m| IcedMessage::GetApiKeys(m)),
+            ).map(IcedMessage::GetApiKeys),
         ]).into();
     }
 
@@ -1180,7 +1191,7 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
 
     if can_be_focused {
         text_editor = text_editor
-            .on_action(|action| Message::edit(action))
+            .on_action(Message::edit)
             .key_binding(move |key_press| {
                 let KeyPress { key, modifiers, .. } = &key_press;
 

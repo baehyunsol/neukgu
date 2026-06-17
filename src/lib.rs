@@ -81,12 +81,12 @@ pub use global::{
     save_global_config,
     update_global_index,
 };
-pub use image::{ImageId, normalize_and_get_id};
+pub use image::{ImageId, normalize_image};
 use interrupt::{InterruptId, InterruptKind, check_interruption, interrupt_be};
 use log::{Logger, LogEntry, LogId, TokenUsage, load_log, load_logs_tail};
 pub use model::{Agents, ApiProvider, EtcModels, Model};
 pub use parse::{ParseError, ParsedSegment};
-use pdf::{PdfId, render_and_get_id, render_first_10_pages};
+use pdf::{PdfId, render_first_few_pages_of_pdf, render_pdf};
 use prettify::{
     prettify_bytes,
     prettify_time,

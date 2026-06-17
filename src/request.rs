@@ -235,7 +235,7 @@ pub fn stringify_llm_tokens(tokens: &[LLMToken]) -> String {
                 ss.push(s.to_string());
             },
             LLMToken::Image(id) => {
-                ss.push(format!("Image {{{:016x}}}", id.0));
+                ss.push(format!("Image {{{:016x}}}", id.hash));
             },
         }
     }

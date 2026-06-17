@@ -7,8 +7,8 @@ use crate::{
     PdfId,
     TurnResult,
     TurnResultSummary,
-    normalize_and_get_id,
-    render_and_get_id,
+    normalize_image,
+    render_pdf,
 };
 use hayro::hayro_syntax::Pdf;
 use ragit_fs::{
@@ -159,12 +159,12 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
         let ext = extension(&real_path)?.unwrap_or(String::new()).to_ascii_lowercase();
 
         match ext.as_str() {
-            "pdf" => match render_and_get_id(&bytes, &context.working_dir) {
+            "pdf" => match render_pdf(&bytes, &context.working_dir) {
                 Ok(id) => Ok(TypedFile::Pdf(id)),
                 Err(Error::UserInterrupt) => Err(Error::UserInterrupt),
                 Err(e) => Ok(TypedFile::BrokenPdf { error: format!("{e:?}") }),
             },
-            "png" | "jpg" | "jpeg" | "gif" | "webp" | "tiff" | "bmp" => match normalize_and_get_id(&bytes, &context.working_dir) {
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "tiff" | "bmp" => match normalize_image(&bytes, &context.working_dir, 1200) {
                 Ok(id) => {
                     let image_buffer = image::load_from_memory(&bytes)?;
                     Ok(TypedFile::Image(id, (image_buffer.width() as u64, image_buffer.height() as u64)))

@@ -9,8 +9,8 @@ use crate::{
     WebSearchResult,
     get_global_index_dir,
     init_log_dir,
-    normalize_and_get_id,
-    render_first_10_pages,
+    normalize_image,
+    render_first_few_pages_of_pdf,
     stringify_llm_tokens,
 };
 use crate::request::{self, Config as RequestConfig, Request, Thinking};
@@ -228,11 +228,11 @@ impl ChatInput {
                             )));
                         }
                     },
-                    Err(e) => match normalize_and_get_id(e.as_bytes(), &working_dir) {
+                    Err(e) => match normalize_image(e.as_bytes(), &working_dir, 1200) {
                         Ok(img_id) => {
                             result.push(LLMToken::Image(img_id));
                         },
-                        _ => match render_first_10_pages(e.as_bytes()) {
+                        _ => match render_first_few_pages_of_pdf(e.as_bytes(), 10, 1200) {
                             Ok(Some((pages, total_pages))) => {
                                 result.push(LLMToken::String(format!("
 {}<file>
@@ -243,7 +243,7 @@ impl ChatInput {
                                 )));
 
                                 for page in pages.iter() {
-                                    match normalize_and_get_id(page, &working_dir) {
+                                    match normalize_image(page, &working_dir, 1200) {
                                         Ok(img_id) => {
                                             result.push(LLMToken::Image(img_id));
                                         },

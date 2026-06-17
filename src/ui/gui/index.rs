@@ -500,6 +500,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 |(i, tab)| tab.neukgu_id.map(|id| (id, i))
             ).collect();
 
+            if let Some(c) = &mut context.file_selector_context {
+                return Ok(file_selector::update(c, FileSelectorMessage::Tick { frame }).map(IcedMessage::FileSelectorMessage));
+            }
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
@@ -809,6 +812,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::OpenFileSelector => {
             context.file_selector_context = Some(FileSelectorContext::new(context.home_dir.to_string()));
         },
+        IcedMessage::FileSelectorMessage(FileSelectorMessage::BackgroundJob(j)) => {
+            return Ok(Task::done(IcedMessage::BackgroundJob(j)));
+        },
         IcedMessage::FileSelectorMessage(FileSelectorMessage::Notify(m)) => {
             return Ok(Task::done(IcedMessage::Notify(m)));
         },
@@ -837,6 +843,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }));
                 },
                 _ => {},
+            },
+            JobResultKind::GetFilePreview { .. } => {
+                if let Some(c) = &mut context.file_selector_context {
+                    return Ok(file_selector::update(c, FileSelectorMessage::BackgroundJobResult(job_result)).map(IcedMessage::FileSelectorMessage));
+                }
             },
             _ => {},
         },
@@ -1604,7 +1615,7 @@ fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessag
     let short_text_editor = TextInput::new("(untitled)", &context.short_text_editor_content)
         .size(context.zoom * 14.0)
         .id(context.short_text_editor_id.clone())
-        .on_input(|input| IcedMessage::EditShortText(input));
+        .on_input(IcedMessage::EditShortText);
 
     into_popup(
         Scrollable::new(

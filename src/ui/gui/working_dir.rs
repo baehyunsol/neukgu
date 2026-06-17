@@ -1313,7 +1313,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
-            JobResultKind::GetGitInfo(_) | JobResultKind::GetGitInfoError(_) => match &mut context.git_info_context {
+            JobResultKind::GetGitInfo(_) | JobResultKind::GetGitInfoError(_) | JobResultKind::GitOperationSuccess(_) | JobResultKind::GitOperationFail { .. } => match &mut context.git_info_context {
                 Some(c) => {
                     return Ok(git::update(c, GitInfoMessage::BackgroundJobResult(job_result))?.map(IcedMessage::GitInfoMessage));
                 },
@@ -1459,7 +1459,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
                 &context.get_api_keys_context,
                 context,
                 context.zoom,
-            ).map(|m| IcedMessage::GetApiKeys(m)),
+            ).map(IcedMessage::GetApiKeys),
         ]).into();
     }
 
@@ -1542,7 +1542,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let config_popup = Scrollable::new(
             Column::from_vec(vec![
                 text!("Config").size(context.zoom * 18.0).into(),
-                config_ui(&context.tmp_config, context.zoom).map(|m| IcedMessage::SetTmpConfig(m)).into(),
+                config_ui(&context.tmp_config, context.zoom).map(IcedMessage::SetTmpConfig).into(),
                 button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
             ])
                 .align_x(Horizontal::Center)
@@ -1902,7 +1902,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                     .placeholder("Answer neukgu's question")
                     .size(context.zoom * 14.0)
                     .width(context.window_size.width - context.zoom * 128.0)
-                    .on_action(|action| IcedMessage::EditLongText(action))
+                    .on_action(IcedMessage::EditLongText)
                     .key_binding(|key_press| {
                         let KeyPress { key, modifiers, .. } = &key_press;
 
