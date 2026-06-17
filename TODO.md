@@ -311,6 +311,11 @@
   - search (like I did with hgit)
     - author/file-glob/content로 검색 (and 조건)
       - content로 검색할 경우 diff 안에 등장하는 line들에 대해서 regex로 검색함... -> 이거 cache를 잘해야할 듯! timeout은 적당히 10초로 걸자!!
+  - branch
+    - 현재 branch가 뭔지 확인 (완료)
+    - 다른 branch 보기
+  - push/pull
+  - commit
 167. browser tab에서 pdf rendering을 background worker한테 시키고 싶음...
   - 지금은 좀 애매. pdf인지 검사하는게 따로 없고 일단 render_first_10_pages를 돌려서 오류가 나는지 안 나는지를 보거든? 저게 돌면 이미 느린 거여서 노답. 할 거면 모든 file viewing을 background worker한테 넘겨야함! 그게 나을 수도??
 169. summaries
@@ -326,12 +331,6 @@
     - skill 안에 들어있는 파일들을 모두 읽을 수 있어야함
     - 새로운 skill을 어떻게 반영..?? 지금은 세션이 탄생하는 순간에 skill이 동기화가 되는데?
 171. 클로드코드용 스킬을 늑구에서 사용해보기
-172. skill을 외부에서 파일로 갖고 와서 직접 넣는 경우
-  - global skill로 등록
-    - 아마 index tab의 skills에서는 보이는데 config에는 반영이 안될 듯?
-  - local skill로 등록
-    - ncode같은 경우를 생각하면 local working dir에 직접 넣는 기능도 필요
-    - 나혼자 쓸 거라고 생각하면 불필요한 기능...
 177. loop engineering
   - https://x.com/addyosmani/status/2064127981161959567
   - Instead of writing prompts, you give goals to the agent and it will create a loop.
@@ -403,6 +402,7 @@
     - stage: unstaged blob을 갖고 온 다음에 `apply(hunk)` 하고, 그걸 저장하고, 그걸 `git add` 하고, unstaged blob을 원상복구해서 저장
     - unstage: staged blob을 갖고 온 다음에 `apply(revert(hunk))` 하고, 그걸 저장하고, 그걸 `git add` 하고, unstaged blob을 원상복구해서 저장
     - revert: unstaged blob을 갖고 온 다음에 `apply(revert(hunk))` 하고 그걸 저장
+  - file_a나 file_b가 None인 경우도 생각해야함 (파일 추가/삭제). file_a나 file_b가 다른 경우는... (파일 이동)
 
 ## mock API
 
