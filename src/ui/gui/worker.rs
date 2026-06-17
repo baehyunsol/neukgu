@@ -14,6 +14,7 @@ use crate::{
     get_global_index_dir,
     normalize_image,
     render_first_few_pages_of_pdf,
+    synchronize_skills_config,
 };
 use crate::subprocess::{self, Output};
 use crate::tool::parse_command;
@@ -87,6 +88,7 @@ pub enum JobKind {
         file_b: Option<String>,
         hunk: Hunk,
     },
+    SynchronizeSkillsConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -284,6 +286,16 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                 },
                 Err(e) => {
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GitOperationFail { operation, error: format!("{e:?}") } }).unwrap();
+                },
+            },
+            Job { id, kind: JobKind::SynchronizeSkillsConfig } => match get_global_index_dir() {
+                Ok(global_index_dir) => {
+                    if let Err(e) = synchronize_skills_config(&global_index_dir) {
+                        eprintln!("Failed to update skills config: {e:?}");
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to get global index dir: {e:?}");
                 },
             },
         }

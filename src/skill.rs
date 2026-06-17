@@ -15,6 +15,7 @@ use ragit_fs::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::collections::HashSet;
 use yaml_rust::{Yaml, YamlLoader};
 
 #[derive(Clone, Debug)]
@@ -232,6 +233,7 @@ pub struct SkillConfig {
 pub fn init_default_skills(global_index_dir: &str) -> Result<(), Error> {
     let skills_dir = join(global_index_dir, "skills")?;
     let mut global_config = get_global_config(global_index_dir)?;
+    let mut is_global_config_updated = false;
 
     if !exists(&skills_dir) {
         create_dir(&skills_dir)?;
@@ -245,10 +247,26 @@ pub fn init_default_skills(global_index_dir: &str) -> Result<(), Error> {
             include_str!("../default-skills/server-development/SKILL.md"),
             WriteMode::CreateOrTruncate,
         )?;
-        global_config.add_skill(Skill::load(&server_skill_at).unwrap());
+        global_config.add_skill(Skill::load(&server_skill_at).unwrap(), true);
+        is_global_config_updated = true;
     }
 
-    save_global_config(&global_config, global_index_dir)?;
+    let onboarding_skill_at = join(&skills_dir, "code-onboarding-report")?;
+    if !exists(&onboarding_skill_at) {
+        create_dir(&onboarding_skill_at)?;
+        write_string(
+            &join(&onboarding_skill_at, "SKILL.md")?,
+            include_str!("../default-skills/code-onboarding-report/SKILL.md"),
+            WriteMode::CreateOrTruncate,
+        )?;
+        global_config.add_skill(Skill::load(&onboarding_skill_at).unwrap(), true);
+        is_global_config_updated = true;
+    }
+
+    if is_global_config_updated {
+        save_global_config(&global_config, global_index_dir)?;
+    }
+
     Ok(())
 }
 
@@ -268,6 +286,35 @@ pub fn load_global_skills(global_index_dir: &str) -> Result<Vec<(String, Result<
     }
 
     Ok(result)
+}
+
+// It reads `<global-index-dir>/skills/` and updates `<global-index-dir>/config.json`.
+// Thanks to this, a skill that you added manually to the global index dir will be
+// visible to neukgu.
+// TODO: impl CLI command for this function.
+// TODO: I need this for session-wise skills.
+pub fn synchronize_skills_config(global_index_dir: &str) -> Result<(), Error> {
+    let skills = load_global_skills(global_index_dir)?;
+    let mut global_config = get_global_config(global_index_dir)?;
+    let mut skills_set = HashSet::new();
+
+    for (name, skill) in skills.into_iter() {
+        if let Ok(skill) = skill {
+            let enabled = global_config.skills.get(&name).map(|skill| skill.enabled).unwrap_or(true);
+            global_config.remove_skill(&name);
+            global_config.add_skill(skill, enabled);
+            skills_set.insert(name);
+        }
+    }
+
+    for name in global_config.skills.clone().keys() {
+        if !skills_set.contains(name) {
+            global_config.remove_skill(name);
+        }
+    }
+
+    save_global_config(&global_config, global_index_dir)?;
+    Ok(())
 }
 
 #[derive(Clone, Debug)]

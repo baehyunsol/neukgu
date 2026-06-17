@@ -70,8 +70,8 @@ impl Config {
         }
     }
 
-    pub fn add_skill(&mut self, skill: Skill) {
-        self.skills.insert(skill.name.to_string(), skill.to_config(true));
+    pub fn add_skill(&mut self, skill: Skill, enable: bool) {
+        self.skills.insert(skill.name.to_string(), skill.to_config(enable));
     }
 
     pub fn remove_skill(&mut self, skill: &str) {

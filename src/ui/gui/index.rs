@@ -480,6 +480,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
 fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<IcedMessage>, Error> {
     match message {
         IcedMessage::Tick { frame, force_update } => {
+            let mut tasks = vec![];
             context.now = Local::now().to_rfc2822();
 
             if frame % 8 == 0 || force_update {
@@ -496,13 +497,22 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.update_battery_state();
             }
 
+            if frame % 32 == 0 {
+                tasks.push(Task::done(IcedMessage::BackgroundJob(Job {
+                    id: JobId::new(),
+                    kind: JobKind::SynchronizeSkillsConfig,
+                })));
+            }
+
             context.working_dir_tab_indexes = context.current_tabs.iter().enumerate().filter_map(
                 |(i, tab)| tab.neukgu_id.map(|id| (id, i))
             ).collect();
 
             if let Some(c) = &mut context.file_selector_context {
-                return Ok(file_selector::update(c, FileSelectorMessage::Tick { frame }).map(IcedMessage::FileSelectorMessage));
+                tasks.push(file_selector::update(c, FileSelectorMessage::Tick { frame }).map(IcedMessage::FileSelectorMessage));
             }
+
+            return Ok(Task::batch(tasks));
         },
         IcedMessage::KeyPressed { key, modifiers } => match (key.as_ref(), modifiers.control(), modifiers.alt(), modifiers.shift()) {
             (Key::Named(NamedKey::Escape), false, false, false) => {
@@ -642,6 +652,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let description = context.long_text_editor_content.text();
             let body = context.extra_text_editor_content.text();
             context.new_project_config = get_global_config(&context.global_index_dir)?;
+            let enabled = context.new_project_config.skills.get(&old_name).map(|skill| skill.enabled).unwrap_or(true);
 
             if old_name != new_name && context.new_project_config.skills.contains_key(&new_name) {
                 return Ok(Task::done(IcedMessage::Notify(format!("Skill `{new_name}` already exists!"))));
@@ -663,7 +674,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
             skill.save(&context.global_index_dir)?;
             context.new_project_config.remove_skill(&old_name);
-            context.new_project_config.add_skill(skill);
+            context.new_project_config.add_skill(skill, enabled);
             return Ok(Task::done(IcedMessage::SaveGlobalProjectConfig));
         },
         IcedMessage::CreateSkill => {
@@ -680,7 +691,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     }
 
                     skill.save(&context.global_index_dir)?;
-                    context.new_project_config.add_skill(skill);
+                    context.new_project_config.add_skill(skill, true);
                     return Ok(Task::done(IcedMessage::SaveGlobalProjectConfig));
                 },
                 Err(e) => {

@@ -105,7 +105,14 @@ pub use request::{
 use request::{MockState, reset_mock_state, revert_mock_state};
 pub use response::{Response, WebSearchResult};
 use sandbox::{clean_dangling_sandboxes, clean_sandbox, copy_recursive, export_to_sandbox, import_from_sandbox};
-pub use skill::{Skill, SkillConfig, SkillSchemaError, init_default_skills, load_global_skills};
+pub use skill::{
+    Skill,
+    SkillConfig,
+    SkillSchemaError,
+    init_default_skills,
+    load_global_skills,
+    synchronize_skills_config,
+};
 use snapshot::{Snapshot, check_snapshot, clean_dangling_snapshots};
 pub use tool::{
     AskTo,
