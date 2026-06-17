@@ -381,15 +381,28 @@
     - 생각해보니까 이게 맞지. 백엔드가 유저 대답을 기다리는 동안은 프론트엔드 확인을 안 할 거거든!!
       - 이건 고쳤음. 백엔드가 유저 대답 기다리는 동안 프론트엔드 죽었는지 계속 확인함
     - 여기에 문제가 하나 더 있음. 백엔드의 timeout은 계속 흘러가지만 프론트엔드를 껐다 킬 때마다 프론트엔드의 timeout은 300초에서 다시 시작함
-187. Attach image/pdf to chat
-  - 현재 구조:
-    - context가 `Vec<LLMToken>`을 만들어서 background worker한테 넘겨 주고 기다림
-    - context는 `curr_processing_tokens: Vec<LLMToken>`을 갖고 있음
-      - chat view에서 이것도 똑같이 render해줌
-      - background job이 완료되면 curr_processing_tokens를 날림 (진짜 chat에 있는 `Vec<LLMToken>`을 사용)
-    - background worker가 `Vec<LLMToken>`을 받으면 "이건 미완료된 chat turn이야"하고 기억을 하고 있음
-      - 만약 새로운 chat tab을 열었는데 미완료된 chat turn이 있으면 text-input을 그걸로 채움
-    - chat turn이 정상적으로 완료가 돼야지만 text-input이 초기화됨
+188. file_selector가 돌면서 `<global-index-dir>/thumbnails/.neukgu/images/`에 계속 파일을 쌓는데, 아주 느리긴하지만 언젠간 폭발할 확률이 높음!!
+  - 보니까 thumbnail 하나가 수 KiB 수준인데, 앞으로 thumbnail 크기를 키우거나 오래 쓰거나 하면 언젠간 터짐!!
+  - 대충 수십만개 정도 thumbnail을 만들면 GiB 스케일이 됨...
+  - 파일을 무작정 지웠을 때 문제
+    - 그 파일을 들고 있는 FileSelectorContext가 있을 경우, thumbnail이 깨짐 (FileSelectorContext를 재시작하지 않는 이상 복구 불가)
+    - 나중에 다시 그 thumbnail을 읽을 때 조금 더 오래 걸림 (어차피 pdf cache는 안되기 때문에 큰 이득은 없음)
+  - 그럼, 가장 쉬운 접근법은, FileSelectorContext가 하나도 없을 때 `thumbnails/.neukgu/images/`에 있는 모든 contents를 다 날려버리는 거임!!
+189. stage/unstage/revert
+  - 빨리 이걸 구현을 해야 warning이 더이상 안 뜸!!
+  - blob은 3종류가 있음: committed / unstaged / staged
+    - unstaged는 `read_string`해서 읽을 수 있음
+      - 사실, read_string 해서 읽는 거랑 GUI에서 보이는 거랑 1~2초 정도 시차가 있음...
+    - 나머지는 간접적으로 읽어와야함
+      - unstaged blob에다가 unstaged hunk를 모두 revert해서 apply하면 staged blob이 됨
+      - staged blob에다가 staged hunk를 모두 revert해서 apply하면 committed blob이 됨
+  - hunk는 2종류가 있음
+    - staged <-> unstaged (git diff)
+    - committed <-> staged (git diff --cached)
+  - 각 operation 구현
+    - stage: unstaged blob을 갖고 온 다음에 `apply(hunk)` 하고, 그걸 저장하고, 그걸 `git add` 하고, unstaged blob을 원상복구해서 저장
+    - unstage: staged blob을 갖고 온 다음에 `apply(revert(hunk))` 하고, 그걸 저장하고, 그걸 `git add` 하고, unstaged blob을 원상복구해서 저장
+    - revert: unstaged blob을 갖고 온 다음에 `apply(revert(hunk))` 하고 그걸 저장
 
 ## mock API
 
