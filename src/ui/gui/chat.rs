@@ -1059,16 +1059,20 @@ pub fn render_turn<'n, 'cn, 'cx>(
         buttons.into_iter().map(|button| button.into()).collect()
     };
 
-    // If it were `buttons.len() < 7`, it would be too ugly when there are 7 buttons.
-    let buttons: Element<IcedMessage> = if buttons.len() < 8 {
-        Row::from_vec(buttons).spacing(context.zoom * 8.0).into()
-    } else {
-        // Let's hope that there are less than 13 buttons...
-        Column::from_vec(vec![
-            Row::from_vec(buttons.drain(0..6).collect()).spacing(context.zoom * 8.0).into(),
-            Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
-        ]).spacing(context.zoom * 8.0).into()
-    };
+    // A button is roughly 170 pixels wide... but it's too fragile!!
+    let buttons_per_row = (context.window_size.width * 0.9 / (context.zoom as f32 * 170.0)).max(4.0) as usize;
+    let mut button_rows: Vec<Element<IcedMessage>> = vec![];
+
+    while buttons.len() > buttons_per_row * 3 / 2 {
+        button_rows.push(Row::from_vec(buttons.drain(0..buttons_per_row).collect()).spacing(context.zoom * 8.0).into());
+    }
+
+    if buttons.len() > buttons_per_row {
+        button_rows.push(Row::from_vec(buttons.drain(0..(buttons.len() / 2)).collect()).spacing(context.zoom * 8.0).into());
+    }
+
+    button_rows.push(Row::from_vec(buttons).spacing(context.zoom * 8.0).into());
+    let buttons = Column::from_vec(button_rows).spacing(context.zoom * 8.0);
 
     Container::new(Column::from_vec(vec![
         Column::from_vec(vec![
@@ -1116,7 +1120,7 @@ pub fn render_turn<'n, 'cn, 'cx>(
             .width(context.window_size.width)
             .align_x(Horizontal::Left)
             .into(),
-        buttons,
+        buttons.into(),
     ]).spacing(context.zoom * 8.0))
         .padding(context.zoom * 8.0)
         .style(|_| set_round_bg(gray(0.25), context.zoom))
