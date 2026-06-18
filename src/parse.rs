@@ -374,6 +374,27 @@ pub fn parse(input: &[u8], activated_tools: &[ToolKind]) -> Result<ParsedSegment
 impl ToolCall {
     pub fn parse(kind: ToolKind, args: &HashMap<Vec<u8>, Vec<u8>>) -> Result<ToolCall, ParseError> {
         match kind {
+            ToolKind::Agent => {
+                let name = match parse_string_arg(args, "name") {
+                    Some(name) => name,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("agent"),
+                            arg: String::from("name"),
+                        });
+                    },
+                };
+                let prompt = match parse_string_arg(args, "prompt") {
+                    Some(prompt) => prompt,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("agent"),
+                            arg: String::from("prompt"),
+                        });
+                    },
+                };
+                Ok(ToolCall::Agent { name, prompt })
+            },
             ToolKind::Read => {
                 let path = match parse_string_arg(args, "path") {
                     Some(path) => path,

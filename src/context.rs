@@ -16,6 +16,7 @@ use crate::{
     TurnResultSummary,
     TurnSummary,
     get_global_index_dir,
+    hash_bytes,
     init_and_load_available_binaries,
     request,
     revert_mock_state,
@@ -23,12 +24,14 @@ use crate::{
 };
 use ragit_fs::{
     WriteMode,
+    copy_file,
     exists,
     into_abs_path,
     join3,
     join4,
     normalize,
     read_string,
+    remove_file,
     write_string,
 };
 use serde::{Deserialize, Serialize};
@@ -37,14 +40,43 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct NeukguId(pub(crate) u64);
 
+impl NeukguId {
+    pub fn new() -> NeukguId {
+        NeukguId(rand::random())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SessionId(pub(crate) u64);
 
+impl SessionId {
+    pub fn new() -> SessionId {
+        SessionId(rand::random())
+    }
+
+    pub fn from_string_hash(s: &str) -> SessionId {
+        let hash = (hash_bytes(s.as_bytes()) & 0xffff_ffff_ffff_ffff) as u64;
+        SessionId(hash)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ParentContext {
+    pub session_id: SessionId,
+
+    // It's `None` if it fails to read `neukgu-instruction.md`.
+    pub instruction: Option<String>,
+}
+
 pub struct Context {
     // `neukgu_id` is created when `.neukgu/` is created and never changes.
-    // `session_id` is updated when `.neukgu/` is created or the session is reset.
+    // `session_id` is updated when `.neukgu/` is created or the session is reset (manual or sub-agent).
     pub neukgu_id: NeukguId,
     pub session_id: SessionId,
+
+    // If it has a parent, when the session is complete (logs/done is created),
+    // the session is automatically switched to the parent.
+    pub parent: Option<ParentContext>,
 
     // You'll find the index dir at `<working_dir>/.neukgu/`
     pub working_dir: String,
@@ -62,6 +94,9 @@ pub struct Context {
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
 
+    // Content of `logs/done`, written by a sub-agent.
+    pub sub_agent_report: Option<String>,
+
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
     pub available_binaries: Vec<String>,
@@ -76,6 +111,7 @@ pub struct Context {
 pub struct ContextJson {
     pub neukgu_id: NeukguId,
     pub session_id: SessionId,
+    pub parent: Option<ParentContext>,
     pub history: Vec<TurnId>,
     pub summaries: Vec<TurnId>,
     pub curr_raw_response: Option<RawResponse>,
@@ -84,6 +120,7 @@ pub struct ContextJson {
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
+    pub sub_agent_report: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -95,7 +132,16 @@ pub struct RawResponse {
 }
 
 impl Context {
-    pub fn new(working_dir: &str, is_in_global_index_dir: bool) -> Result<Self, Error> {
+    pub fn new(
+        working_dir: &str,
+
+        // If not set, a random id is given
+        neukgu_id: Option<NeukguId>,
+        session_id: Option<SessionId>,
+
+        is_in_global_index_dir: bool,
+        parent: Option<ParentContext>,
+    ) -> Result<Self, Error> {
         let available_binaries = init_and_load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
         let logger = Logger::new(
@@ -106,8 +152,9 @@ impl Context {
         );
 
         Ok(Context {
-            neukgu_id: NeukguId(rand::random::<u64>()),
-            session_id: SessionId(rand::random::<u64>()),
+            neukgu_id: neukgu_id.unwrap_or_else(|| NeukguId::new()),
+            session_id: session_id.unwrap_or_else(|| SessionId::new()),
+            parent,
             working_dir: normalize(&into_abs_path(working_dir)?)?,
             history: vec![],
             summaries: vec![],
@@ -120,18 +167,28 @@ impl Context {
             available_binaries,
             global_index_dir,
             has_to_remove_done_mark: false,
+            sub_agent_report: None,
             logger,
             new_config: None,
         })
     }
 
+    pub fn from_session_id(id: SessionId, working_dir: &str) -> Result<Self, Error> {
+        Context::load_worker(&join4(working_dir, ".neukgu", "sessions", &format!("{:016x}.json", id.0))?, working_dir)
+    }
+
     pub fn load(working_dir: &str) -> Result<Self, Error> {
-        let s = read_string(&join3(working_dir, ".neukgu", "context.json")?)?;
+        Context::load_worker(&join3(working_dir, ".neukgu", "context.json")?, working_dir)
+    }
+
+    fn load_worker(json_at: &str, working_dir: &str) -> Result<Self, Error> {
+        let s = read_string(json_at)?;
         let context_json: ContextJson = serde_json::from_str(&s)?;
 
         Ok(Context {
             neukgu_id: context_json.neukgu_id,
             session_id: context_json.session_id,
+            parent: context_json.parent.clone(),
             working_dir: normalize(&into_abs_path(working_dir)?)?,
             history: context_json.history.iter().map(
                 |h| h.get_turn_summary()
@@ -143,22 +200,33 @@ impl Context {
             pinned_turns: context_json.pinned_turns.clone(),
             is_in_global_index_dir: context_json.is_in_global_index_dir,
             has_to_remove_done_mark: context_json.has_to_remove_done_mark,
-            ..Context::new(working_dir, false)?
+            sub_agent_report: context_json.sub_agent_report.clone(),
+            ..Context::new(working_dir, None, None, false, None)?
         })
     }
 
+    // It's stored in 2 places.
+    // 1. `.neukgu/context.json` -> it represents the current session.
+    // 2. `.neukgu/sessions/<session-id>.json` -> it stores every sessions.
     pub fn store(&self) -> Result<(), Error> {
-        Ok(write_string(
+        write_string(
             &join3(&self.working_dir, ".neukgu", "context.json")?,
             &serde_json::to_string_pretty(&self.to_json())?,
             WriteMode::Atomic,
-        )?)
+        )?;
+        copy_file(
+            &join3(&self.working_dir, ".neukgu", "context.json")?,
+            &join4(&self.working_dir, ".neukgu", "sessions", &format!("{:016x}.json", self.session_id.0))?,
+        )?;
+
+        Ok(())
     }
 
     pub(crate) fn to_json(&self) -> ContextJson {
         ContextJson {
             neukgu_id: self.neukgu_id,
             session_id: self.session_id,
+            parent: self.parent.clone(),
             history: self.history.iter().map(
                 |h| h.id.clone()
             ).collect(),
@@ -169,7 +237,14 @@ impl Context {
             pinned_turns: self.pinned_turns.clone(),
             is_in_global_index_dir: self.is_in_global_index_dir,
             has_to_remove_done_mark: self.has_to_remove_done_mark,
+            sub_agent_report: self.sub_agent_report.clone(),
         }
+    }
+
+    pub fn remember_and_remove_done_mark(&mut self) -> Result<(), Error> {
+        self.sub_agent_report = Some(read_string(&join3(&self.working_dir, "logs", "done")?)?);
+        remove_file(&join3(&self.working_dir, "logs", "done")?)?;
+        Ok(())
     }
 
     pub fn start_turn(

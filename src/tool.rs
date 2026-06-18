@@ -9,6 +9,7 @@ use crate::{
     LogEntry,
     Model,
     ParsedSegment,
+    SessionId,
     Turn,
     TurnResult,
     TurnSummary,
@@ -19,8 +20,10 @@ use crate::{
     normalize_image,
     prettify_bytes,
     prettify_time,
+    reset_working_dir,
     subprocess,
     truncate_chars,
+    try_get_session_result,
 };
 use headless_chrome::Browser;
 use headless_chrome::browser::LaunchOptions as BrowserLaunchOptions;
@@ -106,6 +109,10 @@ pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ToolCall {
+    Agent {
+        name: String,
+        prompt: String,
+    },
     // start and end are both inclusive.
     // They're 1-based index.
     Read {
@@ -162,6 +169,26 @@ impl ToolCall {
         }
 
         match self {
+            ToolCall::Agent { name, prompt } => {
+                let session_id = SessionId::from_string_hash(&format!("name: {name}\nprompt: {prompt}"));
+
+                if let Some(result) = try_get_session_result(session_id, &context.working_dir)? {
+                    Ok(Ok(ToolCallSuccess::Agent { result }))
+                }
+
+                else {
+                    let new_context = reset_working_dir(
+                        prompt.to_string(),
+                        Some(session_id),
+                        &context.working_dir,
+                        false,
+                        true,
+                    )?;
+                    let new_session_id = new_context.session_id;
+                    *context = new_context;
+                    Err(Error::SwitchContext(new_session_id))
+                }
+            },
             ToolCall::Read { path, start, end } => {
                 if context.is_reading_too_much(config)? {
                     return Ok(Err(ToolCallError::TooManyReadWithoutSummary));
@@ -779,6 +806,7 @@ impl ToolCall {
 
     pub fn preview(&self) -> String {
         match self {
+            ToolCall::Agent { name, .. } => format!("sub-agent `{name}`"),
             ToolCall::Read { path, start, end } => format!(
                 "read `{path}` {}",
                 if let (None, None) = (start, end) {
@@ -841,6 +869,9 @@ impl ToolCall {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ToolCallSuccess {
+    Agent {
+        result: String,
+    },
     ReadText {
         path: Path,
         content: String,
@@ -944,6 +975,7 @@ pub enum ToolCallSuccess {
 impl ToolCallSuccess {
     pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         match self {
+            ToolCallSuccess::Agent { result } => vec![LLMToken::String(result.to_string())],
             ToolCallSuccess::ReadText { content, .. } => {
                 if content.is_empty() {
                     // claude requires every turn to be non-empty
@@ -1457,6 +1489,7 @@ Command timeout! The process didn't terminate for {timeout} seconds.
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ToolKind {
+    Agent,
     Read,
     Write,
     Patch,
@@ -1470,6 +1503,7 @@ pub enum ToolKind {
 impl ToolKind {
     pub fn all() -> Vec<ToolKind> {
         vec![
+            ToolKind::Agent,
             ToolKind::Read,
             ToolKind::Write,
             ToolKind::Patch,
@@ -1483,6 +1517,7 @@ impl ToolKind {
 
     pub fn from_name(name: &[u8]) -> Option<ToolKind> {
         match name {
+            b"agent" => Some(ToolKind::Agent),
             b"read" => Some(ToolKind::Read),
             b"write" => Some(ToolKind::Write),
             b"patch" => Some(ToolKind::Patch),
@@ -1497,6 +1532,7 @@ impl ToolKind {
 
     pub fn tag_name(&self) -> &'static str {
         match self {
+            ToolKind::Agent => "agent",
             ToolKind::Read => "read",
             ToolKind::Write => "write",
             ToolKind::Patch => "patch",
@@ -1514,6 +1550,7 @@ impl ToolKind {
 
     pub fn valid_args(&self) -> Vec<String> {
         match self {
+            ToolKind::Agent => vec!["name", "prompt"],
             ToolKind::Read => vec!["path", "start", "end"],
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Patch => vec!["path", "diff"],
@@ -1527,6 +1564,7 @@ impl ToolKind {
 
     pub fn optional(&self) -> bool {
         match self {
+            ToolKind::Agent => true,
             ToolKind::Read => false,
             ToolKind::Write => false,
             ToolKind::Patch => true,

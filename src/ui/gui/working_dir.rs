@@ -1189,7 +1189,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::ResetNeukgu => {
             context.kill_be_process()?;
-            reset_working_dir(context.long_text_editor_content.text(), &context.fe_context.working_dir)?;
+            reset_working_dir(context.long_text_editor_content.text(), None, &context.fe_context.working_dir, true, false)?;
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             context.close_popup();

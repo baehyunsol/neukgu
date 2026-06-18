@@ -1,8 +1,9 @@
-use crate::{LogId, TurnId};
+use crate::{LogId, SessionId, TurnId};
 use ragit_fs::FileError;
 
 #[derive(Debug)]
 pub enum Error {
+    SwitchContext(SessionId),
     ApiKeyNotFound { env_var: String },
     UnavailableBinaries(Vec<String>),
     FailedToAcquireWriteLock,

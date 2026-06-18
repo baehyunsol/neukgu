@@ -10,6 +10,7 @@ use crate::{
     LineDiff,
     LogId,
     NeukguId,
+    ParentContext,
     Path,
     QuestionToUser,
     SessionSummary,
@@ -159,6 +160,7 @@ impl Default for Fe2Be {
 pub struct FeContext {
     pub working_dir: String,
     pub neukgu_id: NeukguId,
+    pub parent: Option<ParentContext>,
     pub history: Vec<TurnSummary>,
     pub summaries: Vec<SessionSummary>,
     pub curr_tool_call: Option<ToolCall>,
@@ -340,6 +342,7 @@ impl FeContext {
         Ok(FeContext {
             working_dir: working_dir.to_string(),
             neukgu_id: be_context.neukgu_id,
+            parent: be_context.parent.clone(),
             history,
             summaries,
             curr_tool_call,
@@ -471,7 +474,7 @@ impl FeContext {
 
     pub fn top_bar(&self) -> String {
         format!(
-            "context: {} / {}, neukgu: {}",
+            "context: {} / {}, neukgu: {}{}",
             prettify_bytes(self.get_total_llm_bytes()),
             prettify_bytes(self.config.llm_context_max_len),
             if self.is_paused().unwrap_or(false) || self.is_marked_done().unwrap_or(false) {
@@ -483,6 +486,7 @@ impl FeContext {
             } else {
                 "not responding"
             },
+            if self.parent.is_some() { " (sub-agent)" } else { "" },
         )
     }
 

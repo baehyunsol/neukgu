@@ -167,6 +167,32 @@ impl MockRequest {
 
 fn mock_requests() -> Vec<MockRequest> {
     vec![
+        // TODO: move this test to the end
+        //       I put it here because I'm too lazy to wait for the mock API sequence.
+        // agent test
+        MockRequest::new(
+            "<agent><name>test-agent</name><prompt>Your name is sub-agent-62373095048</prompt></agent>",
+            None,
+        ),
+        // inside sub-agent
+        MockRequest::new(
+            "<write><path>agent-test.txt</path><mode>create</mode><content>Hello from sub-agent-62373095048</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>neukgu-instruction.md</path></read>",
+            Some("62373095048"),
+        ),
+        MockRequest::new(
+            "<write><path>logs/done</path><mode>create</mode><content>I'll hand-over to the parent agent.</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<read><path>agent-test.txt</path></read>",
+            Some("62373095048"),
+        ),
+        // agent test end
+
         // The fake turns already have read `.` and `neukgu-instruction.md`.
         MockRequest::new(
             "<ask><to>user</to><question>I don't see any instructions... what do you want me to do?</question></ask>",

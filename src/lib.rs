@@ -60,6 +60,7 @@ pub use context::{
     Context,
     ContextJson,
     NeukguId,
+    ParentContext,
     RawResponse,
     SessionId,
     SessionSummary,
@@ -179,15 +180,23 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
     match lock_file.try_lock() {
         Ok(()) => {},
         Err(TryLockError::WouldBlock) => {
+            context.logger.log(LogEntry::BackendError(String::from("Failed to acquire write lock.")))?;
             return Err(Error::FailedToAcquireWriteLock);
         },
         Err(TryLockError::Error(e)) => {
+            context.logger.log(LogEntry::BackendError(format!("{e:?}")))?;
             return Err(e.into());
         },
     }
 
     let has_new_turn = match step_inner(context, config).await {
         Ok(f) => f,
+        Err(Error::SwitchContext(session_id)) => {
+            context.logger.log(LogEntry::SwitchContext { old: context.session_id, new: session_id })?;
+            *context = Context::from_session_id(session_id, &context.working_dir)?;
+            context.store()?;
+            true
+        },
         Err(e) => {
             context.logger.log(LogEntry::BackendError(format!("{e:?}")))?;
             return Err(e);
@@ -220,6 +229,19 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     }
 
     if context.is_marked_done()? {
+        if let Some(parent) = &context.parent {
+            let parent = parent.clone();
+            context.remember_and_remove_done_mark()?;
+            context.store()?;
+
+            write_string(
+                &join(&context.working_dir, "neukgu-instruction.md")?,
+                parent.instruction.as_ref().unwrap_or(&String::new()),
+                ragit_fs::WriteMode::CreateOrTruncate,
+            )?;
+            return Err(Error::SwitchContext(parent.session_id));
+        }
+
         sleep(Duration::from_millis(1_000));  // prevent busy-loop
         return Ok(false);
     }
@@ -402,6 +424,7 @@ pub fn init_working_dir(
     create_dir(&join3(working_dir, ".neukgu", "turns")?)?;
     create_dir(&join3(working_dir, ".neukgu", "interruptions")?)?;
     create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
+    create_dir(&join3(working_dir, ".neukgu", "sessions")?)?;
 
     if let Some(skills_dir) = skills_dir {
         copy_dir(
@@ -441,7 +464,7 @@ pub fn init_working_dir(
         RagitFsWriteMode::AlwaysCreate,
     )?;
 
-    let context = Context::new(working_dir, is_in_global_index_dir)?;
+    let context = Context::new(working_dir, None, None, is_in_global_index_dir, None)?;
     context.store()?;
     config.store(working_dir)?;
 
@@ -470,9 +493,16 @@ pub fn init_log_dir(log_dir: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), Error> {
+pub fn reset_working_dir(
+    instruction: String,
+    session_id: Option<SessionId>,
+    working_dir: &str,
+    reset_mock_state_: bool,
+    sub_agent: bool,
+) -> Result<Context, Error> {
     let lock_file_at = join3(working_dir, ".neukgu", ".lock")?;
     let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
+    let parent_instruction = read_string(&join(working_dir, "neukgu-instruction.md")?).ok();
 
     clean_dangling_sandboxes(working_dir)?;
     write_string(
@@ -480,46 +510,74 @@ pub fn reset_working_dir(instruction: String, working_dir: &str) -> Result<(), E
         &instruction,
         RagitFsWriteMode::CreateOrTruncate,
     )?;
-    write_string(
-        &join4(working_dir, ".neukgu", "logs", "log")?,
-        "",
-        RagitFsWriteMode::CreateOrTruncate,
-    )?;
-    write_string(
-        &join3(working_dir, ".neukgu", "be2fe.json")?,
-        &serde_json::to_string(&Be2Fe::default())?,
-        RagitFsWriteMode::CreateOrTruncate,
-    )?;
-    write_string(
-        &join3(working_dir, ".neukgu", "fe2be.json")?,
-        &serde_json::to_string(&Fe2Be::default())?,
-        RagitFsWriteMode::CreateOrTruncate,
-    )?;
+
+    if !sub_agent {
+        write_string(
+            &join4(working_dir, ".neukgu", "logs", "log")?,
+            "",
+            RagitFsWriteMode::CreateOrTruncate,
+        )?;
+        write_string(
+            &join3(working_dir, ".neukgu", "be2fe.json")?,
+            &serde_json::to_string(&Be2Fe::default())?,
+            RagitFsWriteMode::CreateOrTruncate,
+        )?;
+        write_string(
+            &join3(working_dir, ".neukgu", "fe2be.json")?,
+            &serde_json::to_string(&Fe2Be::default())?,
+            RagitFsWriteMode::CreateOrTruncate,
+        )?;
+    }
 
     let config = Config::load(working_dir)?;
     let old_context = Context::load(working_dir)?;
-    let mut new_context = Context::new(working_dir, old_context.is_in_global_index_dir)?;
-    new_context.neukgu_id = old_context.neukgu_id;
+
+    let parent_context = if sub_agent {
+        Some(ParentContext { session_id: old_context.session_id, instruction: parent_instruction })
+    } else {
+        None
+    };
+
+    let new_context = Context::new(
+        working_dir,
+        Some(old_context.neukgu_id),
+        session_id,
+        old_context.is_in_global_index_dir,
+        parent_context,
+    )?;
     new_context.store()?;
 
     if exists(&join3(working_dir, "logs", "done")?) {
         remove_file(&join3(working_dir, "logs", "done")?)?;
     }
 
-    if config.agents.big == Model::Mock {
+    if config.agents.big == Model::Mock && reset_mock_state_ {
         reset_mock_state(working_dir)?;
     }
 
-    remove_dir_all(&join3(working_dir, ".neukgu", "snapshots")?)?;
-    create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
-    write_string(
-        &join3(working_dir, ".neukgu", "snapshots.json")?,
-        "[]",
-        RagitFsWriteMode::CreateOrTruncate,
-    )?;
+    if !sub_agent {
+        remove_dir_all(&join3(working_dir, ".neukgu", "snapshots")?)?;
+        create_dir(&join3(working_dir, ".neukgu", "snapshots")?)?;
+        write_string(
+            &join3(working_dir, ".neukgu", "snapshots.json")?,
+            "[]",
+            RagitFsWriteMode::CreateOrTruncate,
+        )?;
+    }
 
     drop(lock_file);
-    Ok(())
+    Ok(new_context)
+}
+
+pub fn try_get_session_result(session_id: SessionId, working_dir: &str) -> Result<Option<String>, Error> {
+    let session_at = join4(working_dir, ".neukgu", "sessions", &format!("{:016x}.json", session_id.0))?;
+
+    if !exists(&session_at) {
+        return Ok(None);
+    }
+
+    let session: ContextJson = load_json(&session_at)?;
+    Ok(session.sub_agent_report.clone())
 }
 
 pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error> {

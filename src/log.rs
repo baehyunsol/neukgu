@@ -3,6 +3,7 @@ use crate::{
     ChosenTurn,
     Error,
     Model,
+    SessionId,
     ToolCall,
     ToolCallError,
     ToolCallSuccess,
@@ -71,6 +72,7 @@ pub enum LogEntry {
     BackendError(String),
     KillBackend,
     RollBack(TurnId),
+    SwitchContext { old: SessionId, new: SessionId },
     UserInterruptWhileLLMRequest,
     UserInterruptWhileToolCall,
 }
@@ -116,6 +118,7 @@ impl Logger {
             LogEntry::BackendError(e) => (format!("backend_error({})", log_id.0), Some(e), "rs"),
             LogEntry::KillBackend => (format!("kill_backend"), None, ""),
             LogEntry::RollBack(t) => (format!("roll_back({})", log_id.0), Some(t.0), "txt"),
+            LogEntry::SwitchContext { old, new } => (format!("switch_context({:04x} -> {:04x})", old.0 >> 48, new.0 >> 48), None, ""),
             LogEntry::UserInterruptWhileLLMRequest => (format!("user_interrupt_while_llm_request"), None, ""),
             LogEntry::UserInterruptWhileToolCall => (format!("user_interrupt_while_tool_call"), None, ""),
         };

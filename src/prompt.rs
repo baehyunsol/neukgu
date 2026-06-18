@@ -9,6 +9,96 @@ impl ToolKind {
         let default_command_timeout = config.default_command_timeout;
 
         match self {
+            // VIBE NOTE: I wrote the draft of this prompt and gpt 5.5 (via neukgu-chat) refined it.
+            ToolKind::Agent => format!(r#"
+{index}. Agent
+
+You can launch sub-agents to work on sub-tasks.
+
+The `<agent>` tool takes two arguments: `<name>` and `<prompt>`.
+Give each agent a name so that you and the user can manage sub-agents more easily.
+
+The name should be two to three words long, all lowercase, with words joined by hyphens.
+The prompt should explain what the sub-agent needs to do.
+
+<agent>
+<name>test-agent-1</name>
+<prompt>
+You are a neukgu sub-agent responsible for testing a PSD library written in Rust.
+
+The user asked me to write a Rust library for the PSD file format, which is used by Photoshop, and I have implemented it.
+The source code is in `src/`, and you can use Cargo to run the program.
+
+Run the following command to test the program:
+
+`cargo run --release -- export-samples`
+
+This command reads sample files from the `samples/` directory, exports each sample PSD file to a PNG file using the library, and saves the results in `exported-samples/`.
+
+The `samples/` directory also contains the expected outputs as pre-rendered PNG files. Compare the exported PNG files with the expected PNG files, then write a report to `logs/done`.
+
+You must compare the results visually. You can use the `<read>` tool to view PNG files directly.
+Compare all samples and report whether each exported result matches the expected output.
+If they differ, explain which part, layer, or visual element appears to be incorrect.
+</prompt>
+</agent>
+
+Launch a sub-agent in the following cases:
+
+1. When the user explicitly asks you to create sub-agents, follow the user's instructions exactly.
+
+2. When there are multiple independent tasks to complete, and each task requires multiple tool calls.
+  - For example, if you need to review five different repositories, create one sub-agent for each repository and have each sub-agent review one repository. Then collect and summarize the five reviews.
+  - For example, if you need to investigate several unrelated bugs, create one sub-agent for each bug and have each sub-agent analyze, reproduce, and report on that bug.
+  - For example, if you need to compare multiple implementations, libraries, APIs, or configuration files, create sub-agents to inspect them independently and then combine their findings.
+  - In this case, do not spawn too many agents. Spawn at most five agents. For example, if there are three tasks, spawn one agent per task. If there are 100 tasks, spawn five agents and give 20 tasks to each.
+
+3. When you have implemented something, spawn a test sub-agent.
+   Ask the sub-agent to test your implementation and report the results.
+   If the tests fail, fix the issue and spawn a new test sub-agent.
+   Repeat this process until everything succeeds.
+
+4. When you have a clear step-by-step plan and the steps can be handled independently, spawn one agent per step.
+  - The user may give you step-by-step instructions, or you may create a step-by-step plan yourself. Either way, use sub-agents when the steps are substantial enough to benefit from delegation.
+  - Do not spawn a sub-agent for a step that is trivial or strictly dependent on the previous step's result.
+
+5. When you need an independent review, verification, or second opinion on non-trivial work.
+  - For example, after making a large code change, you can ask a sub-agent to review the diff for bugs, regressions, or missing tests.
+  - For example, when debugging a difficult issue, you can ask a sub-agent to independently investigate the likely root cause while you continue working.
+  - For example, when writing documentation or migration guides, you can ask a sub-agent to check whether the instructions are complete, accurate, and easy to follow.
+
+Do not launch a sub-agent in the following cases:
+
+1. When you need to search the web, use the `<ask>` tool instead.
+
+2. When the task is simple, such as reading a single file, do it yourself.
+
+3. When the task requires your current context or reasoning history and cannot be explained clearly in a self-contained prompt.
+
+4. When the sub-task is very small and launching a sub-agent would add unnecessary overhead.
+
+A sub-agent does not share context with you.
+It cannot see your tool-call history.
+It does share the file system with you, so you can read files written by the sub-agent, and the sub-agent can read files you have written.
+
+However, the sub-agent does not share your `neukgu-instruction.md` file.
+For the sub-agent, that file will be replaced with your prompt.
+
+Therefore, you must write a detailed, self-contained prompt for each sub-agent.
+Your prompt should include:
+
+1. A brief summary of the `neukgu-instruction.md` file that you have read.
+  - Since the sub-agent cannot read the same version that you are reading, you must explain the ultimate goal to the sub-agent.
+
+2. A brief summary of what you have done so far before launching the sub-agent.
+
+3. A clear description of what the sub-agent must do.
+
+4. Any relevant file paths, commands, constraints, expected outputs, and reporting requirements.
+
+Once the sub-agent finishes its job, you will receive a report from it.
+You can also inspect any files the sub-agent has edited.
+"#),
             ToolKind::Read => format!(r#"
 {index}. Read
 

@@ -288,7 +288,7 @@ fn event_loop(tx_to_main: mpsc::Sender<JobResult>, rx_from_main: mpsc::Receiver<
                     tx_to_main.send(JobResult { id: Some(id), kind: JobResultKind::GitOperationFail { operation, error: format!("{e:?}") } }).unwrap();
                 },
             },
-            Job { id, kind: JobKind::SynchronizeSkillsConfig } => match get_global_index_dir() {
+            Job { id: _, kind: JobKind::SynchronizeSkillsConfig } => match get_global_index_dir() {
                 Ok(global_index_dir) => {
                     if let Err(e) = synchronize_skills_config(&global_index_dir) {
                         eprintln!("Failed to update skills config: {e:?}");
