@@ -10,9 +10,9 @@ use crate::{
     LineDiff,
     LogId,
     NeukguId,
-    ParentContext,
     Path,
     QuestionToUser,
+    SessionId,
     SessionSummary,
     TokenUsage,
     ToolCall,
@@ -159,8 +159,9 @@ impl Default for Fe2Be {
 #[derive(Clone, Debug)]
 pub struct FeContext {
     pub working_dir: String,
+    pub instruction: String,
     pub neukgu_id: NeukguId,
-    pub parent: Option<ParentContext>,
+    pub parent: Option<SessionId>,
     pub history: Vec<TurnSummary>,
     pub summaries: Vec<SessionSummary>,
     pub curr_tool_call: Option<ToolCall>,
@@ -341,6 +342,7 @@ impl FeContext {
 
         Ok(FeContext {
             working_dir: working_dir.to_string(),
+            instruction: be_context.instruction.to_string(),
             neukgu_id: be_context.neukgu_id,
             parent: be_context.parent.clone(),
             history,
@@ -584,10 +586,6 @@ impl FeContext {
 
     pub fn get_system_prompt(&self) -> String {
         system_prompt(&self.config, &self.working_dir)
-    }
-
-    pub fn get_instruction(&self) -> Result<String, Error> {
-        Ok(read_string(&join(&self.working_dir, "neukgu-instruction.md")?)?)
     }
 
     pub fn get_changed_files(&self) -> Result<Vec<(String /* path */, String /* original_content */)>, Error> {

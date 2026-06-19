@@ -97,7 +97,6 @@ use ragit_fs::{
     read_bytes,
     read_bytes_offset,
     read_dir,
-    read_string,
     remove_dir_all,
     remove_file,
 };
@@ -320,13 +319,7 @@ impl IcedContext {
         match popup {
             Popup::CreateWorkingDir { .. } => {},
             Popup::CreateDir { .. } => {},
-            Popup::Init { path } => {
-                let instruction_at = join(&path, "neukgu-instruction.md")?;
-
-                if exists(&instruction_at) {
-                    self.set_text_editor_content(read_string(&instruction_at)?);
-                }
-            },
+            Popup::Init { .. } => {},
             Popup::EntryError(e) => {
                 self.copy_buffer = Some(e.to_string());
                 self.set_text_editor_content(e.to_string());
@@ -1066,7 +1059,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             create_dir(&project_path)?;
             context.copy_attached_files(&project_path)?;
             context.file_selector_context = None;
-            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
+            init_working_dir(None, instruction, &project_path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
             return Ok(Task::done(IcedMessage::Launch { path: project_path }));
         },
         IcedMessage::CreateDir { parent } => {
@@ -1079,7 +1072,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::Init { path } => {
             let instruction = context.long_text_editor_content.text();
             let global_index_dir = get_global_index_dir()?;
-            init_working_dir(Some(instruction), &path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
+            init_working_dir(None, instruction, &path, context.new_project_config.clone(), Some(join(&global_index_dir, "skills")?), false)?;
             return Ok(Task::done(IcedMessage::Launch { path }));
         },
         IcedMessage::Launch { .. } => unreachable!(),

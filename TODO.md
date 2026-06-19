@@ -21,7 +21,7 @@
   - `.neukgu/`를 통째로 날리는 경우는 backend_error가 나서 import_from_sandbox를 하는 경우밖에 없는데, 로그에는 backend_error가 없음 ㅠㅠ
   - 이거 생각할수록 이상함. fe에서 문제가 터졌으면 에러가 GUI에 보여야하거든? 근데 저 에러는 터미널에 보임. 즉, be에서 문제가 터진 거임. 근데 저 파일은 `WriteMode::Atomic`일 때만 생기는데 be에서 저 위치에 write를 할 일이 없음...
 34. reset session
-  - reset session은 구현했고, 과거의 session을 어딘가에 기록해두고 싶음 (`neukgu-instruction.md` + `context.json`). -> 제목을 지을 수 있으면 더 좋은데... 늑구한테 제목 지으라고 할까? ㅋㅋㅋ
+  - reset session은 구현했고, 과거의 session을 어딘가에 기록해두고 싶음 (`context.json`). -> 제목을 지을 수 있으면 더 좋은데... 늑구한테 제목 지으라고 할까? ㅋㅋㅋ
     - 과거의 session을 보는 view도 만들어야하긴 한데, working-dir-view를 재활용하기에는 다른게 너무 많고 from-scratch로 만들기에는 working-dir-view을 재활용하고 싶고...
     - 과거의 session을 보는 view를 따로 만들면, 과거의 session을 보는 동안 현재 working-dir의 be_process가 못 도는데??
     - 그럼 tab 기능을 만들어서 현재 session 하고 과거 session 하고 별개의 tab에 올려놔? ㅋㅋㅋ
@@ -383,6 +383,7 @@
       - 나중에 이 sub-agent를 깨우면... logs/done을 삭제하는 tool-call을 넣을 거잖아? 그건 어떻게 되는 겨?
     - 사실 neukgu-instruction.md와 logs/done은 일반적인 파일이 아님. 얘네를 실제 파일을 사용하려고 하니까 자꾸 애로사항이 생기는 듯?
       - 얘네를 파일말고 다른 방법을 쓰려면... 그럼 tool을 새로 만들어야 하는데? ㅠㅠ
+      - 일단 neukgu-instruction을 없앨까? 이거는 갈수록 비효율이 쌓이고 있음. 걍 첫번째 turn은 `<read>.</read>`를 유지하고 두번째 turn에 ask-user-question으로 "what do you want me to do?"한 다음에 instruction을 넣어버리면 될 듯?
   - 프롬프트: sub-agent가 필요한 상황들을 미리 hard-coding을 해 놓을까?
     - sub-agent 필요한 경우 1: 해야하는 작업이 여러개인데, 각각의 작업이 여러 턴을 사용해야하고, 각 작업이 서로에게 무관한 경우 (e.g. 문서 N개를 각각 리뷰)
     - sub-agent 필요한 경우 2: 무언가를 구현했으면 그걸 test하는 agent를 만들어서 테스트하기. 이 경우는 아예 프롬프트에 못 박아두자!!
@@ -406,6 +407,15 @@
   - ls나 exa를 주려고하다가... 생각해보니까 glob은 shell에서 처리하지 ls/exa가 처리하는게 아니잖아!
   - 걍 glob이라는 tool을 내가 만들어서 넣어버릴까? 이미 GUI에서 glob을 구현해뒀기 때문에 refactoring만 조금 하면 됨
 194. session이라는 용어와 context라는 용어가 혼용되고 있음...
+195. sub-agent 남은 issue들
+  - sub-agent가 돌고 있는 상태에서 index tab에서 instruction을 누르면 사용자가 준 instruction이 안 보이고 sub-agent의 instruction이 보임 -> 사실 이거는 뭐가 맞는지 모르겠음 ㅠㅠ
+  - sub-agent를 볼 GUI를 보강해야함...
+  - sub-agent한테는 system prompt를 조금 다르게 줘야하지 않을까...
+  - sub-agent가 돌고 있을 때 user가 개입해서 강제로 sub-agent를 끝낼 방법도 필요함
+    - 사실 지금도 가능은 함: instruction을 넣어서 나가라고 하면 됨...
+    - 조금 더 편한 방법을 쓰자면, instruction에다가 sub-agent를 끝내는 이유를 적고 버튼을 누르면
+      - 자동으로 logs/done이 생성
+      - logs/done에는 사용자가 적은 이유와 함께 그동안 sub-agent가 했던 일들의 요약 (e.g. 무슨 파일을 썼고...)이 들어감
 
 ## mock API
 

@@ -38,6 +38,7 @@ use crate::{
     Chat,
     ChatId,
     Config,
+    ContextJson,
     Error,
     MatchPreview,
     NeukguId,
@@ -88,7 +89,6 @@ use ragit_fs::{
     exists,
     join,
     join3,
-    read_string,
     remove_dir_all,
 };
 use std::collections::HashMap;
@@ -273,9 +273,9 @@ impl IcedContext {
                 self.set_long_text_editor_content(self.system_prompts[i].to_string());
             },
             Popup::Instruction { working_dir } => {
-                let instruction = read_string(&join(&working_dir, "neukgu-instruction.md")?)?;
-                self.copy_buffer = Some(instruction.to_string());
-                self.set_long_text_editor_content(instruction);
+                let context: ContextJson = load_json(&join3(&working_dir, ".neukgu", "context.json")?)?;
+                self.copy_buffer = Some(context.instruction.to_string());
+                self.set_long_text_editor_content(context.instruction.to_string());
                 self.syntax_highlight = Some(String::from("md"));
             },
             Popup::AskDeleteProject { .. } => {},
@@ -623,7 +623,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             create_dir(&project_path)?;
             context.copy_attached_files(&project_path)?;
             context.file_selector_context = None;
-            init_working_dir(Some(instruction), &project_path, context.new_project_config.clone(), Some(join(&context.global_index_dir, "skills")?), true)?;
+            init_working_dir(None, instruction, &project_path, context.new_project_config.clone(), Some(join(&context.global_index_dir, "skills")?), true)?;
             return Ok(Task::batch(vec![
                 Task::done(IcedMessage::NewTab { tab: Tab::WorkingDir(project_path), force_new_tab: true }),
                 Task::done(IcedMessage::ClosePopup),

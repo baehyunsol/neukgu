@@ -1,5 +1,6 @@
 use crate::{
     ApiLog,
+    AskTo,
     Config,
     Error,
     InterruptId,
@@ -9,12 +10,14 @@ use crate::{
     ParsedSegment,
     Request,
     Thinking,
+    ToolCallSuccess,
     Turn,
     TurnId,
     TurnKind,
     TurnResult,
     TurnResultSummary,
     TurnSummary,
+    UserAnswer,
     get_global_index_dir,
     hash_bytes,
     init_and_load_available_binaries,
@@ -60,15 +63,14 @@ impl SessionId {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ParentContext {
-    pub session_id: SessionId,
-
-    // It's `None` if it fails to read `neukgu-instruction.md`.
-    pub instruction: Option<String>,
-}
-
 pub struct Context {
+    pub instruction: String,
+
+    // If it's a sub-agent, the AI will give the name.
+    // Otherwise, the user can give the name, so that it's easier to browse history.
+    // The name matches `session_id`, not `neukgu_id`.
+    pub name: Option<String>,
+
     // `neukgu_id` is created when `.neukgu/` is created and never changes.
     // `session_id` is updated when `.neukgu/` is created or the session is reset (manual or sub-agent).
     pub neukgu_id: NeukguId,
@@ -76,7 +78,7 @@ pub struct Context {
 
     // If it has a parent, when the session is complete (logs/done is created),
     // the session is automatically switched to the parent.
-    pub parent: Option<ParentContext>,
+    pub parent: Option<SessionId>,
 
     // You'll find the index dir at `<working_dir>/.neukgu/`
     pub working_dir: String,
@@ -94,8 +96,8 @@ pub struct Context {
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
 
-    // Content of `logs/done`, written by a sub-agent.
-    pub sub_agent_report: Option<String>,
+    // Content of `logs/done`.
+    pub final_report: Option<String>,
 
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
@@ -109,9 +111,11 @@ pub struct Context {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ContextJson {
+    pub name: Option<String>,
+    pub instruction: String,
     pub neukgu_id: NeukguId,
     pub session_id: SessionId,
-    pub parent: Option<ParentContext>,
+    pub parent: Option<SessionId>,
     pub history: Vec<TurnId>,
     pub summaries: Vec<TurnId>,
     pub curr_raw_response: Option<RawResponse>,
@@ -120,7 +124,7 @@ pub struct ContextJson {
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
-    pub sub_agent_report: Option<String>,
+    pub final_report: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -134,13 +138,15 @@ pub struct RawResponse {
 impl Context {
     pub fn new(
         working_dir: &str,
+        name: Option<String>,
+        instruction: String,
 
         // If not set, a random id is given
         neukgu_id: Option<NeukguId>,
         session_id: Option<SessionId>,
 
         is_in_global_index_dir: bool,
-        parent: Option<ParentContext>,
+        parent: Option<SessionId>,
     ) -> Result<Self, Error> {
         let available_binaries = init_and_load_available_binaries(working_dir)?;
         let global_index_dir = get_global_index_dir()?;
@@ -152,6 +158,8 @@ impl Context {
         );
 
         Ok(Context {
+            name,
+            instruction,
             neukgu_id: neukgu_id.unwrap_or_else(|| NeukguId::new()),
             session_id: session_id.unwrap_or_else(|| SessionId::new()),
             parent,
@@ -167,7 +175,7 @@ impl Context {
             available_binaries,
             global_index_dir,
             has_to_remove_done_mark: false,
-            sub_agent_report: None,
+            final_report: None,
             logger,
             new_config: None,
         })
@@ -186,6 +194,8 @@ impl Context {
         let context_json: ContextJson = serde_json::from_str(&s)?;
 
         Ok(Context {
+            name: context_json.name.clone(),
+            instruction: context_json.instruction.to_string(),
             neukgu_id: context_json.neukgu_id,
             session_id: context_json.session_id,
             parent: context_json.parent.clone(),
@@ -200,8 +210,8 @@ impl Context {
             pinned_turns: context_json.pinned_turns.clone(),
             is_in_global_index_dir: context_json.is_in_global_index_dir,
             has_to_remove_done_mark: context_json.has_to_remove_done_mark,
-            sub_agent_report: context_json.sub_agent_report.clone(),
-            ..Context::new(working_dir, None, None, false, None)?
+            final_report: context_json.final_report.clone(),
+            ..Context::new(working_dir, None, String::new(), None, None, false, None)?
         })
     }
 
@@ -224,6 +234,8 @@ impl Context {
 
     pub(crate) fn to_json(&self) -> ContextJson {
         ContextJson {
+            name: self.name.clone(),
+            instruction: self.instruction.to_string(),
             neukgu_id: self.neukgu_id,
             session_id: self.session_id,
             parent: self.parent.clone(),
@@ -237,12 +249,11 @@ impl Context {
             pinned_turns: self.pinned_turns.clone(),
             is_in_global_index_dir: self.is_in_global_index_dir,
             has_to_remove_done_mark: self.has_to_remove_done_mark,
-            sub_agent_report: self.sub_agent_report.clone(),
+            final_report: self.final_report.clone(),
         }
     }
 
-    pub fn remember_and_remove_done_mark(&mut self) -> Result<(), Error> {
-        self.sub_agent_report = Some(read_string(&join3(&self.working_dir, "logs", "done")?)?);
+    pub fn remove_done_mark(&self) -> Result<(), Error> {
         remove_file(&join3(&self.working_dir, "logs", "done")?)?;
         Ok(())
     }
@@ -327,7 +338,7 @@ impl Context {
     // # 1. Start of a session
     //
     // The first turn is always `<read><path>.</path></read>` and the second turn
-    // is always `<read><path>neukgu-instruction.md</path></read>`.
+    // is always `<ask><to>user</to><question>What do you want me to do?</question></ask>`.
     //
     // It's beneficial in 2 ways:
     //
@@ -336,7 +347,7 @@ impl Context {
     //    the LLM api.
     //
     // # 2. Remove `logs/done`
-    pub fn get_fake_turn(&mut self) -> Option<(String, TurnKind)> {
+    pub fn get_fake_turn(&mut self) -> Option<(String, TurnKind, Option<TurnResult>)> {
         let session_starts: Vec<&TurnSummary> = self.history.iter().filter(
             |turn| turn.kind == TurnKind::SessionStart
         ).collect();
@@ -351,29 +362,38 @@ impl Context {
 "
                 ),
                 TurnKind::SessionStart,
+                None,
             )),
-            1 => match session_starts[0].result {
-                TurnResultSummary::ParseError => unreachable!(),
-                TurnResultSummary::ToolCallError => return Some((
-                    String::from(
-"Okay, I can't get the list of files in the working directory. But there must be neukgu-instruction.md. Let's read the instructions.
-<read>
-<path>neukgu-instruction.md</path>
-</read>
+            1 => {
+                let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: UserAnswer::FreeText(self.instruction.to_string()) });
+
+                match session_starts[0].result {
+                    TurnResultSummary::ParseError => unreachable!(),
+                    TurnResultSummary::ToolCallError => return Some((
+                        String::from(
+"Okay, I can't get the list of files in the working directory. Let me just ask what the user wants.
+<ask>
+<to>user</to>
+<question>What do you want me to do?</question>
+</ask>
 "
-                    ),
-                    TurnKind::SessionStart,
-                )),
-                TurnResultSummary::ToolCallSuccess => return Some((
-                    String::from(
-"Okay, I see the instruction file. Let's read the instructions.
-<read>
-<path>neukgu-instruction.md</path>
-</read>
+                        ),
+                        TurnKind::SessionStart,
+                        Some(turn_result),
+                    )),
+                    TurnResultSummary::ToolCallSuccess => return Some((
+                        String::from(
+"Okay, I see the files. Let me ask what the user wants.
+<ask>
+<to>user</to>
+<question>What do you want me to do?</question>
+</ask>
 "
-                    ),
-                    TurnKind::SessionStart,
-                )),
+                        ),
+                        TurnKind::SessionStart,
+                        Some(turn_result),
+                    )),
+                }
             },
             _ => {},
         }
@@ -388,6 +408,7 @@ Let me remove `logs/done` and continue working.
 </remove>
                 "),
                 TurnKind::RemoveDoneMark,
+                None,
             ))
         }
 
@@ -411,7 +432,7 @@ Let me remove `logs/done` and continue working.
     //    tool-call again. It has more information than `TurnResult::ParseError`, though.
     // 4. If there are too many turns, we have to omit less important turns. But how do we know which turn is important?
     //    - Recent turns are likely to be more relevant than old turns.
-    //    - The LLM is likely to gather important information in early turns (e.g. reading `neukgu-instruction.md`).
+    //    - The second turn contains the instruction, which is very important.
     pub(crate) fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
         // NOTE: User questions never go into the context.
 
@@ -460,7 +481,7 @@ Let me remove `logs/done` and continue working.
             // We have to omit some turns...
             // My guess here is that
             //    1. Recent turns are more important than old turns.
-            //    2. Very early turns are important, because `neukgu-instruction.md` is very likely to be there.
+            //    2. Very early turns are important, because it has the user instruction!
             // So I fill the first quarter with the very first turns and the remaining 3 quarters with the recent turns.
             //
             // It doesn't include parse-error turns.
@@ -546,8 +567,16 @@ Let me remove `logs/done` and continue working.
         Ok((llm_turns, query))
     }
 
-    pub fn is_marked_done(&self) -> Result<bool, Error> {
-        Ok(!self.has_to_remove_done_mark && exists(&join3(&self.working_dir, "logs", "done")?))
+    pub fn check_done_mark(&self) -> Result<Option<String>, Error> {
+        let done_mark_at = &join3(&self.working_dir, "logs", "done")?;
+
+        if !self.has_to_remove_done_mark && exists(&done_mark_at) {
+            Ok(Some(read_string(&done_mark_at)?))
+        }
+
+        else {
+            Ok(None)
+        }
     }
 }
 

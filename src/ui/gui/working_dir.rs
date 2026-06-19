@@ -51,6 +51,7 @@ use crate::{
     PermissionPreview,
     QuestionKind,
     QuestionToUser,
+    SessionId,
     SessionSummary,
     TokenUsage,
     ToolCallSuccess,
@@ -104,10 +105,13 @@ accomplish the job you gave to neukgu.
 
 ## Interactions
 
-There are 2 ways to interact with neukgu.
+There are 3 ways to interact with neukgu.
 
 1. Pause / Resume neukgu.
-2. Interrupt: you can give extra instructions while neukgu is working.
+2. Instruction: you can give extra instructions while neukgu is working.
+3. Question: you can ask question to neukgu while not interrupting the context.
+  - Neukgu won't use any tools to answer your question. It'll answer only based on the tool-call history.
+  - Neukgu will immediately forget about this question, so that it doesn't bloat the context.
 
 Neukgu might ask you a question while he's working. Then, you'll see a
 question popup. A question has a timeout. If you don't answer the question
@@ -446,6 +450,10 @@ impl IcedContext {
                 self.syntax_highlight = Some(extension);
                 self.popup_title = Some(title);
             },
+            Popup::Sessions | Popup::Session(_) => return Ok(Task::batch(vec![
+                Task::done(IcedMessage::ClosePopup),
+                Task::done(IcedMessage::Notify(String::from("Not Implemented"))),
+            ])),
             Popup::Summaries => {},
             Popup::Summary(summary) => {
                 self.copy_buffer = Some(summary.summary.to_string());
@@ -486,7 +494,7 @@ impl IcedContext {
                 self.syntax_highlight = None;
             },
             Popup::Instruction => {
-                let instruction = self.fe_context.get_instruction()?;
+                let instruction = self.fe_context.instruction.to_string();
                 self.set_long_text_editor_content(instruction.to_string());
                 self.copy_buffer = Some(instruction.to_string());
                 self.syntax_highlight = Some(String::from("md"));
@@ -495,7 +503,7 @@ impl IcedContext {
                 self.tmp_config = self.fe_context.config.clone();
             },
             Popup::Reset => {
-                self.set_long_text_editor_content(self.fe_context.get_instruction()?);
+                self.set_long_text_editor_content(self.fe_context.instruction.to_string());
                 self.copy_buffer = None;
                 self.syntax_highlight = None;
             },
@@ -754,6 +762,8 @@ pub enum Popup {
     UserQuestion(usize, TurnId),
     Logs,
     Log((String, LogId)),
+    Sessions,
+    Session(SessionId),
     Summaries,
     Summary(SessionSummary),
     FileChanges(Vec<FileChange>),
@@ -1189,7 +1199,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::ResetNeukgu => {
             context.kill_be_process()?;
-            reset_working_dir(context.long_text_editor_content.text(), None, &context.fe_context.working_dir, true, false)?;
+            reset_working_dir(None, context.long_text_editor_content.text(), None, &context.fe_context.working_dir, true, false)?;
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             context.close_popup();
@@ -1680,6 +1690,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     buttons_row2.push(button("Br(o)wser", IcedMessage::OpenBrowser { dir: context.fe_context.working_dir.to_string(), file: None }, skyblue(), context.zoom));
     buttons_row2.push(button("(F)ind", IcedMessage::OpenPopup { curr: Popup::Find { re: context.find_pattern.as_ref().map(|(pattern, _)| pattern.to_string()), error: None }, prev: None }, blue(), context.zoom));
     buttons_row2.push(button("(R)eset", IcedMessage::OpenPopup { curr: Popup::Reset, prev: None }, blue(), context.zoom));
+    buttons_row2.push(button("Sessions", IcedMessage::OpenPopup { curr: Popup::Sessions, prev: None }, yellow(), context.zoom));
     buttons_row2.push(button("Git", IcedMessage::OpenPopup { curr: Popup::GitInfo { path: context.fe_context.working_dir.to_string() }, prev: None }, black(), context.zoom));
 
     let buttons_row1 = if !context.can_click_turn_entry() {
@@ -1848,6 +1859,15 @@ fn render_turn<'t, 'c>(index: usize, turn: &'t Turn, context: &'c IcedContext) -
         buttons.push(button(
             "Raw LLM re(s)ponse",
             IcedMessage::OpenPopup { curr: Popup::Log((turn.id.0.to_string(), log_id.clone())), prev: context.curr_popup.clone() },
+            yellow(),
+            context.zoom,
+        ).into());
+    }
+
+    if let TurnResult::ToolCallSuccess(ToolCallSuccess::Agent { session_id, .. }) = turn.turn_result {
+        buttons.push(button(
+            "Turns",
+            IcedMessage::OpenPopup { curr: Popup::Session(session_id), prev: context.curr_popup.clone() },
             yellow(),
             context.zoom,
         ).into());

@@ -223,7 +223,7 @@ impl Turn {
                         String::from("???")
                     },
                     TurnKind::UserInstruction => match &self.turn_result {
-                        TurnResult::ToolCallSuccess(ToolCallSuccess::InstructionFromUser(instruction)) => format!("Instruction from user {:?}", truncate_chars(&instruction.to_string(), 36)),
+                        TurnResult::ToolCallSuccess(ToolCallSuccess::InstructionFromUser(instruction)) => format!("instruction from user {:?}", truncate_chars(&instruction.to_string(), 48)),
                         _ => unreachable!(),
                     },
                     // I don't make `parse_result` in this case.
@@ -231,16 +231,12 @@ impl Turn {
                 }
             },
             _ if self.kind == TurnKind::UserQuestion => match &self.turn_result {
-                TurnResult::ToolCallSuccess(ToolCallSuccess::QuestionFromUser { q, .. }) => format!("Question from user {:?}", truncate_chars(q, 36)),
+                TurnResult::ToolCallSuccess(ToolCallSuccess::QuestionFromUser { q, .. }) => format!("question from user {:?}", truncate_chars(q, 48)),
                 _ => unreachable!(),
             },
             _ => String::from("????"),
         };
-        let preview_title_truncated = if preview_title.chars().count() > 80 {
-            format!("{}...", preview_title.chars().take(76).collect::<String>())
-        } else {
-            preview_title.to_string()
-        };
+        let preview_title_truncated = truncate_chars(&preview_title, 88);
 
         TurnPreview {
             id: self.id.clone(),

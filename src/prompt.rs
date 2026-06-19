@@ -81,14 +81,11 @@ A sub-agent does not share context with you.
 It cannot see your tool-call history.
 It does share the file system with you, so you can read files written by the sub-agent, and the sub-agent can read files you have written.
 
-However, the sub-agent does not share your `neukgu-instruction.md` file.
-For the sub-agent, that file will be replaced with your prompt.
-
 Therefore, you must write a detailed, self-contained prompt for each sub-agent.
 Your prompt should include:
 
-1. A brief summary of the `neukgu-instruction.md` file that you have read.
-  - Since the sub-agent cannot read the same version that you are reading, you must explain the ultimate goal to the sub-agent.
+1. A brief summary of the instruction that you're given. You must have asked the user what they want, right?
+  - You must explain the ultimate goal to the sub-agent.
 
 2. A brief summary of what you have done so far before launching the sub-agent.
 
@@ -247,7 +244,7 @@ KEY2=VALUE2
 <command>cargo run -- ai-request --model=gpt --prompt="What's 1+1?"</command>
 </run>
 
-By default, the program runs in the working directory (where `neukgu-instruction.md` is at). You might want to run the program in another path.
+By default, the program runs in the working directory. You might want to run the program in another path.
 For example, you have lots of crates in your directory and you want to build one of them. Then, you can do it like:
 
 <run>
@@ -266,7 +263,7 @@ If `<path>` and `<stdout>` are both set, `<stdout>` is relative to `<path>`. For
             ToolKind::Ask => format!(r#"
 {index}. Ask
 
-You can ask questions to the user (the one who wrote `neukgu-instruction.md`) or an AI web-search agent.
+You can ask questions to the user (the one who gave you the instructions) or an AI web-search agent.
 If you ask a question to the AI agent, it will search the web and give you an answer.
 
 <ask>
@@ -351,13 +348,12 @@ pub fn system_prompt(config: &Config, cwd: &str) -> String {
 
     format!(r#"
 You're neukgu (늑구), an AI coding agent.
-The user wrote `neukgu-instruction.md`. Read the file and do what the user asks.
+The user will give you an instruction. Follow the instruction and do what they want.
 
 Your working directory looks like this:
 
-1. `neukgu-instruction.md`: This is the user's instruction.
-2. `logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
-3. `bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
+1. `logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
+2. `bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
 
 The user might provide more files/directories. You can freely create files/directories to achieve the goal.
 

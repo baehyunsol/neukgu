@@ -164,20 +164,17 @@ impl ToolCall {
     pub async fn run(&self, context: &mut Context, config: &Config) -> Result<Result<ToolCallSuccess, ToolCallError>, Error> {
         context.logger.log(LogEntry::ToolCallStart(self.clone()))?;
 
-        if let Err(e) = ask_permission_to_user(self, context, config).await? {
-            return Ok(Err(e));
-        }
-
         match self {
             ToolCall::Agent { name, prompt } => {
                 let session_id = SessionId::from_string_hash(&format!("name: {name}\nprompt: {prompt}"));
 
                 if let Some(result) = try_get_session_result(session_id, &context.working_dir)? {
-                    Ok(Ok(ToolCallSuccess::Agent { result }))
+                    Ok(Ok(ToolCallSuccess::Agent { session_id, result }))
                 }
 
                 else {
                     let new_context = reset_working_dir(
+                        Some(name.to_string()),
                         prompt.to_string(),
                         Some(session_id),
                         &context.working_dir,
@@ -846,14 +843,14 @@ impl ToolCall {
             ToolCall::Ask { to, question, .. } => format!(
                 "ask to {} {:?}",
                 format!("{to:?}").to_ascii_lowercase(),
-                truncate_chars(&question.question, 42),
+                truncate_chars(&question.question, 48),
             ),
             ToolCall::Chrome { script, input, output } => {
                 let (WebOrFile::Web(input) | WebOrFile::File(input)) = input;
                 format!(
                     "open chrome and render `{input}` to `{output}`{}",
                     if let Some(script) = script {
-                        format!(" (script: {})", truncate_chars(script, 42))
+                        format!(" (script: {})", truncate_chars(script, 48))
                     } else {
                         String::new()
                     },
@@ -861,7 +858,7 @@ impl ToolCall {
             },
             ToolCall::ImageEdit { input, prompt, .. } => format!(
                 "editing `{input}` {:?}",
-                truncate_chars(prompt, 42),
+                truncate_chars(prompt, 48),
             ),
         }
     }
@@ -870,6 +867,7 @@ impl ToolCall {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ToolCallSuccess {
     Agent {
+        session_id: SessionId,
         result: String,
     },
     ReadText {
@@ -975,7 +973,7 @@ pub enum ToolCallSuccess {
 impl ToolCallSuccess {
     pub fn to_llm_tokens(&self, config: &Config) -> Vec<LLMToken> {
         match self {
-            ToolCallSuccess::Agent { result } => vec![LLMToken::String(result.to_string())],
+            ToolCallSuccess::Agent { result, .. } => vec![LLMToken::String(result.to_string())],
             ToolCallSuccess::ReadText { content, .. } => {
                 if content.is_empty() {
                     // claude requires every turn to be non-empty
@@ -1620,6 +1618,8 @@ impl Context {
                 //       I have no idea why. Maybe something's wrong with the model. I have to manually interrupt and
                 //       say "stop reading the instruction and start working". Instead of manual interruptions, the harness
                 //       interrupts the model and nudges it.
+                //    -> (NOTE@2026-06-19): There used to be a file named `neukgu-instruction.md` which has the user instruction,
+                //       but that doesn't exist anymore.
                 else if let ToolCall::Read { path, start: None, end: None } = tool {
                     if let Some(ParsedSegment { tool: Some(tool), .. }) = &last_turn.parse_result {
                         if let ToolCall::Read { path: last_path, start: None, end: None } = tool && normalize_path(path, &self.working_dir) == normalize_path(last_path, &self.working_dir) && normalize_path(path, &self.working_dir).is_some() {

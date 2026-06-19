@@ -1,7 +1,7 @@
 use super::{ApiLog, Config, HttpRequest, LLMToken, Request, count_bytes_of_llm_tokens};
 use async_std::task::sleep;
 use crate::{Error, Response, load_json};
-use ragit_fs::{WriteMode, exists, join3, remove_file, write_string};
+use ragit_fs::{WriteMode, exists, join3, write_string};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -117,7 +117,7 @@ impl MockState {
                 },
                 None => {
                     self.turns.push(None);
-                    String::from("The test is complete! Let me check if there's a new instruction.\n<read><path>neukgu-instruction.md</path></read>")
+                    String::from("The test is complete! Let me check the working directory.\n<read><path>.</path></read>")
                 },
             }
         }
@@ -141,12 +141,8 @@ pub fn revert_mock_state(working_dir: &str) -> Result<(), Error> {
 }
 
 pub fn reset_mock_state(working_dir: &str) -> Result<(), Error> {
-    let mock_path = join3(working_dir, ".neukgu", "mock.json")?;
-
-    if exists(&mock_path) {
-        remove_file(&mock_path)?;
-    }
-
+    let state = MockState::new();
+    state.store(working_dir)?;
     Ok(())
 }
 
@@ -167,39 +163,12 @@ impl MockRequest {
 
 fn mock_requests() -> Vec<MockRequest> {
     vec![
-        // TODO: move this test to the end
-        //       I put it here because I'm too lazy to wait for the mock API sequence.
-        // agent test
         MockRequest::new(
-            "<agent><name>test-agent</name><prompt>Your name is sub-agent-62373095048</prompt></agent>",
-            None,
-        ),
-        // inside sub-agent
-        MockRequest::new(
-            "<write><path>agent-test.txt</path><mode>create</mode><content>Hello from sub-agent-62373095048</content></write>",
+            "<ask><to>user</to><question>Test question 12345678</question></ask>",
             None,
         ),
         MockRequest::new(
-            "<read><path>neukgu-instruction.md</path></read>",
-            Some("62373095048"),
-        ),
-        MockRequest::new(
-            "<write><path>logs/done</path><mode>create</mode><content>I'll hand-over to the parent agent.</content></write>",
-            None,
-        ),
-        MockRequest::new(
-            "<read><path>agent-test.txt</path></read>",
-            Some("62373095048"),
-        ),
-        // agent test end
-
-        // The fake turns already have read `.` and `neukgu-instruction.md`.
-        MockRequest::new(
-            "<ask><to>user</to><question>I don't see any instructions... what do you want me to do?</question></ask>",
-            None,
-        ),
-        MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-files.md</path>\n<content>\nI have inspected the working directory and the instruction file, but there's no instructions.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>logs/summary-files.md</path>\n<content>\nI'm not sure what the user wants me to do. Let me test the tools and see if they're working.\n</content>\n</write>",
             None,
         ),
 
@@ -213,17 +182,17 @@ fn mock_requests() -> Vec<MockRequest> {
             Some("`<path>` in tool `<read>` is missing"),
         ),
         MockRequest::new(
-            "<read><start>abc</start><path>neukgu-instruction.md</path></read>",
+            "<read><start>abc</start><path>logs/</path></read>",
             Some("expected to have type `Integer`"),
         ),
         MockRequest::new(
-            "<read><start>-1</start><path>neukgu-instruction.md</path></read>",
+            "<read><start>-1</start><path>logs/</path></read>",
             Some("is supposed to be in range"),
         ),
         // If there are multiple tool-calls, the parser only takes the first one.
         MockRequest::new(
             "I'll call multiple tools hahaha<read><path>logs/summary-files.md</path></read>I'll read it again haha<read><path>logs/summary-files.md</path></read>",
-            Some("there's no instructions"),
+            Some("test the tools and"),
         ),
         MockRequest::new(
             "
@@ -284,6 +253,27 @@ fn mock_requests() -> Vec<MockRequest> {
             Some("no such file"),
         ),
         // external path test end
+
+        // agent test
+        MockRequest::new(
+            "<agent><name>test-agent</name><prompt>Your name is sub-agent-62373095048</prompt></agent>",
+            None,
+        ),
+        // enter sub-agent
+        MockRequest::new(
+            "<write><path>agent-test.txt</path><mode>create</mode><content>Hello from sub-agent-62373095048</content></write>",
+            None,
+        ),
+        MockRequest::new(
+            "<write><path>logs/done</path><mode>create</mode><content>I'll hand-over to the parent agent.</content></write>",
+            None,
+        ),
+        // exit sub-agent
+        MockRequest::new(
+            "<read><path>agent-test.txt</path></read>",
+            Some("62373095048"),
+        ),
+        // agent test end
 
         // patch test
         MockRequest::new(

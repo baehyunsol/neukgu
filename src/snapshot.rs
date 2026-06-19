@@ -45,14 +45,14 @@ impl Context {
         let snapshots_at = join3(&self.working_dir, ".neukgu", "snapshots.json")?;
         let mut snapshots: Snapshots = load_json(&snapshots_at)?;
 
-        // It only keeps at most 5 snapshots. -> The very first snapshot of the session and the most recent 4 snapshots.
-        if snapshots.len() >= 5 {
-            for snapshot in &snapshots[1..(snapshots.len() - 3)] {
+        // It only keeps at most 6 snapshots. -> The very first snapshot of the session and the most recent 5 snapshots.
+        if snapshots.len() >= 6 {
+            for snapshot in &snapshots[1..(snapshots.len() - 4)] {
                 let old_snapshot_at = join4(&self.working_dir, ".neukgu", "snapshots", &snapshot.turn.0)?;
                 remove_dir_all(&old_snapshot_at)?;
             }
 
-            while snapshots.len() >= 5 {
+            while snapshots.len() >= 6 {
                 snapshots.remove(1);
             }
 
@@ -67,6 +67,8 @@ impl Context {
         let snapshot_at = join4(&self.working_dir, ".neukgu", "snapshots", &turn.id.0)?;
         let py_venv_src = join3(&self.working_dir, ".neukgu", "py-venv")?;
         let py_venv_dst = join3(&snapshot_at, ".neukgu", "py-venv")?;
+        let sessions_src = join3(&self.working_dir, ".neukgu", "sessions")?;
+        let sessions_dst = join3(&snapshot_at, ".neukgu", "sessions")?;
 
         if exists(&snapshot_at) {
             return Ok(());
@@ -86,9 +88,11 @@ impl Context {
         // copy necessary directories in index-dir (e.g. python venv).
         create_dir(&join(&snapshot_at, ".neukgu")?)?;
         create_dir(&join3(&snapshot_at, ".neukgu", "py-venv")?)?;
+        create_dir(&join3(&snapshot_at, ".neukgu", "sessions")?)?;
 
         copy_recursive(&self.working_dir, &snapshot_at, true, false)?;
         copy_recursive(&py_venv_src, &py_venv_dst, true, false)?;
+        copy_recursive(&sessions_src, &sessions_dst, true, false)?;
 
         snapshots.push(Snapshot {
             seq: snapshots.last().map(|snapshot| snapshot.seq + 1).unwrap_or(0),

@@ -117,10 +117,7 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
     let mut runs = vec![];
 
     match tool {
-        ToolCall::Agent { .. } => {
-            // This doesn't work because this tool calls `ToolCall::run()` twice.
-            // tools.push((ToolPermissionKind::Write, Some(String::from("neukgu-instruction.md")), PermissionPreview::String(prompt.to_string())));
-        },
+        ToolCall::Agent { .. } => {},
         ToolCall::Read { path, .. } => {
             tools.push((ToolPermissionKind::Read, Some(path.to_string()), PermissionPreview::None));
         },

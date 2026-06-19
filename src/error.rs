@@ -10,10 +10,6 @@ pub enum Error {
     IndexDirNotFound,
     IndexDirAlreadyExists,
     FailedToInitPythonVenv,
-
-    // CLI has `--instruction` arg, but `neukgu-instruction.md` already exists.
-    InstructionAlreadyExists,
-
     FrontendNotAvailable,
     InvalidModelName(String),
     InvalidTurnId(String),

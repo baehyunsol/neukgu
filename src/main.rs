@@ -24,17 +24,11 @@ neukgu: an opinionated AI agent
 
 Commands
 
-neukgu new <project_name> [--model=<model>] [--instruction=<instruction>]
+neukgu new <project_name> [--model=<model>] --instruction=<instruction>
     creates a new project and initialize a neukgu directory
 
-    If you don't give the instruction, you have to manually initialize the
-    `neukgu-instruction.md` file.
-
-neukgu init [--model=<model>] [--instruction=<instruction>]
+neukgu init [--model=<model>] --instruction=<instruction>
     initializes a neukgu directory in the current directory
-
-    If you don't give the instruction, you have to manually initialize the
-    `neukgu-instruction.md` file.
 
 neukgu headless [--working-dir=<path=.>] [--attach-fe]
     runs neukgu in the current directory
@@ -99,13 +93,13 @@ fn run(args: Vec<String>) -> Result<(), Error> {
     match args.get(1).map(|s| s.as_str()) {
         Some("new") => {
             let parsed_args = ArgParser::new()
-                .optional_arg_flag("--instruction", ArgType::String)
+                .arg_flag("--instruction", ArgType::String)
                 .optional_arg_flag("--model", ArgType::enum_(&Model::short_names()))
                 .args(ArgType::String, ArgCount::Exact(1))
                 .parse(&args, 2)?;
 
             let project_name = parsed_args.get_args_exact(1)?[0].clone();
-            let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
+            let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string()).unwrap();
             let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap());
             let mut config = if let Ok(global_index_dir) = get_global_index_dir() && let Ok(config) = get_global_config(&global_index_dir) {
                 config
@@ -124,17 +118,17 @@ fn run(args: Vec<String>) -> Result<(), Error> {
 
             validate_project_name(&project_name)?;
             create_dir(&project_name)?;
-            init_working_dir(instruction, &project_name, config, skills_dir, false)?;
+            init_working_dir(None, instruction, &project_name, config, skills_dir, false)?;
             Ok(())
         },
         Some("init") => {
             let parsed_args = ArgParser::new()
-                .optional_arg_flag("--instruction", ArgType::String)
+                .arg_flag("--instruction", ArgType::String)
                 .optional_arg_flag("--model", ArgType::enum_(&Model::short_names()))
                 .args(ArgType::String, ArgCount::None)
                 .parse(&args, 2)?;
 
-            let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string());
+            let instruction = parsed_args.arg_flags.get("--instruction").map(|s| s.to_string()).unwrap();
             let model = parsed_args.arg_flags.get("--model").map(|m| Model::from_short_name(m).unwrap());
             let mut config = if let Ok(global_index_dir) = get_global_index_dir() && let Ok(config) = get_global_config(&global_index_dir) {
                 config
@@ -151,7 +145,7 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 config.agents = Agents::single(model, Model::default_image_edit());
             }
 
-            init_working_dir(instruction, ".", config, skills_dir, false)?;
+            init_working_dir(None, instruction, ".", config, skills_dir, false)?;
             Ok(())
         },
         Some("headless") => {

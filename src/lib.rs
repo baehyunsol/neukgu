@@ -60,7 +60,6 @@ pub use context::{
     Context,
     ContextJson,
     NeukguId,
-    ParentContext,
     RawResponse,
     SessionId,
     SessionSummary,
@@ -134,6 +133,7 @@ pub use tool::{
     UserAnswer,
     UserResponse,
     WriteMode,
+    ask_permission_to_user,
     default_tool_permissions,
     init_and_load_available_binaries,
     join_command_args,
@@ -193,7 +193,9 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
         Ok(f) => f,
         Err(Error::SwitchContext(session_id)) => {
             context.logger.log(LogEntry::SwitchContext { old: context.session_id, new: session_id })?;
+            let completed_interrupts_from_user = context.completed_interrupts_from_user.clone();
             *context = Context::from_session_id(session_id, &context.working_dir)?;
+            context.completed_interrupts_from_user = completed_interrupts_from_user;
             context.store()?;
             true
         },
@@ -221,25 +223,21 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     if let Some((id, interrupt_kind, interrupt)) = context.check_interrupt_from_user()? {
         context.process_interrupt_from_user(id, interrupt_kind, interrupt, config).await?;
 
-        if interrupt_kind == InterruptKind::Instruction && context.is_marked_done()? {
+        if interrupt_kind == InterruptKind::Instruction && context.check_done_mark()?.is_some() {
             context.has_to_remove_done_mark = true;
         }
 
         context.store()?;
     }
 
-    if context.is_marked_done()? {
-        if let Some(parent) = &context.parent {
-            let parent = parent.clone();
-            context.remember_and_remove_done_mark()?;
-            context.store()?;
+    if let Some(mark) = context.check_done_mark()? {
+        context.final_report = Some(mark);
+        context.store()?;
 
-            write_string(
-                &join(&context.working_dir, "neukgu-instruction.md")?,
-                parent.instruction.as_ref().unwrap_or(&String::new()),
-                ragit_fs::WriteMode::CreateOrTruncate,
-            )?;
-            return Err(Error::SwitchContext(parent.session_id));
+        if let Some(parent) = context.parent {
+            context.remove_done_mark()?;
+            context.store()?;
+            return Err(Error::SwitchContext(parent));
         }
 
         sleep(Duration::from_millis(1_000));  // prevent busy-loop
@@ -248,11 +246,13 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
 
     let mut user_interrupt = false;
     let mut turn_kind = TurnKind::Agent;
+    let mut turn_result = None;
     let raw_response = match &context.curr_raw_response {
         Some(RawResponse { response, .. }) => response.to_string(),
         None => match context.get_fake_turn() {
-            Some((r, kind)) => {
+            Some((r, kind, result)) => {
                 turn_kind = kind;
+                turn_result = result;
                 context.start_turn(None, r.to_string(), 0, ApiLog::new());
                 r
             },
@@ -277,6 +277,18 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
         },
     };
 
+    if let Some(result) = turn_result {
+        context.finish_turn(
+            Some(parse::parse(raw_response.as_bytes(), &config.activated_tools).unwrap()),
+            result,
+            0,
+            config,
+            turn_kind,
+        )?;
+        context.store()?;
+        return Ok(true);
+    }
+
     if user_interrupt {
         context.discard_current_turn();
         sleep(Duration::from_millis(300));  // wait for fe to update its state
@@ -291,7 +303,7 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
         return Ok(true);
     }
 
-    let tool_call_started_at = Instant::now();
+    let mut tool_call_started_at = Instant::now();
     let mut wrote_summary = false;
     let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes(), &config.activated_tools) {
         Ok(ref parse_result @ ParsedSegment { tool: Some(ref tool), .. }) => {
@@ -299,7 +311,13 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
                 (Some(parse_result.clone()), TurnResult::ToolCallError(e))
             }
 
+            else if let Err(e) = ask_permission_to_user(tool, context, config).await? {
+                (Some(parse_result.clone()), TurnResult::ToolCallError(e))
+            }
+
             else {
+                tool_call_started_at = Instant::now();
+
                 match tool.run(context, config).await {
                     Ok(tool_call_result) => {
                         context.logger.log(LogEntry::ToolCallEnd(tool_call_result.clone()))?;
@@ -380,7 +398,8 @@ pub fn validate_project_name(name: &str) -> Result<(), Error> {
 }
 
 pub fn init_working_dir(
-    instruction: Option<String>,
+    name: Option<String>,
+    instruction: String,
     working_dir: &str,
     config: Config,
     skills_dir: Option<String>,
@@ -388,26 +407,6 @@ pub fn init_working_dir(
 ) -> Result<(), Error> {
     if exists(&join(working_dir, ".neukgu/")?) {
         return Err(Error::IndexDirAlreadyExists);
-    }
-
-    let instruction_at = join(working_dir, "neukgu-instruction.md")?;
-
-    match (instruction, exists(&instruction_at)) {
-        (Some(instruction), _) => {
-            write_string(
-                &instruction_at,
-                &instruction,
-                RagitFsWriteMode::CreateOrTruncate,
-            )?;
-        },
-        (None, false) => {
-            write_string(
-                &instruction_at,
-                "",
-                RagitFsWriteMode::AlwaysCreate,
-            )?;
-        },
-        (None, true) => {},
     }
 
     for d in ["logs", "bins"] {
@@ -464,7 +463,15 @@ pub fn init_working_dir(
         RagitFsWriteMode::AlwaysCreate,
     )?;
 
-    let context = Context::new(working_dir, None, None, is_in_global_index_dir, None)?;
+    let context = Context::new(
+        working_dir,
+        name,
+        instruction,
+        None,  // neukgu_id
+        None,  // session_id
+        is_in_global_index_dir,
+        None,  // parent
+    )?;
     context.store()?;
     config.store(working_dir)?;
 
@@ -494,6 +501,7 @@ pub fn init_log_dir(log_dir: &str) -> Result<(), Error> {
 }
 
 pub fn reset_working_dir(
+    name: Option<String>,
     instruction: String,
     session_id: Option<SessionId>,
     working_dir: &str,
@@ -502,14 +510,7 @@ pub fn reset_working_dir(
 ) -> Result<Context, Error> {
     let lock_file_at = join3(working_dir, ".neukgu", ".lock")?;
     let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
-    let parent_instruction = read_string(&join(working_dir, "neukgu-instruction.md")?).ok();
-
     clean_dangling_sandboxes(working_dir)?;
-    write_string(
-        &join(working_dir, "neukgu-instruction.md")?,
-        &instruction,
-        RagitFsWriteMode::CreateOrTruncate,
-    )?;
 
     if !sub_agent {
         write_string(
@@ -533,18 +534,25 @@ pub fn reset_working_dir(
     let old_context = Context::load(working_dir)?;
 
     let parent_context = if sub_agent {
-        Some(ParentContext { session_id: old_context.session_id, instruction: parent_instruction })
+        Some(old_context.session_id)
     } else {
         None
     };
 
-    let new_context = Context::new(
+    let mut new_context = Context::new(
         working_dir,
+        name,
+        instruction,
         Some(old_context.neukgu_id),
         session_id,
         old_context.is_in_global_index_dir,
         parent_context,
     )?;
+
+    if sub_agent {
+        new_context.completed_interrupts_from_user = old_context.completed_interrupts_from_user.clone();
+    }
+
     new_context.store()?;
 
     if exists(&join3(working_dir, "logs", "done")?) {
@@ -577,7 +585,7 @@ pub fn try_get_session_result(session_id: SessionId, working_dir: &str) -> Resul
     }
 
     let session: ContextJson = load_json(&session_at)?;
-    Ok(session.sub_agent_report.clone())
+    Ok(session.final_report.clone())
 }
 
 pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error> {
@@ -587,6 +595,8 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
     let snapshots_at = join3(working_dir, ".neukgu", "snapshots.json")?;
     let py_venv_snapshot = join3(&snapshot_at, ".neukgu", "py-venv")?;
     let py_venv_working_dir = join3(working_dir, ".neukgu", "py-venv")?;
+    let sessions_snapshot = join3(&snapshot_at, ".neukgu", "sessions")?;
+    let sessions_working_dir = join3(working_dir, ".neukgu", "sessions")?;
     let snapshots: Vec<Snapshot> = load_json(&snapshots_at)?;
     let snapshot = snapshots.into_iter().filter(|snapshot| &snapshot.turn == id).next();
     let Some(snapshot) = snapshot else { return Err(Error::CannotFindSnapshot(id.clone())); };
@@ -595,6 +605,7 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
     clean_dangling_snapshots(snapshot.seq, working_dir)?;
     copy_recursive(&snapshot_at, working_dir, true, false /* copy index dir */)?;
     copy_recursive(&py_venv_snapshot, &py_venv_working_dir, true, false)?;
+    copy_recursive(&sessions_snapshot, &sessions_working_dir, true, false)?;
 
     write_string(
         &join3(working_dir, ".neukgu", "context.json")?,
@@ -609,13 +620,11 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
     //     RagitFsWriteMode::CreateOrTruncate,
     // )?;
 
-    if let Some(mock_state) = &snapshot.mock_state {
-        write_string(
-            &join3(working_dir, ".neukgu", "mock.json")?,
-            &serde_json::to_string_pretty(&mock_state)?,
-            RagitFsWriteMode::CreateOrTruncate,
-        )?;
-    }
+    write_string(
+        &join3(working_dir, ".neukgu", "mock.json")?,
+        &serde_json::to_string_pretty(snapshot.mock_state.as_ref().unwrap_or(&MockState::new()))?,
+        RagitFsWriteMode::CreateOrTruncate,
+    )?;
 
     write_string(
         &join3(working_dir, ".neukgu", "be2fe.json")?,
