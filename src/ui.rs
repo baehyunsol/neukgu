@@ -8,11 +8,13 @@ use crate::{
     InterruptId,
     InterruptKind,
     LineDiff,
+    LLMToken,
     LogId,
     NeukguId,
     Path,
     QuestionToUser,
     SessionId,
+    SessionInfo,
     SessionSummary,
     TokenUsage,
     ToolCall,
@@ -52,7 +54,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use similar::Algorithm as DiffAlgorithm;
 use similar::udiff::unified_diff;
-use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::{Entry, HashMap};
+use std::collections::hash_set::HashSet;
 use std::fs::TryLockError;
 use std::process::{Child, Command, Stdio};
 use std::sync::LazyLock;
@@ -161,6 +164,7 @@ pub struct FeContext {
     pub working_dir: String,
     pub instruction: String,
     pub neukgu_id: NeukguId,
+    pub session_id: SessionId,
     pub parent: Option<SessionId>,
     pub history: Vec<TurnSummary>,
     pub summaries: Vec<SessionSummary>,
@@ -344,6 +348,7 @@ impl FeContext {
             working_dir: working_dir.to_string(),
             instruction: be_context.instruction.to_string(),
             neukgu_id: be_context.neukgu_id,
+            session_id: be_context.session_id,
             parent: be_context.parent.clone(),
             history,
             summaries,
@@ -662,6 +667,92 @@ impl FeContext {
             5,
             None,
         )))
+    }
+
+    pub fn get_sessions(&self) -> Result<Vec<SessionInfo>, Error> {
+        let sessions_at = join3(&self.working_dir, ".neukgu", "sessions")?;
+        let mut flat: HashMap<SessionId, SessionInfo> = HashMap::new();
+        let mut tree: HashMap<SessionId, Vec<SessionId>> = HashMap::new();
+        let mut roots: HashSet<SessionId> = HashSet::new();
+
+        for session in read_dir(&sessions_at, false)? {
+            let session: ContextJson = load_json(&session)?;
+            flat.insert(
+                session.session_id,
+                SessionInfo {
+                    id: session.session_id,
+                    name: session.name.clone(),
+                    instruction: session.instruction.to_string(),
+                    updated_at: session.updated_at,
+                    selected: self.session_id == session.session_id,
+                    finished: session.final_report.is_some(),
+                    parent: session.parent,
+                    sub_agents: vec![],
+                },
+            );
+
+            if session.parent.is_none() {
+                roots.insert(session.session_id);
+            }
+
+            if let Some(parent) = session.parent {
+                match tree.entry(parent) {
+                    Entry::Occupied(mut e) => {
+                        e.get_mut().push(session.session_id);
+                    },
+                    Entry::Vacant(e) => {
+                        e.insert(vec![session.session_id]);
+                    },
+                }
+            }
+        }
+
+        fn attach_sub_agents(
+            id: SessionId,
+            flat: &mut HashMap<SessionId, SessionInfo>,
+            tree: &HashMap<SessionId, Vec<SessionId>>,
+        ) -> SessionInfo {
+            let mut node = flat.remove(&id).unwrap();
+
+            if let Some(children) = tree.get(&id) {
+                node.sub_agents = children.iter().map(
+                    |child| attach_sub_agents(*child, flat, tree)
+                ).collect();
+            }
+
+            node
+        }
+
+        let mut result: Vec<SessionInfo> = roots.into_iter().map(
+            |id| attach_sub_agents(id, &mut flat, &tree)
+        ).collect();
+        result.sort_by_key(|session| -session.updated_at);
+
+        for session in result.iter_mut() {
+            session.sort_children();
+        }
+
+        Ok(result)
+    }
+
+    pub fn get_session_preview(&self, id: SessionId) -> Result<Vec<(TurnPreview, String, Vec<LLMToken>)>, Error> {
+        let session: Context = Context::from_session_id(id, &self.working_dir)?;
+        let mut turns = Vec::with_capacity(session.history.len());
+
+        for turn in session.history.iter() {
+            let turn = Turn::load(&turn.id, &self.working_dir)?;
+            turns.push((
+                turn.preview(),
+                turn.raw_response.to_string(),
+
+                // TODO: `self.config` is the current session's config, and
+                //       the old session's config is stored nowhere...
+                //       maybe I have to keep it somewhere?
+                turn.turn_result.to_llm_tokens(&self.config),
+            ));
+        }
+
+        Ok(turns)
     }
 }
 

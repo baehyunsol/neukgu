@@ -11,6 +11,7 @@ use super::{
     pink,
     red,
     set_bg,
+    set_round_bg,
     skyblue,
     spawn_be_process,
     white,
@@ -52,6 +53,7 @@ use crate::{
     QuestionKind,
     QuestionToUser,
     SessionId,
+    SessionInfo,
     SessionSummary,
     TokenUsage,
     ToolCallSuccess,
@@ -72,6 +74,7 @@ use crate::{
     reset_working_dir,
     roll_back_working_dir,
     stringify_llm_tokens,
+    truncate_chars,
 };
 use iced::{Background, ContentFit, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -216,8 +219,11 @@ pub struct IcedContext {
 
     pub find_pattern: Option<(String, Regex)>,
     pub find_result: HashMap<String, (usize, usize)>,
+    pub session_preview_expansions: HashSet<TurnId>,
     pub loaded_turn: Option<(usize, Turn)>,
     pub loaded_logs: Option<Vec<String>>,
+    pub loaded_sessions: Option<Vec<SessionInfo>>,
+    pub loaded_session: Option<Vec<(TurnPreview, String, Vec<LLMToken>)>>,
     pub loaded_token_usage: Option<TokenUsage>,
     pub loaded_image: Option<ImageId>,
     pub user_response_timeout_counter: Instant,
@@ -295,8 +301,11 @@ impl IcedContext {
             selected_turn: None,
             find_pattern: None,
             find_result: HashMap::new(),
+            session_preview_expansions: HashSet::new(),
             loaded_turn: None,
             loaded_logs: None,
+            loaded_sessions: None,
+            loaded_session: None,
             loaded_token_usage: None,
             loaded_image: None,
             user_response_timeout_counter: Instant::now(),
@@ -450,10 +459,13 @@ impl IcedContext {
                 self.syntax_highlight = Some(extension);
                 self.popup_title = Some(title);
             },
-            Popup::Sessions | Popup::Session(_) => return Ok(Task::batch(vec![
-                Task::done(IcedMessage::ClosePopup),
-                Task::done(IcedMessage::Notify(String::from("Not Implemented"))),
-            ])),
+            Popup::Sessions => {
+                self.loaded_sessions = Some(self.fe_context.get_sessions()?);
+            },
+            Popup::Session(session_id) => {
+                self.loaded_session = Some(self.fe_context.get_session_preview(session_id)?);
+                self.session_preview_expansions = HashSet::new();
+            },
             Popup::Summaries => {},
             Popup::Summary(summary) => {
                 self.copy_buffer = Some(summary.summary.to_string());
@@ -523,6 +535,8 @@ impl IcedContext {
         self.hovered_turn = None;
         self.loaded_turn = None;
         self.loaded_logs = None;
+        self.loaded_sessions = None;
+        self.loaded_session = None;
         self.loaded_token_usage = None;
         self.loaded_image = None;
         self.curr_popup = None;
@@ -706,6 +720,7 @@ pub enum IcedMessage {
     DismissLLMRequest,
     AnswerPermissionRequest(Permission),
     GitInfoMessage(GitInfoMessage),
+    ExpandSessionPreview(TurnId),
     EditShortText(String),
     EditLongText(TextEditorAction),
     EditInterruptText(TextEditorAction),
@@ -1298,6 +1313,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 }
             }
         },
+        IcedMessage::ExpandSessionPreview(id) => {
+            if !context.session_preview_expansions.remove(&id) {
+                context.session_preview_expansions.insert(id);
+            }
+        },
         IcedMessage::EditShortText(s) => {
             context.short_text_editor_content = s;
         },
@@ -1488,8 +1508,24 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     }
 
     else if let Some(logs) = &context.loaded_logs {
-        let view = render_logs(logs, context, context.popup_scroll_id.clone(), context.zoom);
-        full_view_stacked = Stack::from_vec(vec![full_view_stacked, view]).into();
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_logs(logs, context, context.popup_scroll_id.clone(), context.zoom),
+        ]).into();
+    }
+
+    else if let Some(sessions) = &context.loaded_sessions {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_sessions(sessions, context),
+        ]).into();
+    }
+
+    else if let Some(session_preview) = &context.loaded_session {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_session_preview(session_preview, context),
+        ]).into();
     }
 
     else if let Some(token_usage) = &context.loaded_token_usage {
@@ -1744,12 +1780,6 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         }
     };
 
-    let turn_result: Element<IcedMessage> = match p.result {
-        TurnResultSummary::ParseError => text!(" (parse-error)").size(context.zoom * 14.0).color(red()),
-        TurnResultSummary::ToolCallError => text!(" (tool-call-error)").size(context.zoom * 14.0).color(yellow()),
-        TurnResultSummary::ToolCallSuccess => text!("").size(context.zoom * 14.0),
-    }.into();
-
     let preview_title: Element<IcedMessage> = if let Some((start, end)) = context.find_result.get(&p.preview_title_truncated) {
         let (pre, m, post) = (
             p.preview_title_truncated.get(0..*start).unwrap(),
@@ -1764,6 +1794,12 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
     } else {
         text!("{}", p.preview_title_truncated).color(white()).size(context.zoom * 14.0).into()
     };
+
+    let turn_result: Element<IcedMessage> = match p.result {
+        TurnResultSummary::ParseError => text!(" (parse-error)").size(context.zoom * 14.0).color(red()),
+        TurnResultSummary::ToolCallError => text!(" (tool-call-error)").size(context.zoom * 14.0).color(yellow()),
+        TurnResultSummary::ToolCallSuccess => text!("").size(context.zoom * 14.0),
+    }.into();
 
     let turn_row = Row::from_vec(vec![
         text!("{index:>3}. ").color(white()).size(context.zoom * 14.0).into(),
@@ -2031,6 +2067,162 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
             Column::from_vec(column)
                 .padding(context.zoom * 20.0)
                 .spacing(context.zoom * 20.0),
+        )
+            .id(context.popup_scroll_id.clone())
+            .into(),
+        context,
+    )
+}
+
+fn render_session<'c>(session: &'c SessionInfo, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let description = match (session.selected, session.finished) {
+        (true, true) => "(selected, finished)",
+        (true, false) => "(selected, unfinished)",
+        (false, true) => "(finished)",
+        (false, false) => "(unfinished)",
+    };
+
+    let mut column = vec![
+        Row::from_vec(vec![
+            text!("{}", session.name.as_ref().unwrap_or(&String::from("untitled-session"))).color(white()).size(context.zoom * 18.0).into(),
+            // TODO: "Rename" button
+            // TODO: "Switch" button
+            button("Turns", IcedMessage::OpenPopup { curr: Popup::Session(session.id), prev: Some(Popup::Sessions) }, yellow(), context.zoom).into(),
+            text!("{description}").color(white()).size(context.zoom * 14.0).into(),
+        ])
+            .align_y(Vertical::Center)
+            .spacing(context.zoom * 8.0)
+            .into(),
+        Container::new(text!("{}", truncate_chars(&session.instruction, 256)).color(white()).size(context.zoom * 14.0))
+            .width(context.window_size.width)
+            .padding(context.zoom * 8.0)
+            .style(|_| set_round_bg(black(), context.zoom))
+            .into(),
+    ];
+
+    if !session.sub_agents.is_empty() {
+        column.push(text!("Sub-Agents").color(white()).size(context.zoom * 14.0).into());
+    }
+
+    for (i, session) in session.sub_agents.iter().enumerate() {
+        if i != 0 {
+            column.push(
+                Container::new(Space::new())
+                    .style(|_| set_bg(white()))
+                    .width(context.window_size.width)
+                    .height(context.zoom * 4.0)
+                    .into(),
+            );
+        }
+
+        column.push(Row::from_vec(vec![
+            Space::new().width(context.zoom * 60.0).into(),
+            render_session(session, context),
+        ]).into());
+    }
+
+    Container::new(
+        Column::from_vec(column)
+            .spacing(context.zoom * 4.0)
+    )
+        .padding(context.zoom * 8.0)
+        .style(|_| set_round_bg(gray(0.2), context.zoom))
+        .into()
+}
+
+fn render_sessions<'c>(sessions: &'c [SessionInfo], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(
+                sessions.iter().map(
+                    |session| render_session(session, context)
+                ).collect()
+            )
+                .spacing(context.zoom * 8.0)
+        )
+            .id(context.popup_scroll_id.clone())
+            .into(),
+        context,
+    )
+}
+
+fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+    let mut column: Vec<Element<IcedMessage>> = Vec::with_capacity(turns.len());
+
+    for (i, (preview, llm, result)) in turns.iter().enumerate() {
+        let title = Row::from_vec(vec![
+            text!("{i:>3}. ").color(white()).size(context.zoom * 14.0).into(),
+            text!("{}", preview.preview_title_truncated).color(white()).size(context.zoom * 14.0).into(),
+            match preview.result {
+                TurnResultSummary::ParseError => text!(" (parse-error)").color(red()).size(context.zoom * 14.0).into(),
+                TurnResultSummary::ToolCallError => text!(" (tool-call-error)").color(yellow()).size(context.zoom * 14.0).into(),
+                TurnResultSummary::ToolCallSuccess => text!("").size(context.zoom * 14.0).into(),
+            },
+        ]);
+
+        if context.session_preview_expansions.contains(&preview.id) {
+            column.push(
+                Column::from_vec(vec![
+                    Row::from_vec(vec![
+                        button("▼", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
+                        title.into(),
+                    ])
+                        .align_y(Vertical::Center)
+                        .padding(context.zoom * 8.0)
+                        .spacing(context.zoom * 8.0)
+                        .into(),
+                    text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
+                    Container::new(
+                        text!("{llm}")
+                            .color(white())
+                            .size(context.zoom * 14.0)
+                    )
+                        .style(|_| set_bg(black()))
+                        .width(context.window_size.width)
+                        .padding(context.zoom * 8.0)
+                        .into(),
+                    text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
+                    Container::new(
+                        render_llm_tokens(result.to_vec(), &context.fe_context.working_dir, context.zoom, context)
+                    )
+                        .style(|_| set_bg(black()))
+                        .width(context.window_size.width)
+                        .padding(context.zoom * 8.0)
+                        .into(),
+                ])
+                    .spacing(context.zoom * 8.0)
+                    .into(),
+            );
+        }
+
+        else {
+            column.push(
+                Row::from_vec(vec![
+                    button("▶", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
+                    title.into(),
+                ])
+                    .align_y(Vertical::Center)
+                    .padding(context.zoom * 8.0)
+                    .spacing(context.zoom * 8.0)
+                    .into(),
+            );
+        }
+    }
+
+    column = column.into_iter().map(
+        |column| {
+            Container::new(column)
+                .width(context.window_size.width)
+                .padding(context.zoom * 8.0)
+                .style(|_| set_round_bg(gray(0.15), context.zoom))
+                .into()
+        }
+    ).collect();
+
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(column)
+                .spacing(context.zoom * 8.0)
         )
             .id(context.popup_scroll_id.clone())
             .into(),

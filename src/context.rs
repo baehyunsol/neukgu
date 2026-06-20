@@ -1,3 +1,4 @@
+use chrono::Local;
 use crate::{
     ApiLog,
     AskTo,
@@ -99,6 +100,8 @@ pub struct Context {
     // Content of `logs/done`.
     pub final_report: Option<String>,
 
+    pub updated_at: i64,
+
     // in-memory data structures
     pub turns: HashMap<TurnId, Turn>,  // it's lazily loaded
     pub available_binaries: Vec<String>,
@@ -125,6 +128,7 @@ pub struct ContextJson {
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
     pub final_report: Option<String>,
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -176,6 +180,7 @@ impl Context {
             global_index_dir,
             has_to_remove_done_mark: false,
             final_report: None,
+            updated_at: Local::now().timestamp_millis(),
             logger,
             new_config: None,
         })
@@ -211,6 +216,7 @@ impl Context {
             is_in_global_index_dir: context_json.is_in_global_index_dir,
             has_to_remove_done_mark: context_json.has_to_remove_done_mark,
             final_report: context_json.final_report.clone(),
+            updated_at: context_json.updated_at,
             ..Context::new(working_dir, None, String::new(), None, None, false, None)?
         })
     }
@@ -250,6 +256,7 @@ impl Context {
             is_in_global_index_dir: self.is_in_global_index_dir,
             has_to_remove_done_mark: self.has_to_remove_done_mark,
             final_report: self.final_report.clone(),
+            updated_at: self.updated_at,
         }
     }
 
@@ -605,4 +612,27 @@ pub struct SessionSummary {
     pub timestamp_millis: i64,
     pub title: String,
     pub summary: String,
+}
+
+// It's used by GUI.
+#[derive(Clone, Debug)]
+pub struct SessionInfo {
+    pub id: SessionId,
+    pub name: Option<String>,
+    pub instruction: String,
+    pub updated_at: i64,
+    pub selected: bool,
+    pub finished: bool,
+    pub parent: Option<SessionId>,
+    pub sub_agents: Vec<SessionInfo>,
+}
+
+impl SessionInfo {
+    pub fn sort_children(&mut self) {
+        self.sub_agents.sort_by_key(|session| -session.updated_at);
+
+        for child in self.sub_agents.iter_mut() {
+            child.sort_children();
+        }
+    }
 }

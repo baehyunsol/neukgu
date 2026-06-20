@@ -1,3 +1,4 @@
+use chrono::Local;
 use ragit_fs::{
     FileError,
     WriteMode as RagitFsWriteMode,
@@ -62,6 +63,7 @@ pub use context::{
     NeukguId,
     RawResponse,
     SessionId,
+    SessionInfo,
     SessionSummary,
 };
 pub use error::{Error, from_browser_error};
@@ -206,6 +208,7 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
     };
 
     if has_new_turn {
+        context.updated_at = Local::now().timestamp_millis();
         update_global_index(&context)?;
     }
 
