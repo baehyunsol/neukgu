@@ -407,31 +407,70 @@
   - ls나 exa를 주려고하다가... 생각해보니까 glob은 shell에서 처리하지 ls/exa가 처리하는게 아니잖아!
   - 걍 glob이라는 tool을 내가 만들어서 넣어버릴까? 이미 GUI에서 glob을 구현해뒀기 때문에 refactoring만 조금 하면 됨
 194. session이라는 용어와 context라는 용어가 혼용되고 있음...
+  - `logs/done`의 이름도 통일하고 싶음. 지금은 done_mark, final_report 등의 용어가 혼용되는 중
 195. sub-agent 남은 issue들
   - sub-agent가 돌고 있는 상태에서 index tab에서 instruction을 누르면 사용자가 준 instruction이 안 보이고 sub-agent의 instruction이 보임 -> 사실 이거는 뭐가 맞는지 모르겠음 ㅠㅠ
   - sub-agent를 볼 GUI를 보강해야함...
   - sub-agent한테는 system prompt를 조금 다르게 줘야하지 않을까...
+  - sub-agent가 `logs/done`을 쓰면 그 다음 turn에 추가로 prompt를 줘서 final-report를 받아내자
+    - instruction이 뭐였는지, 어떻게 했는지, 성공했는지, ...
+    - 이거는 tool과 별개로 주자. 지금도 question을 하면 아예 별개의 context를 만들어서 answer만 뽑아내잖아? 그것처럼 아예 별개의 context를 만들어서 final-report만 뽑아내자
+      - 이 context에는 session 요약도 들어감. tool call 요약, elapsed time, file write 요약...
   - sub-agent가 돌고 있을 때 user가 개입해서 강제로 sub-agent를 끝낼 방법도 필요함
     - 사실 지금도 가능은 함: instruction을 넣어서 나가라고 하면 됨...
     - 조금 더 편한 방법을 쓰자면, instruction에다가 sub-agent를 끝내는 이유를 적고 버튼을 누르면
       - 자동으로 logs/done이 생성
       - logs/done에는 사용자가 적은 이유와 함께 그동안 sub-agent가 했던 일들의 요약 (e.g. 무슨 파일을 썼고...)이 들어감
+196. 늑구를 좀더 agentic하게 쓰는 경우 3개를 생각해보는 중: psd-rs, Sodigy, wedding
+  - 간단한 workflow
+    - psd-rs
+      - 아직 기능적으로 많이 부족하고 test framework도 거의 없음
+      - 새 기능 구현하고 싶을 때마다 "이런이런 기능 구현해줘"라고 요청할 거임
+    - Sodigy
+      - 이미 대부분의 기능이 구현되어 있고, test framework도 있음
+      - 새 기능은 웬만해서는 손으로 구현하고 싶음
+      - commit을 하고 나면, 늑구가 깨서, test를 다 돌리고, 보고서를 작성
+    - wedding
+      - 결혼 일정/계획과 관련된 질문/요청을 하면 늑구가 처리를 해줌
+      - 결혼과 관련된 방대한 자료를 바탕으로 대답을 해줄 수도 있고
+      - 결혼 일정을 챙겨줄 수도 있고
+      - 자체적으로 가계부 구현이 돼 있어서 돈 관리도 해줌
+  - 각자 working dir은 이미 존재하고, 그 안에서 늑구를 init할 거임
+    - init할 때 .gitignore에다가 `.neukgu/`랑 `logs/`랑 `bins/`를 추가해야함
+  - 특정 event가 발생할 때마다, 새로운 session이 생겨남
+    - psd-rs: 이슈 발생
+    - Sodigy: 새로운 commit
+    - wedding: 사용자 질문
+  - event의 input을 instruction으로 바꿔주는 주체가 필요함
+    - 이걸 위한 AI agent를 따로 써도 되고, tera template을 써도 되고, python을 써도 되고...
+  - session을 돌림
+    - 이걸 headless로 돌려 ui를 붙여서 돌려? 둘다 필요할 거 같은데??
+    - headless로 도는 경우: headless에 맞춰서 config를 바꿔야할 수도? (e.g. ask tool 막기)
+    - ui를 붙이려면 현재의 늑구 GUI에 새로운 tab을 만들어야할 듯?
+      - 이러면 ask tool을 연결할 수 있는게 장점임. 특히 wedding agent에 요긴할 듯
+  - 결과물을 처리
+    - psd-rs랑 Sodigy는 수정된 코드와 repository를 직접 확인하면 됨.
+    - wedding의 경우 대답을 받아서 다시 사용자한테 보내야함.
+  - session 끝나면 정리
+    - 지금 reset button이랑 똑같이 구현하면 될 듯?
+    - `logs/`를 초기화하는게 나으려나... 그럼 걍 reset button에다가 "reset logs"라는 옵션을 추가할까??
+197. `logs/`랑 `bins/`라고 하면 다른 프로그램들하고 충돌할 여지가 있으니까 `neukgu-logs/`랑 `neukgu-bins/`라고 하는 거 ㅇㄸ?
 
 ## mock API
 
 ```nu
 cd ~/Documents/Rust/neukgu;
-cargo build --release;
+cargo build;
 cd ~/Documents;
 rm -rf ttt;
 rm -rf tttt;
 echo "initializing ttt...";
-~/Documents/Rust/neukgu/target/release/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
+~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
 echo "initializing tttt...";
-~/Documents/Rust/neukgu/target/release/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
+~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
 cd ~/Documents/Rust/neukgu;
 echo "spawning gui...";
-~/Documents/Rust/neukgu/target/release/neukgu gui ~/Documents/ttt;
+~/Documents/Rust/neukgu/target/debug/neukgu gui ~/Documents/ttt;
 ```
 
 ## Real API

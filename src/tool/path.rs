@@ -48,7 +48,7 @@ impl Path {
     // `logs/summary*.md` or `logs/done`
     pub fn is_summary_file(&self) -> bool {
         self.is_done_file() || match self {
-            Path { relative: Some(r), .. } if r.starts_with("logs/") => match basename(r) {
+            Path { relative: Some(r), .. } if r.starts_with("neukgu-logs/") => match basename(r) {
                 Ok(base) => base.starts_with("summary") && base.ends_with(".md"),
                 _ => false,
             },
@@ -58,7 +58,7 @@ impl Path {
 
     pub fn is_done_file(&self) -> bool {
         match self {
-            Path { relative: Some(r), .. } if r == "logs/done" => true,
+            Path { relative: Some(r), .. } if r == "neukgu-logs/done" => true,
             _ => false,
         }
     }

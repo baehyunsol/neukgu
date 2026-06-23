@@ -17,7 +17,7 @@ use neukgu::{
     validate_project_name,
 };
 use ragit_cli::{ArgCount, ArgParser, ArgType};
-use ragit_fs::{create_dir, create_dir_all, exists, join};
+use ragit_fs::{create_dir, create_dir_all, exists, into_abs_path, join, normalize};
 
 const HELP_MESSAGE: &str = "
 neukgu: an opinionated AI agent
@@ -245,7 +245,10 @@ fn run(args: Vec<String>) -> Result<(), Error> {
                 .args(ArgType::String, ArgCount::Leq(1))
                 .parse(&args, 2)?;
 
-            let cwd = parsed_args.get_args().get(0).cloned();
+            let cwd = match parsed_args.get_args().get(0) {
+                Some(cwd) => Some(normalize(&into_abs_path(cwd)?)?),
+                None => None,
+            };
             gui::run(cwd)
         },
         Some("help") => {

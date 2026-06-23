@@ -169,7 +169,7 @@ impl Context {
 
     pub async fn answer_user_question(&mut self, question: &str, config: &Config) -> Result<String, Error> {
         self.logger.log(LogEntry::QuestionFromUserStart(question.to_string()))?;
-        let (mut history, mut last_turn) = self.fit_history_to_llm_context(config)?;
+        let (mut history, mut last_turn) = self.get_context_llm_tokens(config)?;
         last_turn.push(LLMToken::String(String::from("\n\nThe user has a question.")));
         history.push(request::Turn {
             query: last_turn,

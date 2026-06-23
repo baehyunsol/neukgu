@@ -137,7 +137,7 @@ pub fn read_file(path: &str, context: &Context) -> Result<TypedFile, Error> {
         }
 
         // Let's inform AI that these bins are available!
-        if path == "bins" {
+        if path == "neukgu-bins" {
             for bin in context.available_binaries.iter() {
                 if !basenames.contains(bin) {
                     entries.push(FileEntry::EtcFile { name: bin.to_string(), bytes: 0 });

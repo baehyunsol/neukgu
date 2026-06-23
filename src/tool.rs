@@ -3,6 +3,7 @@ use crate::{
     Config,
     Context,
     Error,
+    FinalReport,
     ImageId,
     InterruptId,
     LLMToken,
@@ -111,7 +112,7 @@ pub use write::{DumpOrRedirect, WriteMode, check_write_path};
 pub enum ToolCall {
     Agent {
         name: String,
-        prompt: String,
+        instruction: String,
     },
     // start and end are both inclusive.
     // They're 1-based index.
@@ -165,17 +166,23 @@ impl ToolCall {
         context.logger.log(LogEntry::ToolCallStart(self.clone()))?;
 
         match self {
-            ToolCall::Agent { name, prompt } => {
-                let session_id = SessionId::from_string_hash(&format!("name: {name}\nprompt: {prompt}"));
+            ToolCall::Agent { name, instruction } => {
+                let session_id = SessionId::from_string_hash(&format!("name: {name}\ninstruction: {instruction}"));
 
-                if let Some(result) = try_get_session_result(session_id, &context.working_dir)? {
-                    Ok(Ok(ToolCallSuccess::Agent { session_id, result }))
+                if let Some(final_report) = try_get_session_result(session_id, &context.working_dir)? {
+                    match final_report {
+                        FinalReport::SessionNotDone => unreachable!(),
+                        FinalReport::Report(r) => Ok(Ok(ToolCallSuccess::Agent { session_id, result: r })),
+
+                        // Do I have to report this to the parent agent? But then, there's nothing the parent agent can do...
+                        FinalReport::Error(_) => todo!(),
+                    }
                 }
 
                 else {
                     let new_context = reset_working_dir(
                         Some(name.to_string()),
-                        prompt.to_string(),
+                        instruction.to_string(),
                         Some(session_id),
                         &context.working_dir,
                         false,
@@ -486,7 +493,7 @@ impl ToolCall {
                 let mut binary = command[0].to_string();
                 let mut available_binaries = vec![];
 
-                for bin in read_dir(&join(&context.working_dir, "bins")?, false)?.iter() {
+                for bin in read_dir(&join(&context.working_dir, "neukgu-bins")?, false)?.iter() {
                     available_binaries.push(basename(bin)?);
                 }
 
@@ -526,7 +533,7 @@ impl ToolCall {
                     env.push((String::from("HOME"), home));
                 }
 
-                env.push((String::from("PATH"), into_abs_path(&join(&context.working_dir, "bins")?)?));
+                env.push((String::from("PATH"), into_abs_path(&join(&context.working_dir, "neukgu-bins")?)?));
 
                 if binary == "python3" || binary == "pip" {
                     if binary == "pip" {
@@ -862,6 +869,20 @@ impl ToolCall {
             ),
         }
     }
+
+    pub fn kind(&self) -> ToolKind {
+        match self {
+            ToolCall::Agent { .. } => ToolKind::Agent,
+            ToolCall::Read { .. } => ToolKind::Read,
+            ToolCall::Write { .. } => ToolKind::Write,
+            ToolCall::Patch { .. } => ToolKind::Patch,
+            ToolCall::Remove { .. } => ToolKind::Remove,
+            ToolCall::Run { .. } => ToolKind::Run,
+            ToolCall::Ask { .. } => ToolKind::Ask,
+            ToolCall::Chrome { .. } => ToolKind::Chrome,
+            ToolCall::ImageEdit { .. } => ToolKind::ImageEdit,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -901,7 +922,7 @@ pub enum ToolCallSuccess {
         path: Path,
         content: String,
 
-        // If the LLM writes file at `logs/summary-XXX.md`, this flag is set.
+        // If the LLM writes file at `neukgu-logs/summary-XXX.md`, this flag is set.
         is_summary: bool,
 
         // If the LLM truncates an existing file, the harness calculates diff.
@@ -1230,7 +1251,6 @@ pub enum ToolCallError {
         length: u64,
         limit: u64,
     },
-    NoSummaryInDoneFile,
 
     // patch errors
     CannotPatchSymlink { path: Path },
@@ -1321,7 +1341,7 @@ impl ToolCallError {
                 "`{path}/` is gigantic, it has {entries} entries. Please specify range with <start> and <end>. For example, you can read the first 100 entries with <end>100</end>.",
             ),
             ToolCallError::TooManyDirEntriesToRead { limit, .. } => format!("You can read at most `{limit}` entries at once. Please give me a smaller range."),
-            ToolCallError::TooManyReadWithoutSummary => String::from("You're keep reading files without writing summaries. Please write a summary of what you're doing and what you've discovered so far at logs/summary-XXX.md."),
+            ToolCallError::TooManyReadWithoutSummary => String::from("You're keep reading files without writing summaries. Please write a summary of what you're doing and what you've discovered so far at neukgu-logs/summary-XXX.md."),
             ToolCallError::ReadingExactSameFile { path } => format!("You already read `{path}` and I just gave you the content of `{path}`. Try do something else."),
             ToolCallError::BrokenFile { path, kind, error } => format!("Tried to read {path}, but failed to parse the {kind} file.\nerror: {error}"),
 
@@ -1362,7 +1382,6 @@ impl ToolCallError {
                 prettify_bytes(*limit),
                 prettify_bytes(*length),
             ),
-            ToolCallError::NoSummaryInDoneFile => String::from("You're supposed to write summary of what you've done at `logs/done` file. Try write the file again with the summary."),
             ToolCallError::CanOnlyPatchText { path, error } => format!("`read_string({path:?})` failed with `{error}`."),
             ToolCallError::CannotApplyPatch(e) => match e {
                 PatchError::NoMatch { missing_context_marker: None } => String::from("I can't apply the patch because no matches are found."),
@@ -1459,8 +1478,8 @@ Command timeout! The process didn't terminate for {timeout} seconds.
             ),
             ToolCallError::ImageEditDisabled => String::from("The image-edit agent is not available now."),
             ToolCallError::SupposedToWriteSummary { write_path } => match write_path {
-                Some(path) => format!("`{path}` is not a correct path for a summary file. You have to write summary at `logs/`. The summary file name must start with \"summary\", and has extension \".md\". For example, `logs/summary-refactor.md` or `logs/summary-test.md`"),
-                None => String::from("You're supposed to summarize what you're doing and what you've discovered so far and write the summary at `logs/summary-XXX.md`."),
+                Some(path) => format!("`{path}` is not a correct path for a summary file. You have to write summary at `neukgu-logs/`. The summary file name must start with \"summary\", and has extension \".md\". For example, `neukgu-logs/summary-refactor.md` or `neukgu-logs/summary-test.md`"),
+                None => String::from("You're supposed to summarize what you're doing and what you've discovered so far and write the summary at `neukgu-logs/summary-XXX.md`."),
             },
             ToolCallError::UserInterrupt => format!(
                 "(This turn is supposed to be removed by `context.discard_previous_turn()`. If you, the human user, see this message in GUI or if you, an AI agent, see this message in the context, there's a bug in the harness.)",
@@ -1548,7 +1567,7 @@ impl ToolKind {
 
     pub fn valid_args(&self) -> Vec<String> {
         match self {
-            ToolKind::Agent => vec!["name", "prompt"],
+            ToolKind::Agent => vec!["name", "instruction"],
             ToolKind::Read => vec!["path", "start", "end"],
             ToolKind::Write => vec!["path", "mode", "content"],
             ToolKind::Patch => vec!["path", "diff"],
@@ -1600,20 +1619,7 @@ impl Context {
                     }
                 }
 
-                // 2. It wrote `logs/done` but there's no summary in the file or it's too short.
-                else if let ToolCall::Write { path, content, .. } = tool {
-                    let path = normalize_path(path, &self.working_dir);
-
-                    if path.as_ref().map(|p| p.is_done_file()).unwrap_or(false) && content.len() < 10 {
-                        Ok(Err(ToolCallError::NoSummaryInDoneFile))
-                    }
-
-                    else {
-                        Ok(Ok(()))
-                    }
-                }
-
-                // 3. It's reading the same file with the same range, over and over.
+                // 2. It's reading the same file with the same range, over and over.
                 //    -> When I ask something to GPT, it just keeps reading `neukgu-instruction.md` over and over, and
                 //       I have no idea why. Maybe something's wrong with the model. I have to manually interrupt and
                 //       say "stop reading the instruction and start working". Instead of manual interruptions, the harness

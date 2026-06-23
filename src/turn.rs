@@ -100,8 +100,8 @@ pub enum TurnKind {
     // The first few turns of a session are fake turns.
     SessionStart,
 
-    // When user interrupts after `logs/done`, the harness inserts a
-    // fake turn: `<remove><path>logs/done</path></remove>`
+    // When user interrupts after `neukgu-logs/done`, the harness inserts a
+    // fake turn: `<remove><path>neukgu-logs/done</path></remove>`
     RemoveDoneMark,
 
     UserQuestion,

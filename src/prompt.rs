@@ -15,15 +15,15 @@ impl ToolKind {
 
 You can launch sub-agents to work on sub-tasks.
 
-The `<agent>` tool takes two arguments: `<name>` and `<prompt>`.
+The `<agent>` tool takes two arguments: `<name>` and `<instruction>`.
 Give each agent a name so that you and the user can manage sub-agents more easily.
 
 The name should be two to three words long, all lowercase, with words joined by hyphens.
-The prompt should explain what the sub-agent needs to do.
+The instruction should explain what the sub-agent needs to do.
 
 <agent>
 <name>test-agent-1</name>
-<prompt>
+<instruction>
 You are a neukgu sub-agent responsible for testing a PSD library written in Rust.
 
 The user asked me to write a Rust library for the PSD file format, which is used by Photoshop, and I have implemented it.
@@ -35,12 +35,12 @@ Run the following command to test the program:
 
 This command reads sample files from the `samples/` directory, exports each sample PSD file to a PNG file using the library, and saves the results in `exported-samples/`.
 
-The `samples/` directory also contains the expected outputs as pre-rendered PNG files. Compare the exported PNG files with the expected PNG files, then write a report to `logs/done`.
+The `samples/` directory also contains the expected outputs as pre-rendered PNG files. Compare the exported PNG files with the expected PNG files.
 
 You must compare the results visually. You can use the `<read>` tool to view PNG files directly.
 Compare all samples and report whether each exported result matches the expected output.
 If they differ, explain which part, layer, or visual element appears to be incorrect.
-</prompt>
+</instruction>
 </agent>
 
 Launch a sub-agent in the following cases:
@@ -73,7 +73,7 @@ Do not launch a sub-agent in the following cases:
 
 2. When the task is simple, such as reading a single file, do it yourself.
 
-3. When the task requires your current context or reasoning history and cannot be explained clearly in a self-contained prompt.
+3. When the task requires your current context or reasoning history and cannot be explained clearly in a self-contained instruction.
 
 4. When the sub-task is very small and launching a sub-agent would add unnecessary overhead.
 
@@ -81,8 +81,8 @@ A sub-agent does not share context with you.
 It cannot see your tool-call history.
 It does share the file system with you, so you can read files written by the sub-agent, and the sub-agent can read files you have written.
 
-Therefore, you must write a detailed, self-contained prompt for each sub-agent.
-Your prompt should include:
+Therefore, you must write a detailed, self-contained instruction for each sub-agent.
+Your instruction should include:
 
 1. A brief summary of the instruction that you're given. You must have asked the user what they want, right?
   - You must explain the ultimate goal to the sub-agent.
@@ -93,7 +93,7 @@ Your prompt should include:
 
 4. Any relevant file paths, commands, constraints, expected outputs, and reporting requirements.
 
-Once the sub-agent finishes its job, you will receive a report from it.
+Once the sub-agent finishes its job, you will receive a report from it. The environment will instruct the sub-agent to write a report, so you don't have to instruct it again.
 You can also inspect any files the sub-agent has edited.
 "#),
             ToolKind::Read => format!(r#"
@@ -203,7 +203,7 @@ The below tool-call removes `src/util.rs`.
             ToolKind::Run => format!(r#"
 {index}. Run
 
-You can run binaries inside the `bins/` directory. It'll run the command and show you 1) elapsed time 2) exit status code 3) stdout and 4) stderr.
+You can run binaries inside the `neukgu-bins/` directory. It'll run the command and show you 1) elapsed time 2) exit status code 3) stdout and 4) stderr.
 If the stdout/stderr is longer than {stdout_max_len} characters, it'll be truncated.
 It's not bash. You can only provide CLI arguments, not bash directives like pipes or redirections.
 
@@ -352,15 +352,15 @@ The user will give you an instruction. Follow the instruction and do what they w
 
 Your working directory looks like this:
 
-1. `logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
-2. `bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
+1. `neukgu-logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
+2. `neukgu-bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
 
 The user might provide more files/directories. You can freely create files/directories to achieve the goal.
 
 You can use {tool_count} tools to accomplish your task: {tool_concat}. You use XML syntax to call each tool. I'll explain each tool with examples.
 
-You have to regularly write summaries of your work at `logs/summary-XXX.md`. The file must be in `logs/` directory, the file name must start with "summary", and the file extension must be "md".
-When you're done, create a file `logs/done`, and write your final summary there. Then I'll give you feedback.
+You have to regularly write summaries of your work at `neukgu-logs/summary-XXX.md`. The file must be in `neukgu-logs/` directory, the file name must start with "summary", and the file extension must be "md".
+When you're done, create a file `neukgu-logs/done`, and write your final summary there. Then I'll give you feedback.
 When you write a summary, it must include 1) what you've done so far 2) what you've done since the last time you wrote a summary 3) what you've learnt so far 4) what you've learnt since the last time you wrote a summary and 5) what are the remaining things to do.
 
 Today's date is {date}. Use this information only when necessary.
@@ -459,12 +459,36 @@ You are encouraged to **think through your answer before responding**, as reason
 Your final answer **must** be wrapped in `<answer>` and `</answer>` tags like this:
 
 ```
+Your thoughts here.
 <answer>
 Your answer here.
 </answer>
 ```
 
 **This format is strictly required.** There must always be an `<answer>` tag and a closing `</answer>` tag in your response, no exceptions. Failure to include them will cause a parsing error with no graceful fallback.
+"#)
+}
+
+pub fn final_report_system_prompt() -> String {
+    String::from(r#"
+You are a helper assistant for **neukgu (늑구)**, a general-purpose AI agent specialized in coding and computer-based tasks.
+
+## Your Role
+
+Neukgu has finished its job. You have to write a final report that summarizes the neukgu's work. The report will be read by the user or the parent-agent (the one who gave you the instructions).
+
+## Output Format
+
+1. Just output the final report. Don't say anything else.
+2. The final report has to include
+  - Brief summary of the instruction: list the tasks that you're instructed to do.
+  - Whether or not you successfully accomplished each task.
+  - How you tried each task.
+  - Brief summary of tool-calls, especially what files you've written/edited.
+
+## Persona
+
+**Answer as if you are neukgu.** Speak in the first person, as though you are neukgu yourself. For example, say *"I edited foo.py and bar.py"* — not *"neukgu edited foo.py and bar.py"*.
 "#)
 }
 

@@ -60,6 +60,7 @@ pub use context::{
     ChosenTurn,
     Context,
     ContextJson,
+    FinalReport,
     NeukguId,
     RawResponse,
     SessionId,
@@ -226,15 +227,16 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     if let Some((id, interrupt_kind, interrupt)) = context.check_interrupt_from_user()? {
         context.process_interrupt_from_user(id, interrupt_kind, interrupt, config).await?;
 
-        if interrupt_kind == InterruptKind::Instruction && context.check_done_mark()?.is_some() {
+        if interrupt_kind == InterruptKind::Instruction && context.has_done_mark() {
+            context.final_report = FinalReport::SessionNotDone;
             context.has_to_remove_done_mark = true;
         }
 
         context.store()?;
     }
 
-    if let Some(mark) = context.check_done_mark()? {
-        context.final_report = Some(mark);
+    if context.has_done_mark() {
+        context.try_write_final_report(config).await?;
         context.store()?;
 
         if let Some(parent) = context.parent {
@@ -412,7 +414,7 @@ pub fn init_working_dir(
         return Err(Error::IndexDirAlreadyExists);
     }
 
-    for d in ["logs", "bins"] {
+    for d in ["neukgu-logs", "neukgu-bins"] {
         let dd = join(working_dir, d)?;
 
         if !exists(&dd) {
@@ -558,8 +560,8 @@ pub fn reset_working_dir(
 
     new_context.store()?;
 
-    if exists(&join3(working_dir, "logs", "done")?) {
-        remove_file(&join3(working_dir, "logs", "done")?)?;
+    if exists(&join3(working_dir, "neukgu-logs", "done")?) {
+        remove_file(&join3(working_dir, "neukgu-logs", "done")?)?;
     }
 
     if config.agents.big == Model::Mock && reset_mock_state_ {
@@ -580,7 +582,7 @@ pub fn reset_working_dir(
     Ok(new_context)
 }
 
-pub fn try_get_session_result(session_id: SessionId, working_dir: &str) -> Result<Option<String>, Error> {
+pub fn try_get_session_result(session_id: SessionId, working_dir: &str) -> Result<Option<FinalReport>, Error> {
     let session_at = join4(working_dir, ".neukgu", "sessions", &format!("{:016x}.json", session_id.0))?;
 
     if !exists(&session_at) {
@@ -588,7 +590,7 @@ pub fn try_get_session_result(session_id: SessionId, working_dir: &str) -> Resul
     }
 
     let session: ContextJson = load_json(&session_at)?;
-    Ok(session.final_report.clone())
+    Ok(Some(session.final_report.clone()))
 }
 
 pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error> {

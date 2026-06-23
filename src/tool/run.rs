@@ -179,8 +179,8 @@ fn try_init_python_venv(working_dir: &str) -> Result<(), Error> {
         }
     }
 
-    let python3_link = join3(working_dir, "bins", "python3")?;
-    let pip_link = join3(working_dir, "bins", "pip")?;
+    let python3_link = join3(working_dir, "neukgu-bins", "python3")?;
+    let pip_link = join3(working_dir, "neukgu-bins", "pip")?;
 
     if !is_symlink(&python3_link) && !exists(&python3_link) {
         symlink(&python3_in_venv, &python3_link).map_err(|e| FileError::from_std(e, &python3_link))?;
@@ -192,7 +192,7 @@ fn try_init_python_venv(working_dir: &str) -> Result<(), Error> {
 
 fn try_create_bin_link(bin: &str, working_dir: &str) -> Result<(), Error> {
     let bin_real = which::which(bin)?;
-    let bin_link = join3(working_dir, "bins", bin)?;
+    let bin_link = join3(working_dir, "neukgu-bins", bin)?;
 
     if !exists(&bin_link) {
         symlink(&bin_real, &bin_link).map_err(|e| FileError::from_std(e, &bin_link))?;

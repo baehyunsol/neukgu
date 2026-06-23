@@ -168,7 +168,7 @@ fn mock_requests() -> Vec<MockRequest> {
             None,
         ),
         MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-files.md</path>\n<content>\nI'm not sure what the user wants me to do. Let me test the tools and see if they're working.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>neukgu-logs/summary-files.md</path>\n<content>\nI'm not sure what the user wants me to do. Let me test the tools and see if they're working.\n</content>\n</write>",
             None,
         ),
 
@@ -182,16 +182,16 @@ fn mock_requests() -> Vec<MockRequest> {
             Some("`<path>` in tool `<read>` is missing"),
         ),
         MockRequest::new(
-            "<read><start>abc</start><path>logs/</path></read>",
+            "<read><start>abc</start><path>neukgu-logs/</path></read>",
             Some("expected to have type `Integer`"),
         ),
         MockRequest::new(
-            "<read><start>-1</start><path>logs/</path></read>",
+            "<read><start>-1</start><path>neukgu-logs/</path></read>",
             Some("is supposed to be in range"),
         ),
         // If there are multiple tool-calls, the parser only takes the first one.
         MockRequest::new(
-            "I'll call multiple tools hahaha<read><path>logs/summary-files.md</path></read>I'll read it again haha<read><path>logs/summary-files.md</path></read>",
+            "I'll call multiple tools hahaha<read><path>neukgu-logs/summary-files.md</path></read>I'll read it again haha<read><path>neukgu-logs/summary-files.md</path></read>",
             Some("test the tools and"),
         ),
         MockRequest::new(
@@ -256,19 +256,29 @@ fn mock_requests() -> Vec<MockRequest> {
 
         // agent test
         MockRequest::new(
-            "<agent><name>test-agent</name><prompt>Your name is sub-agent-62373095048</prompt></agent>",
+            "<agent><name>test-agent</name><instruction>Your name is sub-agent-62373095048</instruction></agent>",
             None,
         ),
+
         // enter sub-agent
+
         MockRequest::new(
             "<write><path>agent-test.txt</path><mode>create</mode><content>Hello from sub-agent-62373095048</content></write>",
             None,
         ),
         MockRequest::new(
-            "<write><path>logs/done</path><mode>create</mode><content>I'll hand-over to the parent agent.</content></write>",
+            "<write><path>neukgu-logs/done</path><mode>create</mode><content>I'll hand-over to the parent agent.</content></write>",
             None,
         ),
+
+        // write final report
+        MockRequest::new(
+            "This is the final report from sub-agent-62373095048...",
+            None,
+        ),
+
         // exit sub-agent
+
         MockRequest::new(
             "<read><path>agent-test.txt</path></read>",
             Some("62373095048"),
@@ -415,7 +425,7 @@ edition = "2024"
             Some("<exit_code>101</exit_code>"),
         ),
         MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-cargo.md</path>\n<content>\nI have tested cargo and it's working.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>neukgu-logs/summary-cargo.md</path>\n<content>\nI have tested cargo and it's working.\n</content>\n</write>",
             None,
         ),
         // cargo test end
@@ -458,7 +468,7 @@ edition = "2024"
             Some("branch"),
         ),
         MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-git.md</path>\n<content>\nI have tested git and it's working.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>neukgu-logs/summary-git.md</path>\n<content>\nI have tested git and it's working.\n</content>\n</write>",
             None,
         ),
         // git test end
@@ -516,7 +526,7 @@ os.symlink(\"new_crate/Cargo.toml\", \"symlink-correct\")
             None,
         ),
         MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-browser.md</path>\n<content>\nI have tested the <chrome> tool and it's working.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>neukgu-logs/summary-browser.md</path>\n<content>\nI have tested the <chrome> tool and it's working.\n</content>\n</write>",
             None,
         ),
         // browser test end
@@ -574,7 +584,7 @@ os.symlink(\"new_crate/Cargo.toml\", \"symlink-correct\")
             Some("<exit_code>0</exit_code>"),
         ),
         MockRequest::new(
-            "<write>\n<mode>create</mode>\n<path>logs/summary-python.md</path>\n<content>\nI have tested python and it's working.\n</content>\n</write>",
+            "<write>\n<mode>create</mode>\n<path>neukgu-logs/summary-python.md</path>\n<content>\nI have tested python and it's working.\n</content>\n</write>",
             None,
         ),
         // pip/venv test end
@@ -607,13 +617,14 @@ subprocess.run([\"cargo\", \"--help\"])
         ),
         // PATH test end
 
-        // This is suppoed to be an error because there's no summary in `logs/done`
         MockRequest::new(
-            "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content></content>\n</write>",
+            "Give me a feedback\n<write>\n<mode>create</mode>\n<path>neukgu-logs/done</path>\n<content></content>\n</write>",
             None,
         ),
+
+        // write final report
         MockRequest::new(
-            "Give me a feedback\n<write>\n<mode>create</mode>\n<path>logs/done</path>\n<content>I called tools in the harness, and it's all working!\n\n1. cargo: working\n2. git: working\n3. browser: working\n4. python: working</content>\n</write>",
+            "This is the final report from the main agent",
             None,
         ),
     ]

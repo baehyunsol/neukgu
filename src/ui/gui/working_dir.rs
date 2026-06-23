@@ -148,14 +148,15 @@ You can also use Ctrl+V key to toggle a turn's visibility.
 
 ## Done
 
-When neukgu finishes his job, he'll create `logs/done` file and go to sleep. If you're
+When neukgu finishes his job, he'll create `neukgu-logs/done` file and go to sleep. If you're
 not satisfied with his work, you can interrupt him to do more work.
-He'll remove `logs/done` file and do more work.
+He'll remove `neukgu-logs/done` file and do more work.
 
 ## Reset
 
 You can reset the instruction and restart the session. It resets the session (turns are gone),
-but all the files, except `logs/done` are kept.
+but all the files, except `neukgu-logs/done` are kept.
+You can choose to remove all the files in `neukgu-logs/`, so that the new session's AI doesn't get confused.
 
 ## Rollback
 
@@ -1133,7 +1134,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::ExpandAllFileChanges { log, expand } => {
             if let Some(Popup::FileChanges(changes)) = &mut context.curr_popup {
                 for change in changes.iter_mut() {
-                    if change.path.starts_with("logs/") == log {
+                    if change.path.starts_with("neukgu-logs/") == log {
                         change.expanded = expand;
                     }
                 }
@@ -2385,9 +2386,9 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
     }
 
     let mut all_files_expanded = true;
-    let file_changes: Vec<&FileChange> = changes.iter().filter(|change| !change.path.starts_with("logs/")).collect();
+    let file_changes: Vec<&FileChange> = changes.iter().filter(|change| !change.path.starts_with("neukgu-logs/")).collect();
     let mut all_logs_expanded = true;
-    let log_changes: Vec<&FileChange> = changes.iter().filter(|change| change.path.starts_with("logs/")).collect();
+    let log_changes: Vec<&FileChange> = changes.iter().filter(|change| change.path.starts_with("neukgu-logs/")).collect();
     let mut changes = vec![];
     changes.extend(file_changes.iter().map(|change| render_file_change(change, context, &mut all_files_expanded)));
     let insert_log_title_at = changes.len();

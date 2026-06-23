@@ -384,16 +384,16 @@ impl ToolCall {
                         });
                     },
                 };
-                let prompt = match parse_string_arg(args, "prompt") {
-                    Some(prompt) => prompt,
+                let instruction = match parse_string_arg(args, "instruction") {
+                    Some(instruction) => instruction,
                     None => {
                         return Err(ParseError::MissingArg {
                             tool: String::from("agent"),
-                            arg: String::from("prompt"),
+                            arg: String::from("instruction"),
                         });
                     },
                 };
-                Ok(ToolCall::Agent { name, prompt })
+                Ok(ToolCall::Agent { name, instruction })
             },
             ToolKind::Read => {
                 let path = match parse_string_arg(args, "path") {

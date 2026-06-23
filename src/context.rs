@@ -12,6 +12,7 @@ use crate::{
     Request,
     Thinking,
     ToolCallSuccess,
+    ToolKind,
     Turn,
     TurnId,
     TurnKind,
@@ -22,6 +23,8 @@ use crate::{
     get_global_index_dir,
     hash_bytes,
     init_and_load_available_binaries,
+    prettify_time,
+    prompt,
     request,
     revert_mock_state,
     system_prompt,
@@ -97,8 +100,9 @@ pub struct Context {
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
 
-    // Content of `logs/done`.
-    pub final_report: Option<String>,
+    // After the agent marks `neukgu-logs/done`, a small agent will write a final report
+    // that summaries the session.
+    pub final_report: FinalReport,
 
     pub updated_at: i64,
 
@@ -127,7 +131,7 @@ pub struct ContextJson {
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
     pub has_to_remove_done_mark: bool,
-    pub final_report: Option<String>,
+    pub final_report: FinalReport,
     pub updated_at: i64,
 }
 
@@ -179,7 +183,7 @@ impl Context {
             available_binaries,
             global_index_dir,
             has_to_remove_done_mark: false,
-            final_report: None,
+            final_report: FinalReport::SessionNotDone,
             updated_at: Local::now().timestamp_millis(),
             logger,
             new_config: None,
@@ -261,7 +265,41 @@ impl Context {
     }
 
     pub fn remove_done_mark(&self) -> Result<(), Error> {
-        remove_file(&join3(&self.working_dir, "logs", "done")?)?;
+        remove_file(&join3(&self.working_dir, "neukgu-logs", "done")?)?;
+        Ok(())
+    }
+
+    pub async fn try_write_final_report(&mut self, config: &Config) -> Result<(), Error> {
+        if self.final_report != FinalReport::SessionNotDone {
+            return Ok(());
+        }
+
+        self.logger.log(LogEntry::WriteFinalReportStart)?;
+        let (mut history, mut last_turn) = self.get_context_llm_tokens(config)?;
+        last_turn.push(LLMToken::String(String::from("\n\nNow I want you to write the final report. Before writing the report, I'll give you a brief summary of the current session. Use this informatio if necessary.")));
+        history.push(request::Turn {
+            query: last_turn,
+            response: String::from("Okay, give me the summary, then I'll write the final report"),
+        });
+        let request = Request {
+            model: config.agents.small,
+            system_prompt: prompt::final_report_system_prompt(),
+            history,
+            query: vec![LLMToken::String(self.summary_for_final_report(config)?)],
+            enable_web_search: false,
+            thinking: Thinking::Disabled,
+        };
+
+        match request.request(&config.request_config(), &self.working_dir, true, &self.logger).await {
+            Ok(response) => {
+                self.final_report = FinalReport::Report(response.response);
+            },
+            Err(e) => {
+                self.final_report = FinalReport::Error(format!("{e:?}"));
+            },
+        }
+
+        self.logger.log(LogEntry::WriteFinalReportEnd)?;
         Ok(())
     }
 
@@ -326,7 +364,7 @@ impl Context {
 
     pub fn to_request(&mut self, config: &Config) -> Result<Request, Error> {
         assert!(self.curr_raw_response.is_none());
-        let (history, query) = self.fit_history_to_llm_context(config)?;
+        let (history, query) = self.get_context_llm_tokens(config)?;
 
         Ok(Request {
             model: config.agents.big,
@@ -409,9 +447,9 @@ impl Context {
             self.has_to_remove_done_mark = false;
             Some((
                 String::from("
-Let me remove `logs/done` and continue working.
+Let me remove `neukgu-logs/done` and continue working.
 <remove>
-<path>logs/done</path>
+<path>neukgu-logs/done</path>
 </remove>
                 "),
                 TurnKind::RemoveDoneMark,
@@ -440,118 +478,118 @@ Let me remove `logs/done` and continue working.
     // 4. If there are too many turns, we have to omit less important turns. But how do we know which turn is important?
     //    - Recent turns are likely to be more relevant than old turns.
     //    - The second turn contains the instruction, which is very important.
-    pub(crate) fn fit_history_to_llm_context(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
+    fn fit_history_to_context(&mut self, config: &Config) -> Vec<(TurnSummary, bool)> {
         // NOTE: User questions never go into the context.
 
-        let chosen_turns = 'b: {
-            // Candidate 1: Full-render every turn.
-            let candidate: Vec<(TurnSummary, bool)> = self.history.iter()
-                .filter(|s| !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion)
-                .map(|s| (s.clone(), true))
-                .collect();
+        // Candidate 1: Full-render every turn.
+        let candidate: Vec<(TurnSummary, bool)> = self.history.iter()
+            .filter(|s| !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion)
+            .map(|s| (s.clone(), true))
+            .collect();
 
-            // 1. If there are less than or equal to 5 turns, it full-renders everything.
-            //    - In this case, it doesn't check max_len.
-            // 2. If full-rendering every turns fits in max_len, it full-renders everything.
-            if self.history.len() <= 5 || count_llm_context_len(&candidate) < config.llm_context_max_len {
-                break 'b candidate;
+        // 1. If there are less than or equal to 5 turns, it full-renders everything.
+        //    - In this case, it doesn't check max_len.
+        // 2. If full-rendering every turns fits in max_len, it full-renders everything.
+        if self.history.len() <= 5 || count_llm_context_len(&candidate) < config.llm_context_max_len {
+            return candidate;
+        }
+
+        // Candidate 2: Full-render the last 2 turns and short-render the other turns.
+        let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)]
+            .iter()
+            .filter(|s| !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion)
+            .map(|s| (s.clone(), false))
+            .collect();
+
+        candidate.push((self.history[self.history.len() - 2].clone(), true));
+        candidate.push((self.history[self.history.len() - 1].clone(), true));
+
+        if count_llm_context_len(&candidate) < config.llm_context_max_len {
+            return candidate;
+        }
+
+        // Candidate 3: Full-render the last 2 turns. Filter out pasre-error turns in the other turns and short-render them.
+        let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)].iter().filter(
+            |s| s.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion
+        ).map(
+            |s| (s.clone(), false)
+        ).collect();
+
+        candidate.push((self.history[self.history.len() - 2].clone(), true));
+        candidate.push((self.history[self.history.len() - 1].clone(), true));
+
+        if count_llm_context_len(&candidate) < config.llm_context_max_len {
+            return candidate;
+        }
+
+        // We have to omit some turns...
+        // My guess here is that
+        //    1. Recent turns are more important than old turns.
+        //    2. Very early turns are important, because it has the user instruction!
+        // So I fill the first quarter with the very first turns and the remaining 3 quarters with the recent turns.
+        //
+        // It doesn't include parse-error turns.
+        let mut pre_len = config.llm_context_max_len / 4;
+        let mut pre_turns = vec![];
+        let mut post_len = config.llm_context_max_len * 3 / 4;
+        let mut post_turns = vec![];
+
+        // TODO: What if short-rendered first turn is longer than pre_len?
+        for turn in self.history.iter() {
+            if turn.llm_len_short > pre_len {
+                break;
             }
 
-            // Candidate 2: Full-render the last 2 turns and short-render the other turns.
-            let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)]
-                .iter()
-                .filter(|s| !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion)
-                .map(|s| (s.clone(), false))
-                .collect();
+            if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) && turn.kind != TurnKind::UserQuestion {
+                pre_turns.push((turn.clone(), false));
+                pre_len -= turn.llm_len_short;
+            }
+        }
 
-            candidate.push((self.history[self.history.len() - 2].clone(), true));
-            candidate.push((self.history[self.history.len() - 1].clone(), true));
+        post_len += pre_len;
+        let mut most_recent_2_turns = 2;
 
-            if count_llm_context_len(&candidate) < config.llm_context_max_len {
-                break 'b candidate;
+        for turn in self.history.iter().rev() {
+            // The most recent 2 turns are always full-rendered.
+            if most_recent_2_turns > 0 {
+                if turn.kind != TurnKind::UserQuestion {
+                    post_turns.push((turn.clone(), true));
+                    post_len = post_len.max(turn.llm_len_full) - turn.llm_len_full;
+                    most_recent_2_turns -= 1;
+                }
+
+                continue;
             }
 
-            // Candidate 3: Full-render the last 2 turns. Filter out pasre-error turns in the other turns and short-render them.
-            let mut candidate: Vec<(TurnSummary, bool)> = self.history[..(self.history.len() - 2)].iter().filter(
-                |s| s.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&s.id) && s.kind != TurnKind::UserQuestion
-            ).map(
-                |s| (s.clone(), false)
-            ).collect();
-
-            candidate.push((self.history[self.history.len() - 2].clone(), true));
-            candidate.push((self.history[self.history.len() - 1].clone(), true));
-
-            if count_llm_context_len(&candidate) < config.llm_context_max_len {
-                break 'b candidate;
+            if turn.llm_len_short > post_len {
+                break;
             }
 
-            // We have to omit some turns...
-            // My guess here is that
-            //    1. Recent turns are more important than old turns.
-            //    2. Very early turns are important, because it has the user instruction!
-            // So I fill the first quarter with the very first turns and the remaining 3 quarters with the recent turns.
-            //
-            // It doesn't include parse-error turns.
-            let mut pre_len = config.llm_context_max_len / 4;
-            let mut pre_turns = vec![];
-            let mut post_len = config.llm_context_max_len * 3 / 4;
-            let mut post_turns = vec![];
-
-            // TODO: What if short-rendered first turn is longer than pre_len?
-            for turn in self.history.iter() {
-                if turn.llm_len_short > pre_len {
-                    break;
-                }
-
-                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) && turn.kind != TurnKind::UserQuestion {
-                    pre_turns.push((turn.clone(), false));
-                    pre_len -= turn.llm_len_short;
-                }
+            if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) && turn.kind != TurnKind::UserQuestion {
+                post_turns.push((turn.clone(), false));
+                post_len -= turn.llm_len_short;
             }
+        }
 
-            post_len += pre_len;
-            let mut most_recent_2_turns = 2;
+        let pre_turns_set: HashSet<TurnId> = pre_turns.iter().map(|turn| turn.0.id.clone()).collect();
+        let post_turns_set: HashSet<TurnId> = post_turns.iter().map(|turn| turn.0.id.clone()).collect();
 
-            for turn in self.history.iter().rev() {
-                // The most recent 2 turns are always full-rendered.
-                if most_recent_2_turns > 0 {
-                    if turn.kind != TurnKind::UserQuestion {
-                        post_turns.push((turn.clone(), true));
-                        post_len = post_len.max(turn.llm_len_full) - turn.llm_len_full;
-                        most_recent_2_turns -= 1;
-                    }
+        // pinned turns are short-rendered
+        let pinned_turns: Vec<(TurnSummary, bool)> = self.history.iter().filter(
+            |turn| self.pinned_turns.contains(&turn.id) && !pre_turns_set.contains(&turn.id) && !post_turns_set.contains(&turn.id)
+        ).map(
+            |turn| (turn.clone(), false)
+        ).collect();
 
-                    continue;
-                }
+        vec![
+            pre_turns,
+            pinned_turns,
+            post_turns.into_iter().rev().collect(),
+        ].concat()
+    }
 
-                if turn.llm_len_short > post_len {
-                    break;
-                }
-
-                if turn.result != TurnResultSummary::ParseError && !self.hidden_turns.contains(&turn.id) && turn.kind != TurnKind::UserQuestion {
-                    post_turns.push((turn.clone(), false));
-                    post_len -= turn.llm_len_short;
-                }
-            }
-
-            let pre_turns_set: HashSet<TurnId> = pre_turns.iter().map(|turn| turn.0.id.clone()).collect();
-            let post_turns_set: HashSet<TurnId> = post_turns.iter().map(|turn| turn.0.id.clone()).collect();
-
-            // pinned turns are short-rendered
-            let pinned_turns: Vec<(TurnSummary, bool)> = self.history.iter().filter(
-                |turn| self.pinned_turns.contains(&turn.id) && !pre_turns_set.contains(&turn.id) && !post_turns_set.contains(&turn.id)
-            ).map(
-                |turn| (turn.clone(), false)
-            ).collect();
-
-            let chosen_turns = vec![
-                pre_turns,
-                pinned_turns,
-                post_turns.into_iter().rev().collect(),
-            ].concat();
-            break 'b chosen_turns;
-        };
-
+    pub(crate) fn get_context_llm_tokens(&mut self, config: &Config) -> Result<(Vec<request::Turn>, Vec<LLMToken>), Error> {
+        let chosen_turns = self.fit_history_to_context(config);
         self.logger.log(LogEntry::TruncatedContext(chosen_turns.iter().map(
             |(turn, full_render)| ChosenTurn { turn: turn.id.clone(), full_render: *full_render }
         ).collect()))?;
@@ -574,16 +612,73 @@ Let me remove `logs/done` and continue working.
         Ok((llm_turns, query))
     }
 
-    pub fn check_done_mark(&self) -> Result<Option<String>, Error> {
-        let done_mark_at = &join3(&self.working_dir, "logs", "done")?;
+    pub fn has_done_mark(&self) -> bool {
+        let done_mark_at = &join3(&self.working_dir, "neukgu-logs", "done").unwrap();
+        !self.has_to_remove_done_mark && exists(&done_mark_at)
+    }
 
-        if !self.has_to_remove_done_mark && exists(&done_mark_at) {
-            Ok(Some(read_string(&done_mark_at)?))
-        }
+    // 1. The number of tool-calls: visible in context vs all
+    // 2. write/edited files: logs / others
+    pub(crate) fn summary_for_final_report(&mut self, config: &Config) -> Result<String, Error> {
+        let all_turns = self.history.to_vec();
+        let tool_calls = all_turns.iter().filter(|t| t.result == TurnResultSummary::ToolCallSuccess).count();
+        let failed_tool_calls = all_turns.len() - tool_calls;
+        let visible_turns: Vec<TurnSummary> = self.fit_history_to_context(config).into_iter().map(|(t, _)| t).collect();
+        let visible_tool_calls = visible_turns.iter().filter(|t| t.result == TurnResultSummary::ToolCallSuccess).count();
 
-        else {
-            Ok(None)
-        }
+        let tool_call_summary = {
+            struct ToolCallSummary {
+                elapsed_ms: u64,
+                succ: usize,
+                fail: usize,
+            }
+
+            let mut result: HashMap<ToolKind, ToolCallSummary> = ToolKind::all().iter().map(
+                |tool| (*tool, ToolCallSummary { elapsed_ms: 0, succ: 0, fail: 0 })
+            ).collect();
+
+            for turn in all_turns.iter() {
+                let turn = self.load_turn(&turn.id)?;
+
+                if let Some(ParsedSegment { tool: Some(tool), .. }) = &turn.parse_result {
+                    let succ = matches!(turn.turn_result, TurnResult::ToolCallSuccess(_));
+                    let kind = tool.kind();
+                    let summary = result.get_mut(&kind).unwrap();
+                    summary.elapsed_ms += turn.tool_elapsed_ms;
+
+                    if succ {
+                        summary.succ += 1;
+                    } else {
+                        summary.fail += 1;
+                    }
+                }
+            }
+
+            let result: Vec<(ToolKind, ToolCallSummary)> = ToolKind::all().iter().map(
+                |k| (*k, result.remove(k).unwrap())
+            ).collect();
+            format!(
+                "Tool call summary (some tools may not be activated in this session. Do not mention the unused tools in the final report)\n{}",
+                result.iter().map(
+                    |(kind, summary)| format!(
+                        "- {}\n  - called {} time{} (success: {}, fail: {})\n  - total elapsed time: {}",
+                        kind.tag_name(),
+                        summary.succ + summary.fail,
+                        if summary.succ + summary.fail == 1 { "" } else { "s" },
+                        summary.succ,
+                        summary.fail,
+                        prettify_time(summary.elapsed_ms),
+                    )
+                ).collect::<Vec<_>>().join("\n"),
+            )
+        };
+
+        Ok(format!("
+Total tool calls: {tool_calls} ({visible_tool_calls} tool calls visible in context, {failed_tool_calls} failed tool call{})
+{tool_call_summary}
+",
+            if failed_tool_calls == 1 { "" } else { "s" },
+        ))
     }
 }
 
@@ -604,7 +699,7 @@ pub struct ChosenTurn {
     pub full_render: bool,
 }
 
-// When the agent writes `logs/summary-XXX.md`, the context will remember the turn id.
+// When the agent writes `neukgu-logs/summary-XXX.md`, the context will remember the turn id.
 // We can get `SessionSummary` from the turn.
 #[derive(Clone, Debug)]
 pub struct SessionSummary {
@@ -634,5 +729,18 @@ impl SessionInfo {
         for child in self.sub_agents.iter_mut() {
             child.sort_children();
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum FinalReport {
+    SessionNotDone,
+    Report(String),
+    Error(String),
+}
+
+impl FinalReport {
+    pub fn is_finished(&self) -> bool {
+        self != &FinalReport::SessionNotDone
     }
 }
