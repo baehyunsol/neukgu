@@ -17,12 +17,21 @@ use super::worker::{
     JobResultKind,
 };
 use chrono::DateTime;
-use crate::{Error, Hunk, prettify_timestamp, subprocess, truncate_chars};
+use crate::{
+    DiffKind,
+    Error,
+    Hunk,
+    LineDiff,
+    prettify_timestamp,
+    subprocess,
+    truncate_chars,
+};
 use iced::{Background, Element, Length, Size, Task};
 use iced::alignment::Vertical;
 use iced::border::{Border, Radius};
 use iced::widget::{Column, Id, MouseArea, Row, Scrollable, Space, text};
 use iced::widget::container::{Container, Style};
+use ragit_fs::read_string;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -630,7 +639,24 @@ pub fn get_git_info(path: &str) -> Result<GitInfo, Error> {
             "",
             false,
         )?;
-        parse_git_diff(&String::from_utf8_lossy(&unstaged_changes.stdout))
+        let unstaged_changes = parse_git_diff(&String::from_utf8_lossy(&unstaged_changes.stdout));
+
+        let untracked_changes = subprocess::run(
+            String::from("git"),
+            &[
+                String::from("status"),
+                String::from("--porcelain"),
+            ],
+            false,
+            &[],
+            path,
+            3,
+            "",
+            false,
+        )?;
+        let untracked_changes = parse_git_untracked_files(&String::from_utf8_lossy(&untracked_changes.stdout));
+
+        [unstaged_changes, untracked_changes].concat()
     } else {
         vec![]
     };
@@ -794,6 +820,42 @@ fn parse_git_diff(diff: &str) -> Vec<FileDiff> {
     }
 
     files
+}
+
+fn parse_git_untracked_files(output: &str) -> Vec<FileDiff> {
+    let mut new_files = vec![];
+
+    for line in output.lines() {
+        if line.starts_with("?? ") {
+            new_files.push(line.get(3..).unwrap().to_string());
+        }
+    }
+
+    let mut result = Vec::with_capacity(new_files.len());
+
+    for new_file in new_files.iter() {
+        if let Ok(content) = read_string(new_file) {
+            let lines: Vec<_> = content.lines().collect();
+            result.push(FileDiff {
+                file_a: None,
+                file_b: Some(new_file.to_string()),
+                hunks: vec![Hunk {
+                    lines: lines.iter().map(
+                        |line| LineDiff {
+                            kind: DiffKind::Add,
+                            line: line.to_string(),
+                        }
+                    ).collect(),
+                    add: lines.len(),
+                    remove: 0,
+                }],
+                add: lines.len(),
+                remove: 0,
+            });
+        }
+    }
+
+    result
 }
 
 // If a commit has multiple parents, it only takes the first one and ignores the rest.
