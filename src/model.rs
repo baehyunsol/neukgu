@@ -33,7 +33,7 @@ impl Model {
             Model::OpenaiEtc3 => unreachable!(),
             Model::Haiku => "claude-haiku-4-5",
             Model::Sonnet => "claude-sonnet-5",
-            Model::Opus => "claude-opus-4-8",
+            Model::Opus => "claude-opus-5",
             Model::Mock => "mock",
             Model::GeminiPro => "gemini-3.1-pro-preview",
             Model::GeminiFlash => "gemini-3-flash-preview",

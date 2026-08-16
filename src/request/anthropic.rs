@@ -1,5 +1,5 @@
 use super::{Config, HttpRequest, LLMToken, Request, Thinking};
-use crate::{Error, encode_base64};
+use crate::{Error, Model, encode_base64};
 use ragit_fs::read_bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -63,11 +63,14 @@ impl Request {
             vec![]
         };
 
-        let thinking = match self.thinking {
+        let thinking = match (self.thinking, self.model) {
             // TODO: make budget_tokens configurable
-            Thinking::Enabled => json!({ "type": "enabled", "budget_tokens": 8192, "display": "summarized" }),
-            Thinking::Disabled => json!({ "type": "disabled" }),
-            Thinking::Adaptive => json!({ "type": "adaptive", "display": "summarized" }),
+            // NOTE: sonnet doesn't support "enabled" anymore
+            (Thinking::Enabled, Model::Opus | Model::Sonnet) => json!({ "type": "adaptive", "display": "summarized" }),
+            (Thinking::Enabled, Model::Haiku) => json!({ "type": "enabled", "budget_tokens": 8192, "display": "summarized" }),
+            (Thinking::Enabled, _) => unreachable!(),
+            (Thinking::Disabled, _) => json!({ "type": "disabled" }),
+            (Thinking::Adaptive, _) => json!({ "type": "adaptive", "display": "summarized" }),
         };
 
         let body = AnthropicRequest {
