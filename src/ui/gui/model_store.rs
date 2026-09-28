@@ -9,7 +9,9 @@ use ragit_fs::{
     exists,
     join,
     read_bytes,
+    read_string,
     write_bytes,
+    write_string,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +23,7 @@ pub struct IcedContext {
     pub password: Option<Vec<u8>>,
     pub password_error: bool,
     pub api_keys: Vec<ApiKey>,
+    pub memos: Vec<String>,
     pub short_text_editor_id: Id,
     pub short_text_editor_content: String,
 }
@@ -33,6 +36,7 @@ impl IcedContext {
             password: None,
             password_error: false,
             api_keys: vec![],
+            memos: vec![],
             short_text_editor_id: Id::unique(),
             short_text_editor_content: String::new(),
         }
@@ -71,6 +75,21 @@ impl IcedContext {
             self.api_keys = api_keys;
         }
 
+        let memos_at = join(&self.global_index_dir, "memos")?;
+        self.memos = if exists(&memos_at) {
+            let memos = read_string(&memos_at)?;
+            memos.lines().filter(
+                |line| !line.trim().is_empty()
+            ).map(
+                |line| line.trim().to_string()
+            ).collect()
+        } else {
+            vec![]
+        };
+
+        // So that the user can input a new memo.
+        self.memos.push(String::new());
+
         Ok(())
     }
 }
@@ -80,10 +99,14 @@ pub enum IcedMessage {
     EnterPassword,
     EditShortTextEdit(String),
     AddApiKey,
-    Save,
+    SaveApiKey,
     SetApiKeyName(usize, String),
     SetApiKeyKey(usize, String),
     DeleteApiKey(usize),
+    AddMemo,
+    SaveMemo,
+    SetMemo(usize, String),
+    DeleteMemo(usize),
     CopyString(String),
     Focus,
 }
@@ -142,7 +165,23 @@ pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'
                 ).collect()).spacing(zoom * 8.0).into(),
                 Row::from_vec(vec![
                     button("Add", IcedMessage::AddApiKey, blue(), zoom).into(),
-                    button("Save", IcedMessage::Save, blue(), zoom).into(),
+                    button("Save", IcedMessage::SaveApiKey, blue(), zoom).into(),
+                ]).spacing(zoom * 8.0).into(),
+                text!("--- Urls & Models ---").size(zoom * 14.0).into(),
+                Column::from_vec(context.memos.iter().enumerate().map(
+                    |(i, memo)| Row::from_vec(vec![
+                        TextInput::new("", memo)
+                            .size(zoom * 14.0)
+                            .width(zoom * 480.0)
+                            .on_input(move |memo| IcedMessage::SetMemo(i, memo))
+                            .into(),
+                        button("Copy", IcedMessage::CopyString(memo.to_string()), blue(), zoom).into(),
+                        button("Delete", IcedMessage::DeleteMemo(i), red(), zoom).into(),
+                    ]).spacing(zoom * 8.0).into()
+                ).collect()).spacing(zoom * 8.0).into(),
+                Row::from_vec(vec![
+                    button("Add", IcedMessage::AddMemo, blue(), zoom).into(),
+                    button("Save", IcedMessage::SaveMemo, blue(), zoom).into(),
                 ]).spacing(zoom * 8.0).into(),
             ])
                 .spacing(zoom * 8.0)
@@ -176,7 +215,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::AddApiKey => {
             context.api_keys.push(ApiKey { name: String::new(), key: String::new() });
         },
-        IcedMessage::Save => {
+        IcedMessage::SaveApiKey => {
             let api_keys_at = join(&context.global_index_dir, "api-keys")?;
             let data = serde_json::to_vec_pretty(&context.api_keys).unwrap();
             let api_keys_encrypted = crypt::encrypt(&data, context.password.as_ref().unwrap());
@@ -190,6 +229,24 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::DeleteApiKey(i) => {
             context.api_keys.remove(i);
+        },
+        IcedMessage::AddMemo => {
+            context.memos.push(String::new());
+        },
+        IcedMessage::SaveMemo => {
+            let memos_at = join(&context.global_index_dir, "memos")?;
+            let data = context.memos.iter().map(
+                |m| m.trim().to_string()
+            ).filter(
+                |m| !m.is_empty()
+            ).collect::<Vec<_>>().join("\n");
+            write_string(&memos_at, &data, WriteMode::CreateOrTruncate)?;
+        },
+        IcedMessage::SetMemo(i, memo) => {
+            context.memos[i] = memo;
+        },
+        IcedMessage::DeleteMemo(i) => {
+            context.memos.remove(i);
         },
         IcedMessage::CopyString(s) => {
             return Ok(iced::clipboard::write(s.to_string()));
