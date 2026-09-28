@@ -974,5 +974,5 @@ fn load_commit_info(path: &str, commit: GitHash) -> Result<CommitInfo, Error> {
 }
 
 pub fn git_operation(operation: GitOperation, file_a: Option<String>, file_b: Option<String>, hunk: Hunk) -> Result<(), Error> {
-    todo!()
+    panic!("TODO: {{ operation: {operation:?}, file_a: {file_a:?}, file_b: {file_b:?}, hunk: {hunk:?} }}")
 }
