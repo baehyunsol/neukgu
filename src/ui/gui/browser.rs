@@ -101,6 +101,7 @@ use ragit_fs::{
     remove_file,
 };
 use ragit_fs::is_symlink;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 const HELP_MESSAGE: &str = r#"
@@ -165,6 +166,7 @@ pub struct IcedContext {
     pub file_editor_context: Option<FileEditorContext>,
     pub git_info_context: Option<GitInfoContext>,
     pub file_selector_context: Option<FileSelectorContext>,
+    pub hide_find_results: HashSet<String>,
     pub zoom: f32,
     pub new_project_config: Config,
     pub find_option: FindOption,
@@ -209,6 +211,7 @@ impl IcedContext {
             file_editor_context: None,
             git_info_context: None,
             file_selector_context: None,
+            hide_find_results: HashSet::new(),
             zoom: 1.0,
             new_project_config: get_global_config(&global_index_dir)?,
             find_option: FindOption::Regex,
@@ -457,6 +460,7 @@ impl IcedContext {
         self.file_editor_context = None;
         self.git_info_context = None;
         self.file_selector_context = None;
+        self.hide_find_results = HashSet::new();
         self.short_text_editor_content = String::new();
         self.long_text_editor_content = TextEditorContent::with_text("");
     }
@@ -544,6 +548,8 @@ pub enum IcedMessage {
     GitInfoMessage(GitInfoMessage),
     OpenFileSelector,
     FileSelectorMessage(FileSelectorMessage),
+    HideFindResult(String),
+    ShowFindResult(String),
     Error(String),
     BackgroundJob(Job),
     BackgroundJobResult(JobResult),
@@ -1201,6 +1207,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::done(IcedMessage::OpenScratchPad { title: context.popup_title.clone(), content }));
         },
         IcedMessage::OpenScratchPad { .. } => unreachable!(),
+        IcedMessage::HideFindResult(path) => {
+            context.hide_find_results.insert(path);
+        },
+        IcedMessage::ShowFindResult(path) => {
+            context.hide_find_results.remove(&path);
+        },
         IcedMessage::Error(_) => unreachable!(),
         IcedMessage::BackgroundJob(_) => unreachable!(),
         IcedMessage::BackgroundJobResult(job_result) => match &job_result.kind {
@@ -2075,12 +2087,19 @@ fn render_find_result<'f, 'm, 'c>(
     let mut lines = vec![];
     let mut curr_path = String::new();
     let mut curr_line_no = 0;
+    let mut hide_lines = false;
 
     for m in matches.iter() {
         if curr_path != m.path {
+            hide_lines = context.hide_find_results.contains(&m.path);
             lines.push(
                 Row::from_vec(vec![
                     text!("{}", m.path).size(context.zoom * 14.0).into(),
+                    if hide_lines {
+                        button("Show", IcedMessage::ShowFindResult(m.path.to_string()), blue(), context.zoom).into()
+                    } else {
+                        button("Hide", IcedMessage::HideFindResult(m.path.to_string()), red(), context.zoom).into()
+                    },
                     button("Open", IcedMessage::NewBrowser {
                         dir: join(&context.cwd, &parent(&m.path).unwrap()).unwrap(),
                         file: Some(basename(&m.path).unwrap()),
@@ -2094,8 +2113,12 @@ fn render_find_result<'f, 'm, 'c>(
             curr_path = m.path.to_string();
         }
 
-        else if m.line_number != curr_line_no + 1 {
+        else if !hide_lines && m.line_number != curr_line_no + 1 {
             lines.push(text!("@@").size(context.zoom * 14.0).into());
+        }
+
+        if hide_lines {
+            continue;
         }
 
         curr_line_no = m.line_number;
