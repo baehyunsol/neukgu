@@ -55,6 +55,9 @@ pub enum ParseError {
         tool: String,
         arg: String,
     },
+    UnterminatedTool {
+        tool: String,
+    },
     ArgTypeError {
         tool: String,
         expected_type: ArgType,
@@ -128,6 +131,9 @@ KEY2=VALUE2
             },
             ParseError::UnterminatedArg { tool, arg } => format!(
                 "Argument `<{arg}>` in tool `<{tool}>` is not terminated properly. I can't find `</{arg}>`.",
+            ),
+            ParseError::UnterminatedTool { tool } => format!(
+                "`<{tool}>` is not closed properly. I expected `</{tool}>`, but cannot find it.",
             ),
             ParseError::ArgTypeError { tool, expected_type, arg_name, arg } => format!(
                 "Argument `<{arg_name}>` in `<{tool}>` is expected to have type `{expected_type:?}`, but it doesn't. I've got `{arg}`.",
@@ -294,7 +300,9 @@ pub fn parse(input: &[u8], activated_tools: &[ToolKind]) -> Result<ParsedSegment
                     }
 
                     else {
-                        todo!()
+                        return Err(ParseError::UnterminatedTool {
+                            tool: String::from_utf8_lossy(&curr_tag_name).to_string(),
+                        });
                     }
                 },
                 (Some(b'<'), _) => match check_tag_name(&input[cursor..]) {
