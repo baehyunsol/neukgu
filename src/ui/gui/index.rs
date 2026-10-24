@@ -1041,7 +1041,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(Scrollable::new(
                 Column::from_vec(vec![
-                    config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig),
+                    config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig),
                     button("Save", save_action, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
@@ -1557,7 +1557,7 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 short_text_editor.into(),
                 long_text_editor.into(),
                 file_selector,
-                config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
+                config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::NewProject, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)

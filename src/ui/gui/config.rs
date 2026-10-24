@@ -41,6 +41,7 @@ pub enum SetProjectConfig {
     OpenaiEtc2Model(String),
     OpenaiEtc3BaseUrl(String),
     OpenaiEtc3Model(String),
+    InitGit(bool),
 }
 
 pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
@@ -159,6 +160,9 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
                 config.etc_models.openai_etc3_model = Some(model);
             }
         },
+        SetProjectConfig::InitGit(init_git) => {
+            config.init_git = init_git;
+        },
     }
 }
 
@@ -247,7 +251,7 @@ pub fn panel_container<'m, Message: 'm>(panel: Element<'m, Message>, zoom: f32) 
     Container::new(panel).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into()
 }
 
-pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectConfig> {
+pub fn config_ui<'c>(config: &'c Config, ask_init_git: bool, zoom: f32) -> Element<'c, SetProjectConfig> {
     let mut panels = vec![];
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
         ("Big Agent: ", |m| m.is_real() && m.is_llm(), config.agents.big, SetProjectConfig::BigAgent),
@@ -459,6 +463,15 @@ pub fn config_ui<'c>(config: &'c Config, zoom: f32) -> Element<'c, SetProjectCon
         SetProjectConfig::OpenaiEtc3Model,
         zoom,
     ), zoom));
+
+    if ask_init_git {
+        panels.push(Checkbox::new(config.init_git)
+            .label("initialize git repository")
+            .on_toggle(SetProjectConfig::InitGit)
+            .size(zoom * 14.0)
+            .text_size(zoom * 14.0)
+            .into());
+    }
 
     Column::from_vec(panels).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
 }

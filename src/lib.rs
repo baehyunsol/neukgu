@@ -483,6 +483,43 @@ pub fn init_working_dir(
     init_global_index_dir(&context.global_index_dir)?;
     update_global_index(&context)?;
 
+    if config.init_git {
+        // The git directory might be something else (not `.git`)... but I'll just ignore such edge case.
+        let git_dir = join(working_dir, ".git")?;
+        let gitignore_dir = join(working_dir, ".gitignore")?;
+
+        if !exists(&git_dir) {
+            subprocess::run(
+                String::from("git"),
+                &[String::from("init")],
+                true,
+                &[],
+                working_dir,
+                3,
+                working_dir,
+                false,
+            )?;
+        }
+
+        if !exists(&gitignore_dir) {
+            write_string(
+                &gitignore_dir,
+                "",
+                RagitFsWriteMode::AlwaysCreate,
+            )?;
+        }
+
+        write_string(
+            &gitignore_dir,
+            "
+# neukgu directories
+.neukgu/
+neukgu-bins/
+            ",
+            RagitFsWriteMode::AlwaysAppend,
+        )?;
+    }
+
     Ok(())
 }
 

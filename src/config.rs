@@ -47,6 +47,10 @@ pub struct Config {
     pub command_max_timeout: u64,  // seconds
 
     pub etc_models: EtcModels,
+
+    // It matters only when the project is initialized.
+    #[serde(default)]
+    pub init_git: bool,
 }
 
 impl Config {
@@ -99,6 +103,8 @@ impl Default for Config {
             max_read_without_write: 6,
             command_max_timeout: 3 * 3600,
             etc_models: EtcModels::default(),
+            init_git: false,
         }
     }
 }
+

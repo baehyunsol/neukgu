@@ -1866,7 +1866,7 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         Scrollable::new(
             Column::from_vec(vec![
                 text_editor.into(),
-                config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
+                config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Init", IcedMessage::Init { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
@@ -1904,7 +1904,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
                 short_text_editor.into(),
                 long_text_editor.into(),
                 file_selector,
-                config_ui(&context.new_project_config, context.zoom).map(IcedMessage::SetProjectConfig).into(),
+                config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::CreateWorkingDir { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)

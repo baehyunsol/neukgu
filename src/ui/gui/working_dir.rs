@@ -1589,7 +1589,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let config_popup = Scrollable::new(
             Column::from_vec(vec![
                 text!("Config").size(context.zoom * 18.0).into(),
-                config_ui(&context.tmp_config, context.zoom).map(IcedMessage::SetTmpConfig).into(),
+                config_ui(&context.tmp_config, false, context.zoom).map(IcedMessage::SetTmpConfig).into(),
                 button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
             ])
                 .align_x(Horizontal::Center)
