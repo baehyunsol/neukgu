@@ -455,6 +455,16 @@
     - 지금 reset button이랑 똑같이 구현하면 될 듯?
     - `logs/`를 초기화하는게 나으려나... 그럼 걍 reset button에다가 "reset logs"라는 옵션을 추가할까??
 197. `logs/`랑 `bins/`라고 하면 다른 프로그램들하고 충돌할 여지가 있으니까 `neukgu-logs/`랑 `neukgu-bins/`라고 하는 거 ㅇㄸ?
+198. `--git-init` option for `neukgu init` and `neukgu new`
+  - if `.git` doesn't exist, run `git init`
+  - add `.neukgu/`, `neukgu-logs/` and `neukgu-bins/` to `.gitignore`
+199. run neukgu even if some dependencies are missing
+  - it checks dependencies (git, cargo, python, ...) when launching a new session
+    - if a binary is enabled but not installed, it doesn't launch the session
+  - but if neukgu is only for me... I will always have the dependencies, right?
+200. system info in the prompt
+  - we're already telling the date in the prompt, so we can just provide a bit more information
+  - OS, ... and what else?
 
 ## mock API
 
