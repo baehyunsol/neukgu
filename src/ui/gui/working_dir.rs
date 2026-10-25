@@ -2085,6 +2085,11 @@ fn render_session<'c>(session: &'c SessionInfo, context: &'c IcedContext) -> Ele
 
     let mut column = vec![
         Row::from_vec(vec![
+            if session.selected {
+                text!(">> ").color(green()).size(context.zoom * 18.0).into()
+            } else {
+                Space::new().into()
+            },
             text!("{}", session.name.as_ref().unwrap_or(&String::from("untitled-session"))).color(white()).size(context.zoom * 18.0).into(),
             // TODO: "Rename" button
             // TODO: "Switch" button
@@ -2094,7 +2099,7 @@ fn render_session<'c>(session: &'c SessionInfo, context: &'c IcedContext) -> Ele
             .align_y(Vertical::Center)
             .spacing(context.zoom * 8.0)
             .into(),
-        Container::new(text!("{}", truncate_chars(&session.instruction, 256)).color(white()).size(context.zoom * 14.0))
+        Container::new(text!("{}", truncate_chars(&session.instruction, 512)).color(white()).size(context.zoom * 14.0))
             .width(context.window_size.width)
             .padding(context.zoom * 8.0)
             .style(|_| set_round_bg(black(), context.zoom))
