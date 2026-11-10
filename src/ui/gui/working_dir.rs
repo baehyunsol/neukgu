@@ -80,7 +80,7 @@ use iced::{Background, ContentFit, Element, Length, Padding, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
-use iced::widget::{Button, Column, Id, MouseArea, Radio, Row, Scrollable, Space, Stack, TextInput, text};
+use iced::widget::{Button, Checkbox, Column, Id, MouseArea, Radio, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::container::{Container, Style};
 use iced::widget::image::{Handle as ImageHandle, Image, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, is_focused, scroll_to, snap_to};
@@ -240,6 +240,7 @@ pub struct IcedContext {
     pub is_interrupt_button_hovered: bool,
     pub syntax_highlight: Option<String>,
     pub popup_title: Option<String>,
+    pub orchestrator_for_new_session: bool,
 
     // If it's set, it'll display "diff" button in the turn popup.
     pub text_diff: Option<String>,
@@ -322,6 +323,7 @@ impl IcedContext {
             is_interrupt_button_hovered: false,
             syntax_highlight: None,
             popup_title: None,
+            orchestrator_for_new_session: fe_context.config.orchestrator,
             text_diff: None,
             turn_result_path: None,
             tmp_config: fe_context.config.clone(),
@@ -519,6 +521,7 @@ impl IcedContext {
                 self.set_long_text_editor_content(self.fe_context.instruction.to_string());
                 self.copy_buffer = None;
                 self.syntax_highlight = None;
+                self.orchestrator_for_new_session = self.fe_context.config.orchestrator;
             },
             Popup::Find { re, .. } => {
                 if let Some(re) = re {
@@ -716,6 +719,7 @@ pub enum IcedMessage {
     RollBackNeukgu(TurnId),
     SetTmpConfig(SetProjectConfig),
     ApplyTmpConfig,
+    ToggleOrchestrator(bool),
     Find,
     AnswerLLMRequest,
     DismissLLMRequest,
@@ -1215,7 +1219,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::ResetNeukgu => {
             context.kill_be_process()?;
-            reset_working_dir(None, context.long_text_editor_content.text(), None, &context.fe_context.working_dir, true, false)?;
+            println!("asdf: {:?}", context.orchestrator_for_new_session);
+            reset_working_dir(
+                None,   // name
+                context.long_text_editor_content.text(),
+                None,   // session_id
+                &context.fe_context.working_dir,
+                true,   // reset_mock_state
+                false,  // sub_agent
+                Some(context.orchestrator_for_new_session),
+            )?;
             context.spawn_be_process()?;
             context.fe_context = FeContext::load(&context.fe_context.working_dir)?;
             context.close_popup();
@@ -1250,6 +1263,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.has_to_update_config = true;
                 return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
             }
+        },
+        IcedMessage::ToggleOrchestrator(or) => {
+            context.orchestrator_for_new_session = or;
         },
         IcedMessage::Find => {
             let pattern = context.short_text_editor_content.to_string();
@@ -1612,8 +1628,17 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let reset_edit = Column::from_vec(vec![
             text!("New instruction").size(context.zoom * 14.0).into(),
             text_editor.into(),
+            Checkbox::new(context.orchestrator_for_new_session)
+                .label("orchestrator")
+                .on_toggle(IcedMessage::ToggleOrchestrator)
+                .size(context.zoom * 14.0)
+                .text_size(context.zoom * 14.0)
+                .into(),
             button("Reset", IcedMessage::ResetNeukgu, green(), context.zoom).padding(context.zoom * 20.0).into(),
-        ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
+        ])
+            .spacing(context.zoom * 20.0)
+            .align_x(Horizontal::Center)
+            .width(Length::Fill);
         let reset_edit = Scrollable::new(reset_edit);
 
         full_view_stacked = Stack::from_vec(vec![

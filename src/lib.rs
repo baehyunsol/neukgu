@@ -406,7 +406,7 @@ pub fn init_working_dir(
     name: Option<String>,
     instruction: String,
     working_dir: &str,
-    config: Config,
+    mut config: Config,
     skills_dir: Option<String>,
     is_in_global_index_dir: bool,
 ) -> Result<(), Error> {
@@ -467,6 +467,19 @@ pub fn init_working_dir(
         &serde_json::to_string(&HashSet::<String>::new())?,
         RagitFsWriteMode::AlwaysCreate,
     )?;
+
+    // It doesn't affect neukgu's behavior at all, but it gives clearer sign to the users.
+    if config.orchestrator {
+        if !config.activated_tools.contains(&ToolKind::Plan) {
+            config.activated_tools.push(ToolKind::Plan);
+        }
+    } else {
+        config.activated_tools = config.activated_tools.iter().filter(
+            |t| **t != ToolKind::Plan
+        ).map(
+            |t| *t
+        ).collect();
+    }
 
     let context = Context::new(
         working_dir,
@@ -549,6 +562,9 @@ pub fn reset_working_dir(
     working_dir: &str,
     reset_mock_state_: bool,
     sub_agent: bool,
+
+    // The user can change this config when resetting a session.
+    orchestrator: Option<bool>,
 ) -> Result<Context, Error> {
     let lock_file_at = join3(working_dir, ".neukgu", ".lock")?;
     let lock_file = std::fs::File::create(&lock_file_at).map_err(|e| FileError::from_std(e, &lock_file_at))?;
@@ -572,7 +588,26 @@ pub fn reset_working_dir(
         )?;
     }
 
-    let config = Config::load(working_dir)?;
+    let mut config = Config::load(working_dir)?;
+
+    if let Some(orchestrator) = orchestrator {
+        // It doesn't affect neukgu's behavior at all, but it gives clearer sign to the users.
+        if orchestrator {
+            if !config.activated_tools.contains(&ToolKind::Plan) {
+                config.activated_tools.push(ToolKind::Plan);
+            }
+        } else {
+            config.activated_tools = config.activated_tools.iter().filter(
+                |t| **t != ToolKind::Plan
+            ).map(
+                |t| *t
+            ).collect();
+        }
+
+        config.orchestrator = orchestrator;
+        config.store(working_dir)?;
+    }
+
     let old_context = Context::load(working_dir)?;
 
     let parent_context = if sub_agent {

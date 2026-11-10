@@ -640,6 +640,18 @@ impl ToolCall {
                 };
                 Ok(ToolCall::ImageEdit { input, prompt, size, output })
             },
+            ToolKind::Plan => {
+                let plan = match parse_string_arg(args, "content") {
+                    Some(plan) => plan,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("plan"),
+                            arg: String::from("content"),
+                        });
+                    },
+                };
+                Ok(ToolCall::Plan { plan })
+            },
         }
     }
 }

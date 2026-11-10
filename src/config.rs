@@ -48,9 +48,12 @@ pub struct Config {
 
     pub etc_models: EtcModels,
 
-    // It matters only when the project is initialized.
+    // These matter only when the project is initialized.
     #[serde(default)]
     pub init_git: bool,
+
+    #[serde(default)]
+    pub orchestrator: bool,
 }
 
 impl Config {
@@ -104,6 +107,7 @@ impl Default for Config {
             command_max_timeout: 3 * 3600,
             etc_models: EtcModels::default(),
             init_git: false,
+            orchestrator: false,
         }
     }
 }

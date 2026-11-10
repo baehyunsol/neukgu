@@ -58,6 +58,7 @@ mod image_edit;
 mod patch;
 mod path;
 mod permission;
+mod plan;
 mod read;
 mod run;
 mod write;
@@ -159,6 +160,9 @@ pub enum ToolCall {
         size: Option<(u64, u64)>,
         output: String,
     },
+    Plan {
+        plan: String,
+    },
 }
 
 impl ToolCall {
@@ -187,6 +191,7 @@ impl ToolCall {
                         &context.working_dir,
                         false,
                         true,
+                        None,
                     )?;
                     let new_session_id = new_context.session_id;
                     *context = new_context;
@@ -805,6 +810,7 @@ impl ToolCall {
                     generated_size: (generated_image.width() as u64, generated_image.height() as u64),
                 }))
             },
+            ToolCall::Plan { plan } => Ok(Ok(ToolCallSuccess::Plan { plan: plan.to_string() })),
         }
     }
 
@@ -867,6 +873,7 @@ impl ToolCall {
                 "editing `{input}` {:?}",
                 truncate_chars(prompt, 48),
             ),
+            ToolCall::Plan { plan } => format!("plan {:?}", truncate_chars(plan, 48)),
         }
     }
 
@@ -881,6 +888,7 @@ impl ToolCall {
             ToolCall::Ask { .. } => ToolKind::Ask,
             ToolCall::Chrome { .. } => ToolKind::Chrome,
             ToolCall::ImageEdit { .. } => ToolKind::ImageEdit,
+            ToolCall::Plan { .. } => ToolKind::Plan,
         }
     }
 }
@@ -981,6 +989,9 @@ pub enum ToolCallSuccess {
         output_image: ImageId,
         requested_size: Option<(u64, u64)>,
         generated_size: (u64, u64),
+    },
+    Plan {
+        plan: String,
     },
 
     // User instructions are converted to the below turns.
@@ -1129,6 +1140,9 @@ impl ToolCallSuccess {
             ToolCallSuccess::ImageEdit { input, output_path, output_image, .. } => vec![
                 LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
                 LLMToken::Image(*output_image),
+            ],
+            ToolCallSuccess::Plan { plan } => vec![
+                LLMToken::String(plan.to_string()),
             ],
 
             // LLM shouldn't be able to see this.
@@ -1515,6 +1529,7 @@ pub enum ToolKind {
     Ask,
     Chrome,
     ImageEdit,
+    Plan,
 }
 
 impl ToolKind {
@@ -1529,6 +1544,7 @@ impl ToolKind {
             ToolKind::Ask,
             ToolKind::Chrome,
             ToolKind::ImageEdit,
+            ToolKind::Plan,
         ]
     }
 
@@ -1543,6 +1559,7 @@ impl ToolKind {
             b"ask" => Some(ToolKind::Ask),
             b"chrome" => Some(ToolKind::Chrome),
             b"image-edit" => Some(ToolKind::ImageEdit),
+            b"plan" => Some(ToolKind::Plan),
             _ => None,
         }
     }
@@ -1558,6 +1575,7 @@ impl ToolKind {
             ToolKind::Ask => "ask",
             ToolKind::Chrome => "chrome",
             ToolKind::ImageEdit => "image-edit",
+            ToolKind::Plan => "plan",
         }
     }
 
@@ -1576,6 +1594,7 @@ impl ToolKind {
             ToolKind::Ask => vec!["to", "question"],
             ToolKind::Chrome => vec!["input", "output", "script"],
             ToolKind::ImageEdit => vec!["input", "prompt", "size", "output"],
+            ToolKind::Plan => vec!["content"],
         }.iter().map(|arg| arg.to_string()).collect()
     }
 
@@ -1590,6 +1609,22 @@ impl ToolKind {
             ToolKind::Ask => false,
             ToolKind::Chrome => true,
             ToolKind::ImageEdit => true,
+            ToolKind::Plan => false,
+        }
+    }
+
+    pub fn for_orchestrator(&self) -> bool {
+        match self {
+            ToolKind::Agent => true,
+            ToolKind::Read => false,
+            ToolKind::Write => false,
+            ToolKind::Patch => false,
+            ToolKind::Remove => false,
+            ToolKind::Run => false,
+            ToolKind::Ask => true,
+            ToolKind::Chrome => false,
+            ToolKind::ImageEdit => false,
+            ToolKind::Plan => true,
         }
     }
 }
@@ -1662,3 +1697,4 @@ fn truncate_middle(s: &str, limit: u64) -> (String, Option<usize>) {
         (format!("{pre}...({truncated} bytes truncated)...{post}"), Some(truncated as usize))
     }
 }
+

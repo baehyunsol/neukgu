@@ -606,7 +606,7 @@ impl FeContext {
     }
 
     pub fn get_system_prompt(&self) -> String {
-        system_prompt(&self.config, &self.working_dir)
+        system_prompt(&self.config, self.parent.is_none(), &self.working_dir)
     }
 
     pub fn get_changed_files(&self) -> Result<Vec<(String /* path */, String /* original_content */)>, Error> {

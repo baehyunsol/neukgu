@@ -320,14 +320,40 @@ You can optionally set the size of the edited image. You can use `<size>` tag wi
 <output>output.png</output>
 </image-edit>
 "#),
+            ToolKind::Plan => format!(r#"
+{index}. Plan
+
+If you're an orchestrator, before you spawn any agents, you're recommended to create a plan. You can also create new plans when the agents give you new information, or thing's are getting complicated and you want to wrap-up.
+
+It's simple to use this tool. Just use `<plan>` tags!
+
+<plan>
+<content>
+# C Compiler
+
+A C compiler written in Rust using only the Rust standard library. Its backend (IR -> machine code -> ELF) will later become the native code generator for the Sodigy compiler. The C frontend exists mainly so the backend can be tested on large amounts of real-world C.
+
+## Stages
+
+C -> AST -> IR -> machine code -> ELF
+
+... and many more lines
+</content>
+</plan>
+"#),
         }
     }
 }
 
-pub fn system_prompt(config: &Config, cwd: &str) -> String {
-    let mut tool_descriptions = Vec::with_capacity(config.activated_tools.len());
+pub fn system_prompt(config: &Config, is_main_agent: bool, cwd: &str) -> String {
+    let activated_tools = if config.orchestrator && is_main_agent {
+        ToolKind::all().into_iter().filter(|t| t.for_orchestrator()).collect()
+    } else {
+        config.activated_tools.to_vec()
+    };
+    let mut tool_descriptions = Vec::with_capacity(activated_tools.len());
 
-    for (i, tool) in config.activated_tools.iter().enumerate() {
+    for (i, tool) in activated_tools.iter().enumerate() {
         tool_descriptions.push(tool.description(i + 1, config).trim().to_string());
     }
 
@@ -346,8 +372,11 @@ pub fn system_prompt(config: &Config, cwd: &str) -> String {
     let date = Local::now().to_rfc3339();
     let date = date.get(0..10).unwrap();
 
-    format!(r#"
-You're neukgu (늑구), an AI coding agent.
+    let introduction = if config.orchestrator && is_main_agent {
+r#"You're neugku-orchestrator (늑구-orchestrator), an orchestrator for AI-coding agents.
+Your job is to spawn neukgu-agents using `<agent>` tool to fulfill the user's request. Get a request from the user, create a plan, then spawn agents to do the job. The agents will give you a report when they finish their task. You may continue with spawning another agent, or change the plan. You can also ask questions to user."#
+} else {
+r#"You're neukgu (늑구), an AI coding agent.
 The user will give you an instruction. Follow the instruction and do what they want.
 
 Your working directory looks like this:
@@ -355,11 +384,17 @@ Your working directory looks like this:
 1. `neukgu-logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
 2. `neukgu-bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
 
-The user might provide more files/directories. You can freely create files/directories to achieve the goal.
+The user might provide more files/directories. You can freely create files/directories to achieve the goal."#
+    };
 
+    let write_summaries = if config.orchestrator && is_main_agent { "" } else {
+r#""You have to regularly write summaries of your work at `neukgu-logs/summary-XXX.md`. The file must be in `neukgu-logs/` directory, the file name must start with "summary", and the file extension must be "md"."#
+    };
+
+    format!(r#"{introduction}
 You can use {tool_count} tools to accomplish your task: {tool_concat}. You use XML syntax to call each tool. I'll explain each tool with examples.
 
-You have to regularly write summaries of your work at `neukgu-logs/summary-XXX.md`. The file must be in `neukgu-logs/` directory, the file name must start with "summary", and the file extension must be "md".
+{write_summaries}
 When you're done, create a file `neukgu-logs/done`, and write your final summary there. Then I'll give you feedback.
 When you write a summary, it must include 1) what you've done so far 2) what you've done since the last time you wrote a summary 3) what you've learnt so far 4) what you've learnt since the last time you wrote a summary and 5) what are the remaining things to do.
 
@@ -526,3 +561,4 @@ Your answer here.
 Question: {q}
 "#)
 }
+
