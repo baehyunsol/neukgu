@@ -466,18 +466,7 @@
   - we're already telling the date in the prompt, so we can just provide a bit more information
   - OS, ... and what else?
 201. Orchestrator mode
-  - config에 `orchestrator: bool`을 추가
-    - it needs `#[serde("false_")]`
-  - sub-agents are not affected by the `orchestrator` field
-    - so, we can still configure the sub-agents with the other config options
-  - when orchestrator mode is enabled, the main agent can use only 3 tools: <ask>, <agent> and <plan>
-    - we have to implement <plan>
-      - prompt: Before you spawn any agents, I recommend you to create a plan. You can also create new plans when the agents give you new information.
-      - It doesn't do anything special, it just dumps the plan to the context
-  - You can't change the `orchestrator` option midst a session
-    - it's easy (and fun) to implement such UI!
-  - In orchestrator mode, the main-agent will see a different system prompt!
-    - You're a neukgu-orchestrator. Your job is to spawn neukgu-agents using <agent> tool to fulfill the user's request. Get a request from the user, create a plan, then spawn agents to do the job. The agents will give you a report when they finish their job. You may continue with spawning another agent, or change the plan. You can also ask questions to the user.
+  - I've implemented this... but if the orchestrator cannot write anything, how can it write `neukgu-logs/done`?
 202. Neukgu on Windows
   - 이거 issue 이미 있지 않음?
   - 아마 `.exe` 안 붙어서 깨지는 거 엄청 많을 듯?
