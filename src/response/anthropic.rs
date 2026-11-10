@@ -41,8 +41,10 @@ impl Response {
                     },
                     "thinking" => match content.get("thinking") {
                         Some(Value::String(s)) => {
-                            assert!(thinking.is_none());
-                            thinking = Some(s.to_string());
+                            thinking = match thinking {
+                                Some(p) => Some(format!("{p}\n...\n{s}")),
+                                None => Some(s.to_string()),
+                            };
                         },
                         _ => {
                             return Err(Error::FailedToParseAPIResponse(s.to_string()));

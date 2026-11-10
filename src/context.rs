@@ -392,13 +392,25 @@ impl Context {
     //    the LLM api.
     //
     // # 2. Remove `logs/done`
-    pub fn get_fake_turn(&mut self) -> Option<(String, TurnKind, Option<TurnResult>)> {
+    pub fn get_fake_turn(&mut self, is_orchestrator: bool) -> Option<(String, TurnKind, Option<TurnResult>)> {
         let session_starts: Vec<&TurnSummary> = self.history.iter().filter(
             |turn| turn.kind == TurnKind::SessionStart
         ).collect();
+        let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: UserAnswer::FreeText(self.instruction.to_string()) });
 
-        match session_starts.len() {
-            0 => return Some((
+        match (session_starts.len(), is_orchestrator) {
+            (0, true) => return Some((
+                String::from(
+"Okay, let me start with asking the user what they want.
+<ask>
+<to>user</to>
+<question>What do you want me to do?</question>
+</ask>"
+                ),
+                TurnKind::SessionStart,
+                Some(turn_result),
+            )),
+            (0, false) => return Some((
                 String::from(
 "Let's first check what I have in the working directory.
 <read>
@@ -409,36 +421,32 @@ impl Context {
                 TurnKind::SessionStart,
                 None,
             )),
-            1 => {
-                let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: UserAnswer::FreeText(self.instruction.to_string()) });
-
-                match session_starts[0].result {
-                    TurnResultSummary::ParseError => unreachable!(),
-                    TurnResultSummary::ToolCallError => return Some((
-                        String::from(
+            (1, false) => match session_starts[0].result {
+                TurnResultSummary::ParseError => unreachable!(),
+                TurnResultSummary::ToolCallError => return Some((
+                    String::from(
 "Okay, I can't get the list of files in the working directory. Let me just ask what the user wants.
 <ask>
 <to>user</to>
 <question>What do you want me to do?</question>
 </ask>
 "
-                        ),
-                        TurnKind::SessionStart,
-                        Some(turn_result),
-                    )),
-                    TurnResultSummary::ToolCallSuccess => return Some((
-                        String::from(
+                    ),
+                    TurnKind::SessionStart,
+                    Some(turn_result),
+                )),
+                TurnResultSummary::ToolCallSuccess => return Some((
+                    String::from(
 "Okay, I see the files. Let me ask what the user wants.
 <ask>
 <to>user</to>
 <question>What do you want me to do?</question>
 </ask>
 "
-                        ),
-                        TurnKind::SessionStart,
-                        Some(turn_result),
-                    )),
-                }
+                    ),
+                    TurnKind::SessionStart,
+                    Some(turn_result),
+                )),
             },
             _ => {},
         }

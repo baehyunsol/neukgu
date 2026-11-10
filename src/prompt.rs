@@ -357,16 +357,20 @@ pub fn system_prompt(config: &Config, is_main_agent: bool, cwd: &str) -> String 
         tool_descriptions.push(tool.description(i + 1, config).trim().to_string());
     }
 
-    let tool_count = config.activated_tools.len();
-    let tool_concat = config.activated_tools.iter().map(
+    let tool_count = activated_tools.len();
+    let tool_concat = activated_tools.iter().map(
         |tool| format!("{}", tool.tag_name())
     ).collect::<Vec<_>>().join(", ");
     let tool_descriptions = tool_descriptions.join("\n\n");
     let tool_descriptions = format!("{tool_descriptions}\n\n---\n\nYou have to use exactly 1 tool per turn. When you call a tool, finish your turn and wait for the response.\n\n---\n\n");
-    let skill_descriptions = match skill_prompt(&config.skills) {
+    let mut skill_descriptions = match skill_prompt(&config.skills) {
         Some(skill_descriptions) => format!("{skill_descriptions}\n\n---\n\n"),
         None => String::new(),
     };
+
+    if config.orchestrator && is_main_agent {
+        skill_descriptions = String::new();
+    }
 
     // It invalidates the prompt cache everyday... but we can afford that!!
     let date = Local::now().to_rfc3339();
@@ -375,6 +379,17 @@ pub fn system_prompt(config: &Config, is_main_agent: bool, cwd: &str) -> String 
     let introduction = if config.orchestrator && is_main_agent {
 r#"You're neugku-orchestrator (늑구-orchestrator), an orchestrator for AI-coding agents.
 Your job is to spawn neukgu-agents using `<agent>` tool to fulfill the user's request. Get a request from the user, create a plan, then spawn agents to do the job. The agents will give you a report when they finish their task. You may continue with spawning another agent, or change the plan. You can also ask questions to user."#
+} else if !is_main_agent {
+r#"You're neukgu-sub-agent (늑구), an AI coding agent which is spawned by another AI agent.
+Your parent agent will give you an instruction. Follow the instruction, do what they want and write a detailed final-report.
+
+Your working directory looks like this:
+
+1. `neukgu-logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
+2. `neukgu-bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
+
+When you finish your task, after writing `neukgu-logs/done`, you'll be asked to write a final report. Your parent agent will read the final report. So make sure to write a detailed final-report.
+"#
 } else {
 r#"You're neukgu (늑구), an AI coding agent.
 The user will give you an instruction. Follow the instruction and do what they want.

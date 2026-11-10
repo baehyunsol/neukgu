@@ -252,9 +252,10 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     let mut user_interrupt = false;
     let mut turn_kind = TurnKind::Agent;
     let mut turn_result = None;
+    let is_orchestrator = config.orchestrator && context.parent.is_none();
     let raw_response = match &context.curr_raw_response {
         Some(RawResponse { response, .. }) => response.to_string(),
-        None => match context.get_fake_turn() {
+        None => match context.get_fake_turn(is_orchestrator) {
             Some((r, kind, result)) => {
                 turn_kind = kind;
                 turn_result = result;
@@ -310,7 +311,12 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
 
     let mut tool_call_started_at = Instant::now();
     let mut wrote_summary = false;
-    let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes(), &config.activated_tools) {
+    let activated_tools = if is_orchestrator {
+        ToolKind::all().into_iter().filter(|t| t.for_orchestrator()).collect()
+    } else {
+        config.activated_tools.to_vec()
+    };
+    let (parse_result, turn_result) = match parse::parse(raw_response.as_bytes(), &activated_tools) {
         Ok(ref parse_result @ ParsedSegment { tool: Some(ref tool), .. }) => {
             if let Err(e) = context.validate_tool_call(tool)? {
                 (Some(parse_result.clone()), TurnResult::ToolCallError(e))
