@@ -1733,7 +1733,7 @@ fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId
             let mut column = vec![
                 Row::from_vec(vec![
                     text!("{}", chat_titles.get(chat_id).cloned().unwrap_or(String::from("untitled chat"))).color(white()).size(context.zoom * 18.0).into(),
-                    button("Open", IcedMessage::NewTab { tab: Tab::Chat(*chat_id), force_new_tab: false }, green(), context.zoom).into(),
+                    button("Open", IcedMessage::NewTab { tab: Tab::Chat { id: *chat_id, find: Some(regex.to_string()) }, force_new_tab: false }, green(), context.zoom).into(),
                 ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             ];
 

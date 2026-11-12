@@ -5,6 +5,7 @@ use super::{
     button,
     disabled_button,
     gray,
+    green,
     pink,
     purple,
     red,
@@ -114,7 +115,7 @@ pub struct IcedContext {
     pub short_text_editor_id: Id,
     pub chat_view_scrolled: AbsoluteOffset,
     pub find_pattern: Option<(String, Regex)>,
-    pub find_result: HashMap<ChatTurnId, usize>,
+    pub find_result: HashMap<ChatTurnId, Vec<Position>>,
     pub loaded_logs: Option<Vec<String>>,
     pub loaded_token_usage: Option<TokenUsage>,
     pub loaded_image: Option<ImageId>,
@@ -239,7 +240,11 @@ impl IcedContext {
                 self.syntax_highlight = ext;
             },
             Popup::Image(_) => {},
-            Popup::Find { .. } => todo!(),
+            Popup::Find { re, .. } => {
+                if let Some(re) = re {
+                    self.short_text_editor_content = re.to_string();
+                }
+            },
             Popup::FileSelector => {},
         }
 
@@ -270,7 +275,44 @@ impl IcedContext {
     }
 
     pub fn update_find_result(&mut self) {
-        // TODO
+        let mut find_result = vec![];
+
+        if let Some((_, re)) = self.find_pattern.clone() {
+            for (i, turn) in self.chat.turns.iter().enumerate() {
+                if let Some(turn) = self.turns.get(turn) {
+                    for (j, token) in turn.user.iter().enumerate() {
+                        if let LLMToken::String(s) = token {
+                            for (k, line) in s.lines().enumerate() {
+                                if re.is_match(line) {
+                                    find_result.push((turn.id, Position { turn: i, user: true, token: j, line: k }));
+                                }
+                            }
+                        }
+                    }
+
+                    for (k, line) in turn.assistant.lines().enumerate() {
+                        if re.is_match(line) {
+                            find_result.push((turn.id, Position { turn: i, user: false, token: 0, line: k }));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut find_result_map: HashMap<ChatTurnId, Vec<Position>> = HashMap::new();
+
+        for (id, position) in find_result.into_iter() {
+            match find_result_map.entry(id) {
+                Entry::Occupied(mut e) => {
+                    e.get_mut().push(position);
+                },
+                Entry::Vacant(e) => {
+                    e.insert(vec![position]);
+                },
+            }
+        }
+
+        self.find_result = find_result_map;
     }
 
     pub fn load_chat_turns(&mut self) -> Result<(), Error> {
@@ -368,6 +410,7 @@ pub enum IcedMessage {
     CopyString(String),
     ChangeTitle,
     SetChatConfig(SetChatConfig),
+    Find,
     EditShortText(String),
     EditChatInput(TextEditorAction),
     FileSelectorMessage(FileSelectorMessage),
@@ -437,6 +480,14 @@ impl Popup {
             _ => false,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct Position {
+    turn: usize,
+    user: bool,
+    token: usize,
+    line: usize,
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -552,10 +603,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.chat_view_scrolled = o;
         },
         IcedMessage::OpenPopup { curr, prev } => {
-            if let Popup::Find { .. } = &curr {
-                return Ok(Task::done(IcedMessage::Notify(String::from("Not implemented yet"))));
-            }
-
             let mut tasks: Vec<Task<IcedMessage>> = vec![
                 scroll_to(context.chat_view_id.clone(), context.chat_view_scrolled),
             ];
@@ -617,6 +664,30 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             // NOTE: You can't change the system prompt in this ui.
             set_chat_config(&mut context.chat.config, &[], c);
             context.chat.store(&context.global_index_dir)?;
+        },
+        IcedMessage::Find => {
+            let pattern = context.short_text_editor_content.to_string();
+
+            if pattern.is_empty() {
+                context.find_pattern = None;
+            }
+
+            else {
+                match Regex::new(&pattern) {
+                    Ok(re) => {
+                        context.find_pattern = Some((pattern, re));
+                    },
+                    Err(e) => {
+                        return Ok(Task::done(IcedMessage::OpenPopup {
+                            curr: Popup::Find { re: Some(pattern), error: Some(format!("{e:?}")) },
+                            prev: None,
+                        }));
+                    },
+                }
+            }
+
+            context.close_popup();
+            context.update_find_result();
         },
         IcedMessage::EditShortText(s) => {
             context.short_text_editor_content = s;
@@ -744,9 +815,11 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             &turn.user,
             &None,
             &[],
+            context.find_result.get(turn_id),
             context.user_code_blocks.get(turn_id),
             turn.api.request_body.clone(),
             Horizontal::Right,
+            true,
             context,
         ));
         turns.push(render_turn(
@@ -756,9 +829,11 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             &[LLMToken::String(turn.assistant.to_string())],
             &turn.thinking,
             &turn.web_search_results,
+            context.find_result.get(turn_id),
             context.ai_code_blocks.get(turn_id),
             turn.api.response_body.clone(),
             Horizontal::Left,
+            false,
             context,
         ));
     }
@@ -773,7 +848,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             &[],
             None,
             None,
+            None,
             Horizontal::Right,
+            true,
             context,
         ));
     }
@@ -818,7 +895,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     if let Some((pattern, _)) = &context.find_pattern {
         let matches = context.chat.turns.iter().map(
-            |turn_id| *context.find_result.get(turn_id).unwrap_or(&0)
+            |turn_id| context.find_result.get(turn_id).map(|f| f.len()).unwrap_or(0)
         ).sum::<usize>();
         full_view.push(text!(
             "find: {pattern:?}, found {matches} result{}",
@@ -966,6 +1043,34 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
+    else if let Some(Popup::Find { error, .. }) = &context.curr_popup {
+        let text_editor = TextInput::new("regex", &context.short_text_editor_content)
+            .size(context.zoom * 14.0)
+            .id(context.short_text_editor_id.clone())
+            .on_input(|input| IcedMessage::EditShortText(input))
+            .on_submit(IcedMessage::Find);
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            into_popup(
+                Column::from_vec(vec![
+                    text_editor.into(),
+                    if let Some(error) = error {
+                        text!("{error}").size(context.zoom * 14.0).color(red()).into()
+                    } else {
+                        Space::new().into()
+                    },
+                    button("Find", IcedMessage::Find, green(), context.zoom).padding(context.zoom * 20.0).into(),
+                ])
+                    .spacing(context.zoom * 20.0)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill)
+                    .into(),
+                context,
+            ).into(),
+        ]).into();
+    }
+
     else if let Some(Popup::Log(_) | Popup::Help | Popup::Thinking(_) | Popup::CodeBlock { .. }) = &context.curr_popup {
         let title = text!("{}", context.popup_title.clone().unwrap_or(String::new()))
             .color(white())
@@ -1018,11 +1123,20 @@ pub fn render_turn<'n, 'cn, 'cx>(
     content: &'cn [LLMToken],
     thinking: &Option<String>,
     web_search_results: &[WebSearchResult],
+    highlights: Option<&'cx Vec<Position>>,
     code_blocks: Option<&Vec<(String, Option<String>)>>,
     raw_api: Option<LogId>,
     align_name: Horizontal,
+    is_user: bool,
     context: &'cx IcedContext,
 ) -> Element<'cx, IcedMessage> {
+    let highlights = highlights.map(
+        |h| h.iter().filter(
+            |h| h.user == is_user
+        ).map(
+            |h| (h.token, h.line)
+        ).collect()
+    ).unwrap_or(vec![]);
     let stringified_llm_tokens = stringify_llm_tokens(content);
     let mut buttons = vec![
         button("Copy", IcedMessage::CopyString(stringified_llm_tokens.to_string()), blue(), context.zoom),
@@ -1113,6 +1227,7 @@ pub fn render_turn<'n, 'cn, 'cx>(
         },
         render_llm_tokens(
             content.to_vec(),
+            highlights,
             &context.working_dir,
             context.zoom,
             context,
@@ -1303,3 +1418,4 @@ fn extract_code_blocks(turn: &str) -> Vec<(String, Option<String>)> {
 
     code_blocks
 }
+

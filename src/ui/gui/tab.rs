@@ -339,3 +339,4 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         LocalContext::Error(e) => error::view(e).map(IcedMessage::Error),
     }
 }
+

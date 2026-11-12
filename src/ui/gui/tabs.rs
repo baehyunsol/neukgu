@@ -115,7 +115,7 @@ pub enum IcedMessage {
 #[derive(Clone, Debug)]
 pub enum Tab {
     Browser { dir: String, file: Option<String> },
-    Chat(ChatId),
+    Chat { id: ChatId, find: Option<String> },
     WorkingDir(String),
 }
 
@@ -710,3 +710,4 @@ fn render_notes<'c>(notes: &'c [(String, usize)], context: &'c IcedContext) -> E
         .height(context.window_size.height)
         .into()
 }
+

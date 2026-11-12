@@ -1888,11 +1888,11 @@ fn render_turn<'t, 'c>(index: usize, turn: &'t Turn, context: &'c IcedContext) -
         text!("# {index}. {}", turn.preview().preview_title).color(white()).size(context.zoom * 18.0).into(),
         text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
         Container::new(
-            render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], &context.fe_context.working_dir, context.zoom, context)
+            render_llm_tokens(vec![LLMToken::String(turn.render_llm_response(true))], vec![], &context.fe_context.working_dir, context.zoom, context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
         text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
         Container::new(
-            render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), &context.fe_context.working_dir, context.zoom, context)
+            render_llm_tokens(turn.turn_result.to_llm_tokens(&context.fe_context.config), vec![], &context.fe_context.working_dir, context.zoom, context)
         ).padding(context.zoom * 8.0).style(|_| set_bg(gray(0.3))).into(),
     ];
     turn_content.push(text!("{}", turn.introduce_agents()).color(white()).size(context.zoom * 14.0).into());
@@ -1952,13 +1952,36 @@ pub trait ImagePopup {
 
 pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clone + 'c>(
     llm_tokens: Vec<LLMToken>,
+    highlights: Vec<(/* token: */ usize, /* line: */ usize)>,
     working_dir: &str,
     zoom: f32,
     context: &'c Context,
 ) -> Column<'c, Message> {
-    Column::from_vec(llm_tokens.iter().map(
-        |token| match token {
-            LLMToken::String(s) => text!("{s}").color(white()).size(zoom * 14.0).width(Length::Fill).into(),
+    let mut highlights_map: HashMap<usize, HashSet<usize>> = HashMap::new();
+
+    for (token, line) in highlights.into_iter() {
+        match highlights_map.entry(token) {
+            Entry::Occupied(mut e) => {
+                e.get_mut().insert(line);
+            },
+            Entry::Vacant(e) => {
+                e.insert([line].into_iter().collect());
+            },
+        }
+    }
+
+    Column::from_vec(llm_tokens.iter().enumerate().map(
+        |(i, token)| match token {
+            LLMToken::String(s) => match highlights_map.get(&i) {
+                Some(highlights) => Column::from_vec(s.lines().enumerate().map(
+                    |(j, line)| if highlights.contains(&j) {
+                        text!("{line}").color(red()).size(zoom * 14.0).into()
+                    } else {
+                        text!("{line}").color(white()).size(zoom * 14.0).into()
+                    }
+                ).collect()).width(Length::Fill).into(),
+                None => text!("{s}").color(white()).size(zoom * 14.0).width(Length::Fill).into(),
+            },
             LLMToken::Image(id) => MouseArea::new(
                 Image::new(ImageHandle::from_path(id.path(working_dir).unwrap()))
                     .width(Length::Fixed(zoom * 480.0))
@@ -2214,7 +2237,7 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
                         .into(),
                     text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
                     Container::new(
-                        render_llm_tokens(result.to_vec(), &context.fe_context.working_dir, context.zoom, context)
+                        render_llm_tokens(result.to_vec(), vec![], &context.fe_context.working_dir, context.zoom, context)
                     )
                         .style(|_| set_bg(black()))
                         .width(context.window_size.width)
