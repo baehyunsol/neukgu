@@ -58,7 +58,6 @@ mod image_edit;
 mod patch;
 mod path;
 mod permission;
-mod plan;
 mod read;
 mod run;
 mod write;
@@ -162,6 +161,9 @@ pub enum ToolCall {
     },
     Plan {
         plan: String,
+    },
+    Done {
+        report: String,
     },
 }
 
@@ -811,6 +813,10 @@ impl ToolCall {
                 }))
             },
             ToolCall::Plan { plan } => Ok(Ok(ToolCallSuccess::Plan { plan: plan.to_string() })),
+            ToolCall::Done { report } => {
+                context.final_report = FinalReport::Report(report.to_string());
+                Ok(Ok(ToolCallSuccess::Done { report: report.to_string() }))
+            },
         }
     }
 
@@ -874,6 +880,7 @@ impl ToolCall {
                 truncate_chars(prompt, 48),
             ),
             ToolCall::Plan { plan } => format!("plan {:?}", truncate_chars(plan, 48)),
+            ToolCall::Done { report } => format!("done {:?}", truncate_chars(report, 48)),
         }
     }
 
@@ -889,6 +896,7 @@ impl ToolCall {
             ToolCall::Chrome { .. } => ToolKind::Chrome,
             ToolCall::ImageEdit { .. } => ToolKind::ImageEdit,
             ToolCall::Plan { .. } => ToolKind::Plan,
+            ToolCall::Done { .. } => ToolKind::Done,
         }
     }
 }
@@ -992,6 +1000,9 @@ pub enum ToolCallSuccess {
     },
     Plan {
         plan: String,
+    },
+    Done {
+        report: String,
     },
 
     // User instructions are converted to the below turns.
@@ -1141,9 +1152,8 @@ impl ToolCallSuccess {
                 LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
                 LLMToken::Image(*output_image),
             ],
-            ToolCallSuccess::Plan { plan } => vec![
-                LLMToken::String(plan.to_string()),
-            ],
+            ToolCallSuccess::Plan { plan } => vec![LLMToken::String(plan.to_string())],
+            ToolCallSuccess::Done { report } => vec![LLMToken::String(report.to_string())],
 
             // LLM shouldn't be able to see this.
             ToolCallSuccess::QuestionFromUser { q, a } => vec![LLMToken::String(format!("
@@ -1530,6 +1540,7 @@ pub enum ToolKind {
     Chrome,
     ImageEdit,
     Plan,
+    Done,
 }
 
 impl ToolKind {
@@ -1545,6 +1556,7 @@ impl ToolKind {
             ToolKind::Chrome,
             ToolKind::ImageEdit,
             ToolKind::Plan,
+            ToolKind::Done,
         ]
     }
 
@@ -1560,6 +1572,7 @@ impl ToolKind {
             b"chrome" => Some(ToolKind::Chrome),
             b"image-edit" => Some(ToolKind::ImageEdit),
             b"plan" => Some(ToolKind::Plan),
+            b"done" => Some(ToolKind::Done),
             _ => None,
         }
     }
@@ -1576,6 +1589,7 @@ impl ToolKind {
             ToolKind::Chrome => "chrome",
             ToolKind::ImageEdit => "image-edit",
             ToolKind::Plan => "plan",
+            ToolKind::Done => "done",
         }
     }
 
@@ -1595,6 +1609,7 @@ impl ToolKind {
             ToolKind::Chrome => vec!["input", "output", "script"],
             ToolKind::ImageEdit => vec!["input", "prompt", "size", "output"],
             ToolKind::Plan => vec!["content"],
+            ToolKind::Done => vec!["report"],
         }.iter().map(|arg| arg.to_string()).collect()
     }
 
@@ -1610,6 +1625,7 @@ impl ToolKind {
             ToolKind::Chrome => true,
             ToolKind::ImageEdit => true,
             ToolKind::Plan => false,
+            ToolKind::Done => false,
         }
     }
 
@@ -1625,6 +1641,7 @@ impl ToolKind {
             ToolKind::Chrome => false,
             ToolKind::ImageEdit => false,
             ToolKind::Plan => true,
+            ToolKind::Done => true,
         }
     }
 }

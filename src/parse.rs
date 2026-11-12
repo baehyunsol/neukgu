@@ -652,6 +652,18 @@ impl ToolCall {
                 };
                 Ok(ToolCall::Plan { plan })
             },
+            ToolKind::Done => {
+                let report = match parse_string_arg(args, "report") {
+                    Some(report) => report,
+                    None => {
+                        return Err(ParseError::MissingArg {
+                            tool: String::from("done"),
+                            arg: String::from("report"),
+                        });
+                    },
+                };
+                Ok(ToolCall::Done { report })
+            },
         }
     }
 }

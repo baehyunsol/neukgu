@@ -227,21 +227,16 @@ async fn step_inner(context: &mut Context, config: &Config) -> Result<bool, Erro
     if let Some((id, interrupt_kind, interrupt)) = context.check_interrupt_from_user()? {
         context.process_interrupt_from_user(id, interrupt_kind, interrupt, config).await?;
 
-        if interrupt_kind == InterruptKind::Instruction && context.has_done_mark() {
+        // The report is still in the context. Only the status changes (done -> not done).
+        if interrupt_kind == InterruptKind::Instruction {
             context.final_report = FinalReport::SessionNotDone;
-            context.has_to_remove_done_mark = true;
         }
 
         context.store()?;
     }
 
-    if context.has_done_mark() {
-        context.try_write_final_report(config).await?;
-        context.store()?;
-
+    if context.is_done() {
         if let Some(parent) = context.parent {
-            context.remove_done_mark()?;
-            context.store()?;
             return Err(Error::SwitchContext(parent));
         }
 

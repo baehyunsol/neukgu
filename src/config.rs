@@ -103,7 +103,7 @@ impl Default for Config {
             user_response_timeout: 300,
             tool_permissions: default_tool_permissions(),
             run_permissions: HashMap::new(),
-            max_read_without_write: 6,
+            max_read_without_write: 10,
             command_max_timeout: 3 * 3600,
             etc_models: EtcModels::default(),
             init_git: false,

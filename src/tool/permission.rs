@@ -174,6 +174,7 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
             tools.push((ToolPermissionKind::Write, Some(output.to_string()), PermissionPreview::None));
         },
         ToolCall::Plan { .. } => {},
+        ToolCall::Done { .. } => {},
     }
 
     for (permission_kind, path, preview) in tools.into_iter() {

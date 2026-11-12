@@ -5,6 +5,7 @@ use crate::{
     Context,
     ContextJson,
     Error,
+    FinalReport,
     InterruptId,
     InterruptKind,
     LineDiff,
@@ -42,7 +43,6 @@ use ragit_fs::{
     FileError,
     WriteMode,
     basename,
-    exists,
     join,
     join3,
     join4,
@@ -172,7 +172,7 @@ pub struct FeContext {
     pub curr_tool_call_elapsed: Option<u64>,
     pub question_from_user: Option<String>,
     pub question_from_user_elapsed: Option<u64>,
-    pub writing_final_report: bool,
+    pub is_done: bool,
     pub config: Config,
     pub initialized_at: Instant,
     pub is_in_global_index_dir: bool,
@@ -213,8 +213,6 @@ pub static INTERRUPT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].
 pub static KILL_BACKEND_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+kill_backend.*").unwrap());
 pub static QUESTION_FROM_USER_START_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+question_from_user_start\((\d+\-\d+)\).*").unwrap());
 pub static QUESTION_FROM_USER_END_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+question_from_user_end.*").unwrap());
-pub static WRITE_FINAL_REPORT_START_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+write_final_report_start.*").unwrap());
-pub static WRITE_FINAL_REPORT_END_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\].+write_final_report_end.*").unwrap());
 
 impl FeContext {
     pub fn sync_with_be(&self) -> Result<(), Error> {
@@ -267,7 +265,6 @@ impl FeContext {
         let mut curr_tool_call_elapsed = None;
         let mut question_from_user = None;
         let mut question_from_user_elapsed = None;
-        let mut writing_final_report = false;
         let mut snapshots = HashSet::new();
         let mut truncated_context = None;
         let mut last_api_error = None;
@@ -275,7 +272,6 @@ impl FeContext {
         let mut in_turn = true;
         let mut in_session = true;
         let mut maybe_question = true;
-        let mut maybe_final_report = true;
 
         for log_line in log_lines.iter().rev() {
             // This is the end of a turn.
@@ -289,10 +285,6 @@ impl FeContext {
 
             else if QUESTION_FROM_USER_END_RE.is_match(log_line) {
                 maybe_question = false;
-            }
-
-            else if WRITE_FINAL_REPORT_END_RE.is_match(log_line) {
-                maybe_final_report = false;
             }
 
             else if in_session && in_turn && curr_tool_call.is_none() && let Some(cap) = TOOL_CALL_START_RE.captures(log_line) {
@@ -327,10 +319,6 @@ impl FeContext {
                 let (e, _) = load_log(&log_id, &log_dir)?;
                 question_from_user = Some(e);
                 question_from_user_elapsed = Some(calc_elapsed_ms(log_line));
-            }
-
-            else if maybe_final_report && in_session && in_turn && WRITE_FINAL_REPORT_START_RE.is_match(log_line) {
-                writing_final_report = true;
             }
         }
 
@@ -369,7 +357,7 @@ impl FeContext {
             curr_tool_call_elapsed,
             question_from_user,
             question_from_user_elapsed,
-            writing_final_report,
+            is_done: be_context.final_report != FinalReport::SessionNotDone,
             last_api_error,
             last_backend_error,
             hidden_turns: be_context.hidden_turns.clone(),
@@ -498,7 +486,7 @@ impl FeContext {
             "context: {} / {}, neukgu: {}{}",
             prettify_bytes(self.get_total_llm_bytes()),
             prettify_bytes(self.config.llm_context_max_len),
-            if self.is_paused().unwrap_or(false) || self.is_marked_done().unwrap_or(false) {
+            if self.is_paused().unwrap_or(false) || self.is_done {
                 "sleeping"
             } else if self.is_be_busy().unwrap_or(false) {
                 "healthy"
@@ -521,9 +509,7 @@ impl FeContext {
             format!("Paused")
         } else if let Some(question_from_user) = &self.question_from_user {
             format!("Question from user {:?} (processing, elapsed {})", truncate_chars(&question_from_user, 36), prettify_time(self.question_from_user_elapsed.unwrap()))
-        } else if self.writing_final_report {
-            format!("Writing the final report...")
-        } else if self.is_marked_done().unwrap_or(false) {
+        } else if self.is_done {
             format!("Neukgu has completed his job and is proud of his work!")
         } else if self.get_llm_request().unwrap_or(None).is_some() {
             format!("Neukgu is waiting for the user to answer his question.")
@@ -595,10 +581,6 @@ impl FeContext {
         }
 
         Ok(None)
-    }
-
-    pub fn is_marked_done(&self) -> Result<bool, Error> {
-        Ok(exists(&join3(&self.working_dir, "neukgu-logs", "done")?))
     }
 
     pub fn interrupt_be(&self) -> Result<(), Error> {

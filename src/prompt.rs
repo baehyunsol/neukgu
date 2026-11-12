@@ -341,6 +341,19 @@ C -> AST -> IR -> machine code -> ELF
 </content>
 </plan>
 "#),
+            ToolKind::Done => format!(r#"
+{index}. Done
+
+When you finish your task, use this tool to end the session. It will notify the user. If you're a sub-agent, it'll notify your parent agent.
+You must write a report explaining what you've done in this session.
+Your parent cannot see the session, they can only read the final report. So write the report with details.
+
+<done>
+<report>
+... your final report goes here ...
+</report>
+</done>
+"#),
         }
     }
 }
@@ -375,6 +388,20 @@ pub fn system_prompt(config: &Config, is_main_agent: bool, cwd: &str) -> String 
     // It invalidates the prompt cache everyday... but we can afford that!!
     let date = Local::now().to_rfc3339();
     let date = date.get(0..10).unwrap();
+    let os = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "mac"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "etc (other than linux/mac/windows)"
+    };
+    let ext_context = format!(r#"
+Today's date is {date}. Use this information only when necessary.
+The current working directory is `{cwd}`. Use this information only when necessary. Don't try to read/write files outside of the working directory, unless the user explicitly asks.
+The current enviroment's operating system is {os}. Use this information only when necessary.
+"#);
 
     let introduction = if config.orchestrator && is_main_agent {
 r#"You're neugku-orchestrator (늑구-orchestrator), an orchestrator for AI-coding agents.
@@ -388,7 +415,7 @@ Your working directory looks like this:
 1. `neukgu-logs/`: Whenever you have a new idea, fix a bug, or run an experiment, write a log in this directory. These logs are for you (the AI agent) to refer back to.
 2. `neukgu-bins/`: You can execute binaries in this directory. By default, you have `cargo`, `cc`, `python3`, `pip`, `rg` (ripgrep) and `git`.
 
-When you finish your task, after writing `neukgu-logs/done`, you'll be asked to write a final report. Your parent agent will read the final report. So make sure to write a detailed final-report.
+When you finish your task, use `<done>` tool to end your session.
 "#
 } else {
 r#"You're neukgu (늑구), an AI coding agent.
@@ -410,11 +437,11 @@ r#""You have to regularly write summaries of your work at `neukgu-logs/summary-X
 You can use {tool_count} tools to accomplish your task: {tool_concat}. You use XML syntax to call each tool. I'll explain each tool with examples.
 
 {write_summaries}
-When you're done, create a file `neukgu-logs/done`, and write your final summary there. Then I'll give you feedback.
+When you're done, use `<done>` tool to notify me. Please write a detailed final report with the tool. Then I'll give you feedback.
+
 When you write a summary, it must include 1) what you've done so far 2) what you've done since the last time you wrote a summary 3) what you've learnt so far 4) what you've learnt since the last time you wrote a summary and 5) what are the remaining things to do.
 
-Today's date is {date}. Use this information only when necessary.
-The current working directory is `{cwd}`. Use this information only when necessary. Don't try to read/write files outside of the working directory, unless the user explicitly asks.
+{ext_context}
 
 ---
 
@@ -516,29 +543,6 @@ Your answer here.
 ```
 
 **This format is strictly required.** There must always be an `<answer>` tag and a closing `</answer>` tag in your response, no exceptions. Failure to include them will cause a parsing error with no graceful fallback.
-"#)
-}
-
-pub fn final_report_system_prompt() -> String {
-    String::from(r#"
-You are a helper assistant for **neukgu (늑구)**, a general-purpose AI agent specialized in coding and computer-based tasks.
-
-## Your Role
-
-Neukgu has finished its job. You have to write a final report that summarizes the neukgu's work. The report will be read by the user or the parent-agent (the one who gave you the instructions).
-
-## Output Format
-
-1. Just output the final report. Don't say anything else.
-2. The final report has to include
-  - Brief summary of the instruction: list the tasks that you're instructed to do.
-  - Whether or not you successfully accomplished each task.
-  - How you tried each task.
-  - Brief summary of tool-calls, especially what files you've written/edited.
-
-## Persona
-
-**Answer as if you are neukgu.** Speak in the first person, as though you are neukgu yourself. For example, say *"I edited foo.py and bar.py"* — not *"neukgu edited foo.py and bar.py"*.
 "#)
 }
 

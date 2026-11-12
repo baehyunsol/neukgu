@@ -474,6 +474,9 @@
     - 몇몇 dependency 빠져도 돌아가게 하기?
     - dependency 빠진 거 있으면 session 시작할 때 알려주기?
   - `/tmp/neukgu/` -> 이것도 windows에선 못 쓰잖아 ㅋㅋㅋ
+203. Press Ctrl+Down in the permission popup to scroll to bottom
+204. If the LLM is trying to run an invalid command (e.g. find, ls, cd, ...), it shouldn't ask for permission... it's soooooo annoying!!
+205. When the agent used the `<done>` tool, I want there to be a popup with the report.
 
 ## mock API
 
@@ -495,3 +498,4 @@ echo "spawning gui...";
 ## Real API
 
 run `sample_instructions/check-ai-api.md`
+

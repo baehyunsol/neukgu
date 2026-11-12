@@ -12,7 +12,6 @@ use crate::{
     Request,
     Thinking,
     ToolCallSuccess,
-    ToolKind,
     Turn,
     TurnId,
     TurnKind,
@@ -23,8 +22,6 @@ use crate::{
     get_global_index_dir,
     hash_bytes,
     init_and_load_available_binaries,
-    prettify_time,
-    prompt,
     request,
     revert_mock_state,
     system_prompt,
@@ -32,13 +29,11 @@ use crate::{
 use ragit_fs::{
     WriteMode,
     copy_file,
-    exists,
     into_abs_path,
     join3,
     join4,
     normalize,
     read_string,
-    remove_file,
     write_string,
 };
 use serde::{Deserialize, Serialize};
@@ -98,12 +93,7 @@ pub struct Context {
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,  // never hidden
     pub is_in_global_index_dir: bool,
-    pub has_to_remove_done_mark: bool,
-
-    // After the agent marks `neukgu-logs/done`, a small agent will write a final report
-    // that summaries the session.
     pub final_report: FinalReport,
-
     pub updated_at: i64,
 
     // in-memory data structures
@@ -130,7 +120,6 @@ pub struct ContextJson {
     pub hidden_turns: HashSet<TurnId>,
     pub pinned_turns: HashSet<TurnId>,
     pub is_in_global_index_dir: bool,
-    pub has_to_remove_done_mark: bool,
     pub final_report: FinalReport,
     pub updated_at: i64,
 }
@@ -182,7 +171,6 @@ impl Context {
             is_in_global_index_dir,
             available_binaries,
             global_index_dir,
-            has_to_remove_done_mark: false,
             final_report: FinalReport::SessionNotDone,
             updated_at: Local::now().timestamp_millis(),
             logger,
@@ -218,7 +206,6 @@ impl Context {
             hidden_turns: context_json.hidden_turns.clone(),
             pinned_turns: context_json.pinned_turns.clone(),
             is_in_global_index_dir: context_json.is_in_global_index_dir,
-            has_to_remove_done_mark: context_json.has_to_remove_done_mark,
             final_report: context_json.final_report.clone(),
             updated_at: context_json.updated_at,
             ..Context::new(working_dir, None, String::new(), None, None, false, None)?
@@ -258,49 +245,9 @@ impl Context {
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
             is_in_global_index_dir: self.is_in_global_index_dir,
-            has_to_remove_done_mark: self.has_to_remove_done_mark,
             final_report: self.final_report.clone(),
             updated_at: self.updated_at,
         }
-    }
-
-    pub fn remove_done_mark(&self) -> Result<(), Error> {
-        remove_file(&join3(&self.working_dir, "neukgu-logs", "done")?)?;
-        Ok(())
-    }
-
-    pub async fn try_write_final_report(&mut self, config: &Config) -> Result<(), Error> {
-        if self.final_report != FinalReport::SessionNotDone {
-            return Ok(());
-        }
-
-        self.logger.log(LogEntry::WriteFinalReportStart)?;
-        let (mut history, mut last_turn) = self.get_context_llm_tokens(config)?;
-        last_turn.push(LLMToken::String(String::from("\n\nNow I want you to write the final report. Before writing the report, I'll give you a brief summary of the current session. Use this informatio if necessary.")));
-        history.push(request::Turn {
-            query: last_turn,
-            response: String::from("Okay, give me the summary, then I'll write the final report"),
-        });
-        let request = Request {
-            model: config.agents.small,
-            system_prompt: prompt::final_report_system_prompt(),
-            history,
-            query: vec![LLMToken::String(self.summary_for_final_report(config)?)],
-            enable_web_search: false,
-            thinking: Thinking::Disabled,
-        };
-
-        match request.request(&config.request_config(), &self.working_dir, true, &self.logger).await {
-            Ok(response) => {
-                self.final_report = FinalReport::Report(response.response);
-            },
-            Err(e) => {
-                self.final_report = FinalReport::Error(format!("{e:?}"));
-            },
-        }
-
-        self.logger.log(LogEntry::WriteFinalReportEnd)?;
-        Ok(())
     }
 
     pub fn start_turn(
@@ -344,6 +291,10 @@ impl Context {
         let new_turn_id = new_turn_summary.id.clone();
         self.history.push(new_turn_summary);
         Ok(new_turn_id)
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.final_report != FinalReport::SessionNotDone
     }
 
     pub fn discard_previous_turn(&mut self) {
@@ -391,7 +342,7 @@ impl Context {
     // 2. The LLM is gonna do this anyway, so we can save time and cost by skipping
     //    the LLM api.
     //
-    // # 2. Remove `logs/done`
+    // # 2. (It's used to remove a done mark, but there are no done marks anymore!)
     pub fn get_fake_turn(&mut self, is_orchestrator: bool) -> Option<(String, TurnKind, Option<TurnResult>)> {
         let session_starts: Vec<&TurnSummary> = self.history.iter().filter(
             |turn| turn.kind == TurnKind::SessionStart
@@ -399,7 +350,7 @@ impl Context {
         let turn_result = TurnResult::ToolCallSuccess(ToolCallSuccess::Ask { to: AskTo::User, answer: UserAnswer::FreeText(self.instruction.to_string()) });
 
         match (session_starts.len(), is_orchestrator) {
-            (0, true) => return Some((
+            (0, true) => Some((
                 String::from(
 "Okay, let me start with asking the user what they want.
 <ask>
@@ -423,7 +374,7 @@ impl Context {
             )),
             (1, false) => match session_starts[0].result {
                 TurnResultSummary::ParseError => unreachable!(),
-                TurnResultSummary::ToolCallError => return Some((
+                TurnResultSummary::ToolCallError => Some((
                     String::from(
 "Okay, I can't get the list of files in the working directory. Let me just ask what the user wants.
 <ask>
@@ -435,7 +386,7 @@ impl Context {
                     TurnKind::SessionStart,
                     Some(turn_result),
                 )),
-                TurnResultSummary::ToolCallSuccess => return Some((
+                TurnResultSummary::ToolCallSuccess => Some((
                     String::from(
 "Okay, I see the files. Let me ask what the user wants.
 <ask>
@@ -448,25 +399,7 @@ impl Context {
                     Some(turn_result),
                 )),
             },
-            _ => {},
-        }
-
-        if self.has_to_remove_done_mark {
-            self.has_to_remove_done_mark = false;
-            Some((
-                String::from("
-Let me remove `neukgu-logs/done` and continue working.
-<remove>
-<path>neukgu-logs/done</path>
-</remove>
-                "),
-                TurnKind::RemoveDoneMark,
-                None,
-            ))
-        }
-
-        else {
-            None
+            _ => None,
         }
     }
 
@@ -619,75 +552,6 @@ Let me remove `neukgu-logs/done` and continue working.
         let query = llm_turns.pop().unwrap().query;
         Ok((llm_turns, query))
     }
-
-    pub fn has_done_mark(&self) -> bool {
-        let done_mark_at = &join3(&self.working_dir, "neukgu-logs", "done").unwrap();
-        !self.has_to_remove_done_mark && exists(&done_mark_at)
-    }
-
-    // 1. The number of tool-calls: visible in context vs all
-    // 2. write/edited files: logs / others
-    pub(crate) fn summary_for_final_report(&mut self, config: &Config) -> Result<String, Error> {
-        let all_turns = self.history.to_vec();
-        let tool_calls = all_turns.iter().filter(|t| t.result == TurnResultSummary::ToolCallSuccess).count();
-        let failed_tool_calls = all_turns.len() - tool_calls;
-        let visible_turns: Vec<TurnSummary> = self.fit_history_to_context(config).into_iter().map(|(t, _)| t).collect();
-        let visible_tool_calls = visible_turns.iter().filter(|t| t.result == TurnResultSummary::ToolCallSuccess).count();
-
-        let tool_call_summary = {
-            struct ToolCallSummary {
-                elapsed_ms: u64,
-                succ: usize,
-                fail: usize,
-            }
-
-            let mut result: HashMap<ToolKind, ToolCallSummary> = ToolKind::all().iter().map(
-                |tool| (*tool, ToolCallSummary { elapsed_ms: 0, succ: 0, fail: 0 })
-            ).collect();
-
-            for turn in all_turns.iter() {
-                let turn = self.load_turn(&turn.id)?;
-
-                if let Some(ParsedSegment { tool: Some(tool), .. }) = &turn.parse_result {
-                    let succ = matches!(turn.turn_result, TurnResult::ToolCallSuccess(_));
-                    let kind = tool.kind();
-                    let summary = result.get_mut(&kind).unwrap();
-                    summary.elapsed_ms += turn.tool_elapsed_ms;
-
-                    if succ {
-                        summary.succ += 1;
-                    } else {
-                        summary.fail += 1;
-                    }
-                }
-            }
-
-            let result: Vec<(ToolKind, ToolCallSummary)> = ToolKind::all().iter().map(
-                |k| (*k, result.remove(k).unwrap())
-            ).collect();
-            format!(
-                "Tool call summary (some tools may not be activated in this session. Do not mention the unused tools in the final report)\n{}",
-                result.iter().map(
-                    |(kind, summary)| format!(
-                        "- {}\n  - called {} time{} (success: {}, fail: {})\n  - total elapsed time: {}",
-                        kind.tag_name(),
-                        summary.succ + summary.fail,
-                        if summary.succ + summary.fail == 1 { "" } else { "s" },
-                        summary.succ,
-                        summary.fail,
-                        prettify_time(summary.elapsed_ms),
-                    )
-                ).collect::<Vec<_>>().join("\n"),
-            )
-        };
-
-        Ok(format!("
-Total tool calls: {tool_calls} ({visible_tool_calls} tool calls visible in context, {failed_tool_calls} failed tool call{})
-{tool_call_summary}
-",
-            if failed_tool_calls == 1 { "" } else { "s" },
-        ))
-    }
 }
 
 fn count_llm_context_len(turns: &[(TurnSummary, bool)]) -> u64 {
@@ -752,3 +616,4 @@ impl FinalReport {
         self != &FinalReport::SessionNotDone
     }
 }
+
