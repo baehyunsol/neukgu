@@ -55,8 +55,8 @@ impl IcedContext {
                     local: local_context,
                 }
             },
-            Tab::Chat(id) => {
-                let local_context = match ChatContext::new(home_dir, id, api_keys.clone(), window_size) {
+            Tab::Chat { id, find } => {
+                let local_context = match ChatContext::new(home_dir, id, find, api_keys.clone(), window_size) {
                     Ok(c) => LocalContext::Chat(c),
                     Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
                 };

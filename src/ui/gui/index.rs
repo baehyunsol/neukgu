@@ -643,7 +643,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             let chat_title = if chat_title.is_empty() { None } else { Some(chat_title) };
             let chat_id = init_chat(chat_title, context.new_chat_config.clone(), &context.global_index_dir)?;
             return Ok(Task::batch(vec![
-                Task::done(IcedMessage::NewTab { tab: Tab::Chat(chat_id), force_new_tab: true }),
+                Task::done(IcedMessage::NewTab { tab: Tab::Chat { id: chat_id, find: None }, force_new_tab: true }),
                 Task::done(IcedMessage::ClosePopup),
             ]));
         },
@@ -1431,7 +1431,7 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let column: Vec<Element<IcedMessage>> = context.recent_chats.iter().map(
         |chat| {
             let buttons = vec![
-                button("Open", IcedMessage::NewTab { tab: Tab::Chat(chat.id), force_new_tab: false }, green(), context.zoom),
+                button("Open", IcedMessage::NewTab { tab: Tab::Chat { id: chat.id, find: None }, force_new_tab: false }, green(), context.zoom),
                 button("Config", IcedMessage::OpenPopup {
                     curr: Popup::ExistingChatConfig(chat.id),
                     prev: None,

@@ -134,10 +134,20 @@ pub struct IcedContext {
 }
 
 impl IcedContext {
-    pub fn new(home_dir: &str, chat_id: ChatId, api_keys: HashMap<String, String>, window_size: Size) -> Result<IcedContext, Error> {
+    pub fn new(
+        home_dir: &str,
+        chat_id: ChatId,
+        find: Option<String>,
+        api_keys: HashMap<String, String>,
+        window_size: Size,
+    ) -> Result<IcedContext, Error> {
         let global_index_dir = get_global_index_dir()?;
         let working_dir = join3(&global_index_dir, "chats", &format!("{:016x}", chat_id.0))?;
         let chat = Chat::load(chat_id, &global_index_dir)?;
+        let find_pattern = match &find {
+            Some(f) => Regex::new(f).ok().map(|re| (f.to_string(), re)),
+            None => None,
+        };
         let missing_api_keys = get_missing_api_keys(&api_keys, chat.config.model);
         let mut curr_popup = None;
 
@@ -166,7 +176,7 @@ impl IcedContext {
             chat_input_id: Id::unique(),
             short_text_editor_id: Id::unique(),
             chat_view_scrolled: AbsoluteOffset { x: 0.0, y: 0.0 },
-            find_pattern: None,
+            find_pattern,
             find_result: HashMap::new(),
             loaded_logs: None,
             loaded_token_usage: None,
@@ -188,6 +198,10 @@ impl IcedContext {
 
         if let Some(unfinished_chat) = chat.unfinished_chat {
             context.fill_turn(unfinished_chat);
+        }
+
+        if find.is_some() {
+            context.update_find_result();
         }
 
         Ok(context)

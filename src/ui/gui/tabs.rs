@@ -372,7 +372,8 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
                             }
                         }
                     },
-                    Tab::Chat(id) => {
+                    // FIXME: it ignores the pattern when the tab is already open...
+                    Tab::Chat { id, find: _ } => {
                         for (i, tab) in context.tabs.iter().enumerate() {
                             if let TabContext { local: LocalContext::Chat(c), .. } = tab {
                                 if c.chat.id == *id {
