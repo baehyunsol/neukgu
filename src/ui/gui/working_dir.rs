@@ -259,6 +259,7 @@ pub struct IcedContext {
     pub interrupt_kind: InterruptKind,
     pub interrupt_from_user: Option<(InterruptId, InterruptKind, String)>,
     pub llm_request: Option<(InterruptId, QuestionToUser)>,
+    pub show_llm_request: bool,  // TODO: make it configurable
     pub processed_llm_requests: HashSet<InterruptId>,
     pub user_response: Option<(InterruptId, UserResponse)>,
 }
@@ -333,6 +334,7 @@ impl IcedContext {
             interrupt_kind: InterruptKind::Instruction,
             interrupt_from_user: None,
             llm_request: None,
+            show_llm_request: true,
             processed_llm_requests: HashSet::new(),
             user_response: None,
         })
@@ -932,7 +934,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
                 }
 
-                else if ctrl && context.curr_popup.is_some() {
+                else if ctrl && (context.curr_popup.is_some() || context.llm_request.is_some() && context.show_llm_request) {
                     return Ok(snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 0.0 }));
                 }
             },
@@ -942,7 +944,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(scroll_to(context.turn_view_id.clone(), AbsoluteOffset { x: 0.0, y: scroll_offset }));
                 }
 
-                else if ctrl && context.curr_popup.is_some() {
+                else if ctrl && (context.curr_popup.is_some() || context.llm_request.is_some() && context.show_llm_request) {
                     return Ok(snap_to(context.popup_scroll_id.clone(), RelativeOffset { x: 0.0, y: 1.0 }));
                 }
             },
@@ -1510,7 +1512,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).into();
     }
 
-    else if context.llm_request.is_some() {
+    else if context.llm_request.is_some() && context.show_llm_request {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             render_ask_to_user_popup(context),
@@ -2492,3 +2494,4 @@ fn get_missing_api_keys(api_keys: &HashMap<String, String>, config: &Config) -> 
     missing_api_keys.sort_by_key(|(key, _)| key.to_string());
     missing_api_keys
 }
+
