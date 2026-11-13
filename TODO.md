@@ -362,65 +362,19 @@
     - revert: unstaged blob을 갖고 온 다음에 `apply(revert(hunk))` 하고 그걸 저장
   - file_a나 file_b가 None인 경우도 생각해야함 (파일 추가/삭제). file_a나 file_b가 다른 경우는... (파일 이동)
 190. AI가 질문을 더 자주하는 모드를 만들까?
-191. Sub-agents (관련 이슈 여기에 다시 정리)
-  - Worktree나 parallel agent는 구현 안할 거임. sub-agent의 목적은 context 절약밖에 없음.
-  - Agent는 새로운 sub-agent를 띄우거나, 기존의 sub-agent를 resume할 수 있음.
-    - 기존의 sub-agent를 지칭하는 거는 쉬움, random id를 부여한 다음에 tool-call-success에다가 적어줘도 되고, ai가 직접 sub-agent의 이름을 지으라고 해도 됨. AI가 이름 짓는게 인간에게나 AI한테나 인지적으로 더 좋을 수 있음. 근데 혹시나 이름이 겹칠까봐 걱정...
-    - 기존의 sub-agent를 resume 하려면 새로운 instruction을 주입해야할텐데, 그걸 어떤 모양으로 주입하지? -> logs/done 뒤에다가 user-instruction 넣는 거랑 똑같은 모양으로 하면 되지!!
-  - Sub-agent를 나타내는 context의 schema도 정해야하고, 확인할 GUI도 만들어야함
-    - Reset 버튼을 누르면 이 schema와 GUI를 활용하게 하자, 그럼 오래된 session을 볼 수 있는 view가 생김!!
-  - Sub-agent가 끝나면 (logs/done 작성), 자동으로 parent agent로 context가 넘어감: parent에게 넘길 정보를 어떻게 작성하지... logs/done을 그대로 쓸까? 아니면 parent에게 넘길 정보를 작성할 agent를 따로 만들까?
-    - sub-agent가 logs/done을 쓰면, 자동 interrupt를 넣어서 final report를 쓰라고 시키자.
-  - `<agent>` tool을 호출하면, 어느 시점에 context가 넘어가? 얘도 tool-call-start에서 `<agent>`를 호출하고, 그 결과를 tool-call-end에다가 집어넣어야하는데, 그러면 sub-agent의 context는 누가 돌려? 별도 프로세스를 만들어? 그건 너무 과한데... 아니면 reset이랑 완전 동일하게 처리? 그대신 logs/done이 생기면 어느 context로 돌아갈지만 기록해두면 되지!!
-    - reset 버튼을 누르는 거랑, sub-agent를 만드는 거랑 동일한 함수를 사용함: context.json을 새로 만들고, 기존의 context.json은 지정된 장소에 보관. 이제 context.json에는 `parent_context`라는 개념이 추가됨. 만약 logs/done을 썼을 때 parent_context가 존재한다면 저 context로 넘어감!
-    - `tool.run()`을 하는 순간 이게 어떻게 돌지? 일단 context.json을 갈아끼우는 거는 구현했음 (`reset_working_dir` 재사용).
-    - Agent가 돌기 전에
-  - sub-agent가 ask-question-to-user를 하면 그거를 user한테 줘야해 parent-agent한테 줘야해?
-  - 구현하려고 하니까... neukgu-instruction.md랑 logs/done을 어떻게 할지만 고민하면 될 듯
-    - 기존의 neukgu-instruction.md를 어딘가에 보관을 해두고 instruction을 새로 쓰면 됨.
-      - 보관을 어디에다가 해? 이걸 보관하는 주체가 sub-agent가 될지 parent-agent가 될지도 문제임. 걍 sub-agent가 보관을 하고, sub-agent가 작업을 끝내면 context를 넘겨주면서 동시에 neukgu-instruction도 복원하면 되지 않을까??
-    - sub-agent가 logs/done를 만들면 그 내용을 tool-call-result에 저장하고 logs/done은 삭제해버리면 됨!
-      - 나중에 이 sub-agent를 깨우면... logs/done을 삭제하는 tool-call을 넣을 거잖아? 그건 어떻게 되는 겨?
-    - 사실 neukgu-instruction.md와 logs/done은 일반적인 파일이 아님. 얘네를 실제 파일을 사용하려고 하니까 자꾸 애로사항이 생기는 듯?
-      - 얘네를 파일말고 다른 방법을 쓰려면... 그럼 tool을 새로 만들어야 하는데? ㅠㅠ
-      - 일단 neukgu-instruction을 없앨까? 이거는 갈수록 비효율이 쌓이고 있음. 걍 첫번째 turn은 `<read>.</read>`를 유지하고 두번째 turn에 ask-user-question으로 "what do you want me to do?"한 다음에 instruction을 넣어버리면 될 듯?
-  - 프롬프트: sub-agent가 필요한 상황들을 미리 hard-coding을 해 놓을까?
-    - sub-agent 필요한 경우 1: 해야하는 작업이 여러개인데, 각각의 작업이 여러 턴을 사용해야하고, 각 작업이 서로에게 무관한 경우 (e.g. 문서 N개를 각각 리뷰)
-    - sub-agent 필요한 경우 2: 무언가를 구현했으면 그걸 test하는 agent를 만들어서 테스트하기. 이 경우는 아예 프롬프트에 못 박아두자!!
-    - sub-agent 필요한 경우 3: 일을 명확하게 step을 나눠서 줬고, 각 step이 의존성이 약한 경우... 이걸 어떻게 설명하지? 사실 설명이 문제가 아니고 나도 정확하게 기준을 모르겠어서 문제임 ㅋㅋ
-    - sub-agent 필요한 경우 4: 사용자가 명시적으로 sub-agent를 요청한 경우
-    - ClaudeCode, Codex, OpenCode, OpenHarness의 프롬프트 참고
-      - ClaudeCode: "Launch a new agent to handle complex, multi-step tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)\n- claude-code-guide: Use this agent when the user asks questions (\"Can Claude...\", \"Does Claude...\", \"How do I...\") about: (1) Claude Code (the CLI tool) - features, hooks, slash commands, MCP servers, settings, IDE integrations, keyboard shortcuts; (2) Claude Agent SDK - building custom agents; (3) Claude API (formerly Anthropic API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed claude-code-guide agent that you can continue via SendMessage. (Tools: Bash, Read, WebFetch, WebSearch)\n- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: \"medium\" for moderate exploration, \"very thorough\" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)\n- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)\n- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)\n- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)\n\nWhen using the Agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used.\n\n## When to use\n\nReach for this when the task matches an available agent type, when you have independent work to run in parallel, or when answering would mean reading across several files — delegate it and you keep the conclusion, not the file dumps. For a single-fact lookup where you already know the file, symbol, or value, search directly. Once you've delegated a search, don't also run it yourself — wait for the result.\n\n- The agent's final message is returned to you as the tool result; it is not shown to the user — relay what matters.\n- Use SendMessage with the agent's ID or name to continue a previously spawned agent with its context intact; a new Agent call starts fresh.\n- `isolation: \"worktree\"` gives the agent its own git worktree (auto-cleaned if unchanged).\n- `run_in_background: true` runs the agent asynchronously; you'll be notified when it completes.\n- When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently"
-      - Codex (프롬프트가 여러 조각임)
-        - "Spawns an agent to work on the specified task. If your current task is `/root/task1` and you spawn_agent with task_name "task_3" the agent will have canonical task name `/root/task1/task_3`.
-        You are then able to refer to this agent as `task_3` or `/root/task1/task_3` interchangeably. However an agent `/root/task2/task_3` would only be able to communicate with this agent via its canonical name `/root/task1/task_3`.\nThe spawned agent will have the same tools as you and the ability to spawn its own subagents.\n{inherited_model_guidance}\nOnly call this tool for a concrete, bounded subtask that can run independently alongside useful local work; otherwise continue locally.\nIt will be able to send you and other running agents messages, and its final answer will be provided to you when it finishes.\nThe new agent's canonical task name will be provided to it along with the message.\n\nNote that passing `fork_turns=\"none\"` will not pass any surrounding context to the spawned subagent, which may cause the agent to lack the context it needs to complete its task, whereas `fork_turns=\"all\"` will provide the subagent with all surrounding context."
-        - "- Subtasks must be concrete, well-defined, and self-contained.\n- Delegated subtasks must materially advance the main task.\n- Do not duplicate work between the main rollout and delegated subtasks.\n- For code-edit subtasks, decompose work so each delegated task has a disjoint write set.\n- Call wait_agent very sparingly. Only call wait_agent when you need the result immediately for the next critical-path step and you are blocked until it returns.\n- While the subagent is running in the background, do meaningful non-overlapping work immediately."
-      - OpenCode: "Launch a new agent to handle complex, multistep tasks autonomously.\n\nWhen using the Task tool, you must specify a subagent_type parameter to select which agent type to use.\n\nWhen NOT to use the Task tool:\n- If you want to read a specific file path, use the Read or Glob tool instead of the Task tool, to find the match more quickly\n- If you are searching for a specific class definition like "class Foo", use the Grep tool instead, to find the match more quickly\n- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly\n- If no available agent is a good fit for the task, use other tools directly\n\n\nUsage notes:\n1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses\n2. Once you have delegated work to an agent, do not duplicate that work yourself. Continue with non-overlapping tasks, or wait for the result. For background tasks, you will be notified automatically when the result is ready.\n3. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result. The output includes a task_id you can reuse later to continue the same subagent session.\n4. Each agent invocation starts with a fresh context unless you provide task_id to resume the same subagent session (which continues with its previous messages and tool outputs). When starting fresh, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.\n5. The agent's outputs should generally be trusted\n6. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).\n7. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement."
-      - OpenHarness: "# Delegation And Subagents\n\nOpenHarness can delegate background work with the `agent` tool.\nUse it when the user explicitly asks for a subagent, background worker, or parallel investigation,\nor when the task clearly benefits from splitting off a focused worker.\n\nDefault pattern:\n- Spawn with `agent(description=..., prompt=..., subagent_type=\"worker\")`.\n- Inspect running or recorded workers with `/agents`.\n- Inspect one worker in detail with `/agents show TASK_ID`.\n- Send follow-up instructions with `send_message(task_id=..., message=...)`.\n- Read worker output with `task_output(task_id=...)`.\n\nPrefer a normal direct answer for simple tasks. Use subagents only when they materially help."
-    - 요약
-      - 기본적으로, sub-agent가 다 parallel하게 돌게 돼 있네. parallel하게 돌다가 작업 끝나면 메시지 전송하는 방식!!
-      - pre-built agent가 있고 그 안에서 고르라고 권장을 하네. 나도 몇개 만들어놔야하나...
-      - sub-agent를 써야하는 상황에 대해서 심하게 제약을 두지는 않네. 내가 너무 보수적으로 접근하고 있나 ㅠㅠ
 192. 지금은 user-interrupt가 있으면 무조건 "Do you have any feedbacks?"로 시작하게 돼 있잖아? 이걸 좀 보강을 해야함... 예를 들면 interrupt 이전 turn의 tool-result의 마지막에다가 "NOTE: You have a message from the user"라는 걸 추가를 하면 ... 더 좋지 않을까?
 193. glob pattern을 검색하는 tool도 주고 싶음
   - 사실 rg에서도 glob을 쓸 수 있는데 얘가 굳이 안 쓰고 있음. 보니까 대부분 python 짜서 그 안에서 glob 검색하더라
   - ls나 exa를 주려고하다가... 생각해보니까 glob은 shell에서 처리하지 ls/exa가 처리하는게 아니잖아!
   - 걍 glob이라는 tool을 내가 만들어서 넣어버릴까? 이미 GUI에서 glob을 구현해뒀기 때문에 refactoring만 조금 하면 됨
 194. session이라는 용어와 context라는 용어가 혼용되고 있음...
-  - `logs/done`의 이름도 통일하고 싶음. 지금은 done_mark, final_report 등의 용어가 혼용되는 중
 195. sub-agent 남은 issue들
   - sub-agent가 돌고 있는 상태에서 index tab에서 instruction을 누르면 사용자가 준 instruction이 안 보이고 sub-agent의 instruction이 보임 -> 사실 이거는 뭐가 맞는지 모르겠음 ㅠㅠ
   - sub-agent를 볼 GUI를 보강해야함...
-  - sub-agent한테는 system prompt를 조금 다르게 줘야하지 않을까...
-  - sub-agent가 `logs/done`을 쓰면 그 다음 turn에 추가로 prompt를 줘서 final-report를 받아내자
-    - instruction이 뭐였는지, 어떻게 했는지, 성공했는지, ...
-    - 이거는 tool과 별개로 주자. 지금도 question을 하면 아예 별개의 context를 만들어서 answer만 뽑아내잖아? 그것처럼 아예 별개의 context를 만들어서 final-report만 뽑아내자
-      - 이 context에는 session 요약도 들어감. tool call 요약, elapsed time, file write 요약...
   - sub-agent가 돌고 있을 때 user가 개입해서 강제로 sub-agent를 끝낼 방법도 필요함
     - 사실 지금도 가능은 함: instruction을 넣어서 나가라고 하면 됨...
     - 조금 더 편한 방법을 쓰자면, instruction에다가 sub-agent를 끝내는 이유를 적고 버튼을 누르면
-      - 자동으로 logs/done이 생성
-      - logs/done에는 사용자가 적은 이유와 함께 그동안 sub-agent가 했던 일들의 요약 (e.g. 무슨 파일을 썼고...)이 들어감
+      - neukgu will write a final report, combining the context and the user-given reason, and quit
 196. 늑구를 좀더 agentic하게 쓰는 경우 3개를 생각해보는 중: psd-rs, Sodigy, wedding
   - 간단한 workflow
     - psd-rs
@@ -454,19 +408,10 @@
   - session 끝나면 정리
     - 지금 reset button이랑 똑같이 구현하면 될 듯?
     - `logs/`를 초기화하는게 나으려나... 그럼 걍 reset button에다가 "reset logs"라는 옵션을 추가할까??
-197. `logs/`랑 `bins/`라고 하면 다른 프로그램들하고 충돌할 여지가 있으니까 `neukgu-logs/`랑 `neukgu-bins/`라고 하는 거 ㅇㄸ?
-198. `--git-init` option for `neukgu init` and `neukgu new`
-  - if `.git` doesn't exist, run `git init`
-  - add `.neukgu/`, `neukgu-logs/` and `neukgu-bins/` to `.gitignore`
 199. run neukgu even if some dependencies are missing
   - it checks dependencies (git, cargo, python, ...) when launching a new session
     - if a binary is enabled but not installed, it doesn't launch the session
   - but if neukgu is only for me... I will always have the dependencies, right?
-200. system info in the prompt
-  - we're already telling the date in the prompt, so we can just provide a bit more information
-  - OS, ... and what else?
-201. Orchestrator mode
-  - I've implemented this... but if the orchestrator cannot write anything, how can it write `neukgu-logs/done`?
 202. Neukgu on Windows
   - 이거 issue 이미 있지 않음?
   - 아마 `.exe` 안 붙어서 깨지는 거 엄청 많을 듯?
@@ -482,17 +427,17 @@
 
 ```nu
 cd ~/Documents/Rust/neukgu;
-cargo build;
+cargo build --release;
 cd ~/Documents;
 rm -rf ttt;
 rm -rf tttt;
 echo "initializing ttt...";
-~/Documents/Rust/neukgu/target/debug/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
+~/Documents/Rust/neukgu/target/release/neukgu new ttt --model=mock --instruction="Well... I am not sure hahaha";
 echo "initializing tttt...";
-~/Documents/Rust/neukgu/target/debug/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
+~/Documents/Rust/neukgu/target/release/neukgu new tttt --model=mock --instruction="Well... I have no idea hahaha";
 cd ~/Documents/Rust/neukgu;
 echo "spawning gui...";
-~/Documents/Rust/neukgu/target/debug/neukgu gui ~/Documents/ttt;
+~/Documents/Rust/neukgu/target/release/neukgu gui ~/Documents/ttt;
 ```
 
 ## Real API
