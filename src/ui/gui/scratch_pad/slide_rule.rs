@@ -1,4 +1,4 @@
-use super::{black, blue, button, gold};
+use super::{black, blue, button, gold, slider_style};
 use iced::{Background, Color, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::widget::{Column, Row, Slider, text};
@@ -171,13 +171,13 @@ pub fn view<'c>(context: &'c IcedContext, window_size: Size, zoom: f32) -> Eleme
         text!("add: {}, sub: {}", render_f64(pv0 + pv1), render_f64(pv0 - pv1)).color(black()).size(zoom * 14.0).into(),
         text!("{ruler}").color(black()).size(zoom * 14.0).into(),
         text!("left: coarse").color(black()).size(zoom * 14.0).into(),
-        Slider::new(0..=71, context.child_coarse, IcedMessage::ChildCoarse).width(zoom * 360.0).into(),
+        Slider::new(0..=71, context.child_coarse, IcedMessage::ChildCoarse).width(zoom * 360.0).style(move |_, status| slider_style(status, zoom)).into(),
         text!("left: fine").color(black()).size(zoom * 14.0).into(),
-        Slider::new(0..=71, context.child_fine, IcedMessage::ChildFine).width(zoom * 360.0).into(),
+        Slider::new(0..=71, context.child_fine, IcedMessage::ChildFine).width(zoom * 360.0).style(move |_, status| slider_style(status, zoom)).into(),
         text!("both: coarse").color(black()).size(zoom * 14.0).into(),
-        Slider::new(0..=71, context.cursor_coarse, IcedMessage::CursorCoarse).width(zoom * 360.0).into(),
+        Slider::new(0..=71, context.cursor_coarse, IcedMessage::CursorCoarse).width(zoom * 360.0).style(move |_, status| slider_style(status, zoom)).into(),
         text!("both: fine").color(black()).size(zoom * 14.0).into(),
-        Slider::new(0..=71, context.cursor_fine, IcedMessage::CursorFine).width(zoom * 360.0).into(),
+        Slider::new(0..=71, context.cursor_fine, IcedMessage::CursorFine).width(zoom * 360.0).style(move |_, status| slider_style(status, zoom)).into(),
     ];
 
     if context.parent_kind == RulerKind::Sin2x || context.child_kind == RulerKind::Sin2x {
@@ -217,3 +217,4 @@ fn render_f64(n: f64) -> String {
         format!("{n:.2}")
     }
 }
+

@@ -5,10 +5,12 @@ use super::{
     black,
     blue,
     button,
+    checkbox_style,
     disabled_button,
     gray,
     green,
     pink,
+    radio_style,
     red,
     set_bg,
     set_round_bg,
@@ -1488,11 +1490,13 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
                     .spacing(context.zoom * 8.0)
                     .text_size(context.zoom * 16.0)
                     .size(context.zoom * 16.0)
+                    .style(radio_style)
                     .into(),
                 Radio::new("question", InterruptKind::Question, Some(context.interrupt_kind), IcedMessage::SetInterruptKind)
                     .spacing(context.zoom * 8.0)
                     .text_size(context.zoom * 16.0)
                     .size(context.zoom * 16.0)
+                    .style(radio_style)
                     .into(),
             ])
                 .spacing(context.zoom * 8.0)
@@ -1659,6 +1663,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
                 .on_toggle(IcedMessage::ToggleOrchestrator)
                 .size(context.zoom * 14.0)
                 .text_size(context.zoom * 14.0)
+                .style(checkbox_style)
                 .into(),
             button("Reset", IcedMessage::ResetNeukgu, green(), context.zoom).padding(context.zoom * 20.0).into(),
         ])
@@ -1703,7 +1708,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     else if let Some(Popup::AskRollBack { id, title }) = &context.curr_popup {
         let q = Column::from_vec(vec![
-            text!("Roll back to {title}?").size(context.zoom * 14.0).into(),
+            text!("Roll back to {title}?").size(context.zoom * 14.0).color(white()).into(),
             button("(Y)es", IcedMessage::RollBackNeukgu(id.clone()), green(), context.zoom).padding(context.zoom * 20.0).into(),
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
@@ -1714,7 +1719,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
     else if let Some(Popup::AskQuit) = context.curr_popup {
         let q = Column::from_vec(vec![
-            text!("Quit session?").size(context.zoom * 14.0).into(),
+            text!("Quit session?").size(context.zoom * 14.0).color(white()).into(),
             button("(Y)es", IcedMessage::KillBeProcess, green(), context.zoom).padding(context.zoom * 20.0).into(),
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
@@ -1839,9 +1844,9 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
             p.preview_title_truncated.get(*end..).unwrap(),
         );
         Row::from_vec(vec![
-            text!("{pre}").color(white()).size(context.zoom * 14.0).into(),
+            text!("{pre}").color(white()).size(context.zoom * 14.0).color(white()).into(),
             Container::new(text!("{m}").color(black()).size(context.zoom * 14.0)).style(|_| set_bg(white())).into(),
-            text!("{post}").color(white()).size(context.zoom * 14.0).into(),
+            text!("{post}").color(white()).size(context.zoom * 14.0).color(white()).into(),
         ]).into()
     } else {
         text!("{}", p.preview_title_truncated).color(white()).size(context.zoom * 14.0).into()

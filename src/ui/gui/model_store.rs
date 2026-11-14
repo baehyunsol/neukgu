@@ -1,4 +1,4 @@
-use super::{blue, button, green, red};
+use super::{blue, button, green, red, white};
 use crate::Error;
 use iced::{Element, Length, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -120,14 +120,14 @@ pub struct ApiKey {
 pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'c, IcedMessage> {
     if context.is_locked {
         Column::from_vec(vec![
-            text!("Model Store").size(zoom * 18.0).into(),
+            text!("Model Store").size(zoom * 18.0).color(white()).into(),
             if context.password_error {
                 text!("Wrong password").size(zoom * 14.0).color(red()).into()
             } else {
                 Space::new().into()
             },
             Row::from_vec(vec![
-                text!("password:").size(zoom * 14.0).into(),
+                text!("password:").size(zoom * 14.0).color(white()).into(),
                 TextInput::new("", &context.short_text_editor_content)
                     .size(zoom * 14.0)
                     .id(context.short_text_editor_id.clone())
@@ -144,8 +144,8 @@ pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'
     else {
         Scrollable::new(
             Column::from_vec(vec![
-                text!("Model Store").size(zoom * 18.0).into(),
-                text!("--- Api Keys ---").size(zoom * 14.0).into(),
+                text!("Model Store").size(zoom * 18.0).color(white()).into(),
+                text!("--- Api Keys ---").size(zoom * 14.0).color(white()).into(),
                 Column::from_vec(context.api_keys.iter().enumerate().map(
                     |(i, ApiKey { name, key })| Row::from_vec(vec![
                         TextInput::new("", name)
@@ -167,7 +167,7 @@ pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'
                     button("Add", IcedMessage::AddApiKey, blue(), zoom).into(),
                     button("Save", IcedMessage::SaveApiKey, blue(), zoom).into(),
                 ]).spacing(zoom * 8.0).into(),
-                text!("--- Urls & Models ---").size(zoom * 14.0).into(),
+                text!("--- Urls & Models ---").size(zoom * 14.0).color(white()).into(),
                 Column::from_vec(context.memos.iter().enumerate().map(
                     |(i, memo)| Row::from_vec(vec![
                         TextInput::new("", memo)
@@ -258,3 +258,4 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
     Ok(Task::none())
 }
+

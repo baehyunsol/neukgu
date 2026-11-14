@@ -10,6 +10,7 @@ use super::{
     green,
     pink,
     purple,
+    radio_style,
     red,
     set_bg,
     set_round_bg,
@@ -1377,7 +1378,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             into_popup(
                 Column::from_vec(vec![
                     Space::new().width(context.window_size.width).into(),
-                    text!("Directory name").size(context.zoom * 14.0).into(),
+                    text!("Directory name").size(context.zoom * 14.0).color(white()).into(),
                     TextInput::new("Directory name", &context.short_text_editor_content)
                         .size(context.zoom * 14.0)
                         .width(context.zoom * 400.0)
@@ -1401,11 +1402,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 .spacing(context.zoom * 8.0)
                 .text_size(context.zoom * 14.0)
                 .size(context.zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new(if job_id.is_some() { "-" } else { "Glob" }, FindOption::Glob, Some(context.find_option), IcedMessage::SetFindOption)
                 .spacing(context.zoom * 8.0)
                 .text_size(context.zoom * 14.0)
                 .size(context.zoom * 14.0)
+                .style(radio_style)
                 .into(),
         ])
             .spacing(context.zoom * 8.0);
@@ -1428,12 +1431,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     find_option.into(),
                     text_editor.into(),
                     if context.find_option == FindOption::Glob {
-                        text!("NOTE: The glob matcher matches absolute paths, not relative paths.").size(context.zoom * 14.0).into()
+                        text!("NOTE: The glob matcher matches absolute paths, not relative paths.").size(context.zoom * 14.0).color(white()).into()
                     } else {
                         Space::new().into()
                     },
                     if job_id.is_some() {
-                        text!("Finding...").size(context.zoom * 14.0).into()
+                        text!("Finding...").size(context.zoom * 14.0).color(white()).into()
                     } else {
                         Space::new().into()
                     },
@@ -1467,25 +1470,26 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::GlobFindResult { pattern, matches, truncate, match_count, timeout }) = &context.curr_popup {
         let mut glob_find_result: Vec<Element<IcedMessage>> = vec![
             Space::new().width(context.window_size.width).into(),
-            text!("{pattern}").size(context.zoom * 18.0).into(),
+            text!("{pattern}").size(context.zoom * 18.0).color(white()).into(),
             text!(
                 "{match_count} match{}{}",
                 if *match_count == 1 { "" } else { "es" },
                 if *timeout { " (maybe more)" } else { "" },
             )
                 .size(context.zoom * 14.0)
+                .color(white())
                 .into(),
         ];
 
         if truncate.is_some() {
-            glob_find_result.push(text!("Since there were too many matches, it only displays the first 512 matches.").size(context.zoom * 14.0).into());
+            glob_find_result.push(text!("Since there were too many matches, it only displays the first 512 matches.").size(context.zoom * 14.0).color(white()).into());
         }
 
-        glob_find_result.push(text!("{}", "-".repeat(32)).size(context.zoom * 14.0).into());
+        glob_find_result.push(text!("{}", "-".repeat(32)).size(context.zoom * 14.0).color(white()).into());
         glob_find_result.extend(matches.iter().map(
             |GlobMatch { path, is_symlink, is_dir }| {
                 Row::from_vec(vec![
-                    text!("{path}").size(context.zoom * 14.0).into(),
+                    text!("{path}").size(context.zoom * 14.0).color(white()).into(),
                     if !*is_symlink && *is_dir {
                         button("Open", IcedMessage::NewBrowser { dir: path.to_string(), file: None }, skyblue(), context.zoom).into()
                     } else {
@@ -1520,7 +1524,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     }
 
     else if let Some(Popup::EntryError(_) | Popup::PreviewFile { .. } | Popup::Help) = &context.curr_popup {
-        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0);
+        let title = text!("{}", context.popup_title.clone().unwrap_or(String::new())).size(context.zoom * 18.0).color(white());
 
         if let Some((pre, trunc, post)) = &context.long_preview {
             full_view_stacked = Stack::from_vec(vec![
@@ -1529,9 +1533,9 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     Scrollable::new(
                         Column::from_vec(vec![
                             title.into(),
-                            Container::new(text!("{pre}").size(context.zoom * 14.0)).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
-                            text!("... ({} truncated) ...", prettify_bytes(*trunc as u64)).size(context.zoom * 14.0).into(),
-                            Container::new(text!("{post}").size(context.zoom * 14.0)).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
+                            Container::new(text!("{pre}").size(context.zoom * 14.0).color(white())).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
+                            text!("... ({} truncated) ...", prettify_bytes(*trunc as u64)).size(context.zoom * 14.0).color(white()).into(),
+                            Container::new(text!("{post}").size(context.zoom * 14.0).color(white())).width(Length::Fill).style(|_| set_bg(gray(0.3))).into(),
                         ])
                             .spacing(context.zoom * 20.0)
                             .width(Length::Fill)
@@ -1548,7 +1552,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             let mut column: Vec<Element<IcedMessage>> = vec![title.into()];
 
             for (caption, image) in context.image_buffer.iter() {
-                column.push(text!("{caption}").size(context.zoom * 14.0).into());
+                column.push(text!("{caption}").size(context.zoom * 14.0).color(white()).into());
                 column.push(ImageViewer::new(image.clone()).into());
             }
 
@@ -1596,13 +1600,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::PreviewSymlink { .. }) = context.curr_popup {
         let popup = match &context.loaded_symlink {
             Some(SymlinkInfo { pointer, error: Some(error), .. }) => Column::from_vec(vec![
-                text!("{pointer}").size(context.zoom * 18.0).width(context.window_size.width).into(),
+                text!("{pointer}").size(context.zoom * 18.0).width(context.window_size.width).color(white()).into(),
                 text!("{error}").size(context.zoom * 14.0).color(red()).into(),
             ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center),
 
             // TODO: open in a new tab
             Some(SymlinkInfo { pointee, is_dir, .. }) => Column::from_vec(vec![
-                text!("link to {pointee}").size(context.zoom * 14.0).width(context.window_size.width).into(),
+                text!("link to {pointee}").size(context.zoom * 14.0).width(context.window_size.width).color(white()).into(),
                 if *is_dir {
                     button("Jump", IcedMessage::ChDir { new: pointee.to_string(), old: Some(context.cwd.to_string()), going_up: false }, skyblue(), context.zoom).into()
                 } else {
@@ -1630,8 +1634,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         let file_info = context.loaded_file_info.as_ref().unwrap();
         let content = file_info.summary(is_working);
         let mut column = vec![
-            text!("{}", file_info.path).size(context.zoom * 18.0).into(),
-            text!("{content}").size(context.zoom * 14.0).into(),
+            text!("{}", file_info.path).size(context.zoom * 18.0).color(white()).into(),
+            text!("{content}").size(context.zoom * 14.0).color(white()).into(),
         ];
 
         if let Some(e) = error {
@@ -1666,19 +1670,19 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::EntryError(e)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(text!("{e}").size(context.zoom * 14.0).into(), context),
+            into_popup(text!("{e}").size(context.zoom * 14.0).color(white()).into(), context),
         ]).into();
     }
 
     else if let Some(Popup::AskDelete { is_dir, path }) = &context.curr_popup {
         let ask = if *is_dir {
             Column::from_vec(vec![
-                text!("Delete directory `{path}`?").size(context.zoom * 14.0).into(),
+                text!("Delete directory `{path}`?").size(context.zoom * 14.0).color(white()).into(),
                 button("(Y)es", IcedMessage::DeleteDirectory(path.to_string()), green(), context.zoom).into(),
             ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill)
         } else {
             Column::from_vec(vec![
-                text!("Delete file `{path}`?").size(context.zoom * 14.0).into(),
+                text!("Delete file `{path}`?").size(context.zoom * 14.0).color(white()).into(),
                 button("(Y)es", IcedMessage::DeleteFile(path.to_string()), green(), context.zoom).into(),
             ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill)
         };
@@ -2094,7 +2098,7 @@ fn render_find_result<'f, 'm, 'c>(
             hide_lines = context.hide_find_results.contains(&m.path);
             lines.push(
                 Row::from_vec(vec![
-                    text!("{}", m.path).size(context.zoom * 14.0).into(),
+                    text!("{}", m.path).size(context.zoom * 14.0).color(white()).into(),
                     if hide_lines {
                         button("Show", IcedMessage::ShowFindResult(m.path.to_string()), blue(), context.zoom).into()
                     } else {
@@ -2114,7 +2118,7 @@ fn render_find_result<'f, 'm, 'c>(
         }
 
         else if !hide_lines && m.line_number != curr_line_no + 1 {
-            lines.push(text!("@@").size(context.zoom * 14.0).into());
+            lines.push(text!("@@").size(context.zoom * 14.0).color(white()).into());
         }
 
         if hide_lines {
@@ -2123,7 +2127,7 @@ fn render_find_result<'f, 'm, 'c>(
 
         curr_line_no = m.line_number;
         let mut highlights = vec![
-            text!("{:>6} | ", m.line_number).size(context.zoom * 14.0).into(),
+            text!("{:>6} | ", m.line_number).size(context.zoom * 14.0).color(white()).into(),
         ];
         let mut curr_index = 0;
         let line = m.line.chars().take(256).collect::<String>();
@@ -2143,7 +2147,7 @@ fn render_find_result<'f, 'm, 'c>(
 
         for (start, end) in submatches.iter() {
             if curr_index < *start {
-                highlights.push(text!("{}", line.get(curr_index..*start).unwrap()).size(context.zoom * 14.0).into());
+                highlights.push(text!("{}", line.get(curr_index..*start).unwrap()).size(context.zoom * 14.0).color(white()).into());
             }
 
             highlights.push(
@@ -2157,7 +2161,7 @@ fn render_find_result<'f, 'm, 'c>(
         }
 
         if curr_index < line.len() {
-            highlights.push(text!("{}", line.get(curr_index..).unwrap().trim_end()).size(context.zoom * 14.0).into());
+            highlights.push(text!("{}", line.get(curr_index..).unwrap().trim_end()).size(context.zoom * 14.0).color(white()).into());
         }
 
         lines.push(Row::from_vec(highlights).into());
@@ -2165,7 +2169,7 @@ fn render_find_result<'f, 'm, 'c>(
 
     Column::from_vec(vec![
         Row::from_vec(vec![
-            text!("find: {regex}").size(context.zoom * 14.0).into(),
+            text!("find: {regex}").size(context.zoom * 14.0).color(white()).into(),
             button("Copy", IcedMessage::CopyString(regex.to_string()), blue(), context.zoom).into(),
             button("Refresh", IcedMessage::FindAgain(regex.to_string()), green(), context.zoom).into(),
         ])
@@ -2177,7 +2181,7 @@ fn render_find_result<'f, 'm, 'c>(
             match_count,
             if match_count == 1 { "" } else { "s" },
             if let Some(truncate) = truncate { format!(" (truncated {truncate} lines)") } else { String::new() },
-        ).size(context.zoom * 14.0).into(),
+        ).size(context.zoom * 14.0).color(white()).into(),
         Scrollable::new(
             Column::from_vec(lines).width(context.window_size.width)
         ).id(context.popup_scroll_id.clone()).into(),

@@ -1,4 +1,4 @@
-use super::{button, gray, set_round_bg, yellow};
+use super::{button, gray, set_round_bg, white, yellow};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use crate::{LogId, Model, TokenUsage, prettify_tokens};
 use iced::{Element, Length};
@@ -29,13 +29,13 @@ pub fn render_logs<'l, 'c, Context: LogsContext<Message=Message> + PopupContext,
                         let log_title = cap.get(0).unwrap().as_str().to_string();
                         let log_id = LogId(cap.get(1).unwrap().as_str().to_string());
                         Row::from_vec(vec![
-                            text!("{log}").size(zoom * 14.0).into(),
+                            text!("{log}").size(zoom * 14.0).color(white()).into(),
                             button("see details", context.open_log_popup(log_title, log_id), yellow(), zoom).into(),
                         ]).align_y(Vertical::Center).spacing(zoom * 20.0).into()
                     }
 
                     else {
-                        text!("{log}").size(zoom * 14.0).into()
+                        text!("{log}").size(zoom * 14.0).color(white()).into()
                     }
                 }
             ).collect()
@@ -55,7 +55,7 @@ pub fn render_token_usage<'u, 'c, Context: PopupContext, Message: Clone + PopupM
 ) -> Element<'c, Message> {
     if token_usage.is_empty() {
         into_popup(
-            text!("You haven't used any tokens.").size(zoom * 14.0).into(),
+            text!("You haven't used any tokens.").size(zoom * 14.0).color(white()).into(),
             context,
         )
     }
@@ -83,16 +83,16 @@ fn render_each_token_usage<'c, Message: 'c>(
 ) -> Element<'c, Message> {
     let mut token_usage: Vec<(Model, (u64, u64, u64))> = token_usage.into_iter().collect();
     token_usage.sort_by_key(|(m, _)| *m);
-    let mut column: Vec<Element<Message>> = vec![text!("{title}").size(zoom * 18.0).into()];
+    let mut column: Vec<Element<Message>> = vec![text!("{title}").size(zoom * 18.0).color(white()).into()];
 
     for (model, (cached_input, input, output)) in token_usage.iter() {
         column.push(
             Container::new(
                 Column::from_vec(vec![
-                    text!("----- {} -----", model.short_name()).size(zoom * 14.0).into(),
-                    text!("cached_input: {}", prettify_tokens(*cached_input)).size(zoom * 14.0).into(),
-                    text!("       input: {}", prettify_tokens(*input)).size(zoom * 14.0).into(),
-                    text!("      output: {}", prettify_tokens(*output)).size(zoom * 14.0).into(),
+                    text!("----- {} -----", model.short_name()).size(zoom * 14.0).color(white()).into(),
+                    text!("cached_input: {}", prettify_tokens(*cached_input)).size(zoom * 14.0).color(white()).into(),
+                    text!("       input: {}", prettify_tokens(*input)).size(zoom * 14.0).color(white()).into(),
+                    text!("      output: {}", prettify_tokens(*output)).size(zoom * 14.0).color(white()).into(),
                 ])
                     .spacing(zoom * 4.0)
             )
@@ -104,3 +104,4 @@ fn render_each_token_usage<'c, Message: 'c>(
 
     Column::from_vec(column).spacing(zoom * 8.0).into()
 }
+

@@ -292,13 +292,13 @@ impl IcedContext {
         let mut find_result = vec![];
 
         if let Some((_, re)) = self.find_pattern.clone() {
-            for (i, turn) in self.chat.turns.iter().enumerate() {
+            for turn in self.chat.turns.iter() {
                 if let Some(turn) = self.turns.get(turn) {
                     for (j, token) in turn.user.iter().enumerate() {
                         if let LLMToken::String(s) = token {
                             for (k, line) in s.lines().enumerate() {
                                 if re.is_match(line) {
-                                    find_result.push((turn.id, Position { turn: i, user: true, token: j, line: k }));
+                                    find_result.push((turn.id, Position { user: true, token: j, line: k }));
                                 }
                             }
                         }
@@ -306,7 +306,7 @@ impl IcedContext {
 
                     for (k, line) in turn.assistant.lines().enumerate() {
                         if re.is_match(line) {
-                            find_result.push((turn.id, Position { turn: i, user: false, token: 0, line: k }));
+                            find_result.push((turn.id, Position { user: false, token: 0, line: k }));
                         }
                     }
                 }
@@ -498,7 +498,6 @@ impl Popup {
 
 #[derive(Clone, Debug)]
 pub struct Position {
-    turn: usize,
     user: bool,
     token: usize,
     line: usize,

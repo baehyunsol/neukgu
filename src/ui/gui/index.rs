@@ -1,4 +1,5 @@
 use super::{
+    INVERT_COLOR,
     TEXT_EDITOR_CONTENT_LIMIT,
     black,
     blue,
@@ -93,6 +94,7 @@ use ragit_fs::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 const HELP_MESSAGE: &str = r#"
 # Neukgu
@@ -418,6 +420,7 @@ pub enum IcedMessage {
     Focus,
     PrepareScratchPad,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
+    ChangeTheme,
 }
 
 impl PopupMessage for IcedMessage {
@@ -874,6 +877,10 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             }));
         },
         IcedMessage::OpenScratchPad { .. } => unreachable!(),
+        IcedMessage::ChangeTheme => {
+            let invert_color = INVERT_COLOR.load(Ordering::Relaxed);
+            INVERT_COLOR.store(!invert_color, Ordering::Relaxed);
+        },
     }
 
     Ok(Task::none())
@@ -1339,6 +1346,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
 fn render_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut buttons = vec![
+        button("Change Theme", IcedMessage::ChangeTheme, blue(), context.zoom),
         button("(M)odel Store", IcedMessage::OpenPopup {
             curr: Popup::ModelStore,
             prev: None,
@@ -1770,3 +1778,4 @@ fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId
         context,
     )
 }
+

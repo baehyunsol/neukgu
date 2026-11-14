@@ -1,4 +1,15 @@
-use super::{blue, button, gray, green, red, set_round_bg, white};
+use super::{
+    blue,
+    button,
+    checkbox_style,
+    gray,
+    green,
+    radio_style,
+    red,
+    set_round_bg,
+    slider_style,
+    white,
+};
 use crate::{
     Config,
     Model,
@@ -273,6 +284,7 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                     .spacing(zoom * 8.0)
                     .text_size(zoom * 14.0)
                     .size(zoom * 14.0)
+                    .style(radio_style)
                     .into()
             ).collect()).spacing(zoom * 16.0).into()
         } else {
@@ -282,6 +294,7 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                         .spacing(zoom * 8.0)
                         .text_size(zoom * 14.0)
                         .size(zoom * 14.0)
+                        .style(radio_style)
                         .into()
                 ).collect()).spacing(zoom * 16.0).into()
             ).collect()).spacing(zoom * 8.0).into()
@@ -302,27 +315,30 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new("If I'm available", Questionable::Maybe, Some(curr_q), SetProjectConfig::AgentQuestionable)
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new("Never", Questionable::Never, Some(curr_q), SetProjectConfig::AgentQuestionable)
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
         ]).spacing(zoom * 16.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
 
     panels.push(panel_container(Column::from_vec(vec![
-        text!("Context size: {} KiB", config.llm_context_max_len / 1024).size(zoom * 14.0).into(),
+        text!("Context size: {} KiB", config.llm_context_max_len / 1024).color(white()).size(zoom * 14.0).into(),
         Slider::new(
             1..=16,
             config.llm_context_max_len as u32 / 65536,
             |n| SetProjectConfig::ContextSize(n as u64),
-        ).width(zoom * 384.0).into(),
+        ).width(zoom * 384.0).style(move |_, status| slider_style(status, zoom)).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into(), zoom));
 
     let mut tool_checkboxes = vec![];
@@ -341,6 +357,7 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                 )
                 .size(zoom * 14.0)
                 .text_size(zoom * 14.0)
+                .style(checkbox_style)
                 .into()
         ).collect()).spacing(zoom * 8.0).into());
     }
@@ -366,16 +383,19 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new("Deny", PermissionConfig::Deny, Some(config.tool_permissions.get(&kind).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetToolPermission(kind, p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new("Ask", PermissionConfig::Ask, Some(config.tool_permissions.get(&kind).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetToolPermission(kind, p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
         ]).spacing(zoom * 16.0).into());
     }
@@ -387,16 +407,19 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new("Deny", PermissionConfig::Deny, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Radio::new("Ask", PermissionConfig::Ask, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
         ]).spacing(zoom * 16.0).into());
     }
@@ -427,6 +450,7 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
                     .on_toggle(move |t| SetProjectConfig::ToggleSkill(name.to_string(), t))
                     .size(zoom * 14.0)
                     .text_size(zoom * 14.0)
+                    .style(checkbox_style)
                     .into()
             }
         ).collect();
@@ -477,6 +501,7 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
         })
         .size(zoom * 14.0)
         .text_size(zoom * 14.0)
+        .style(checkbox_style)
         .into());
 
     if new_project {
@@ -485,6 +510,7 @@ pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Elemen
             .on_toggle(SetProjectConfig::InitGit)
             .size(zoom * 14.0)
             .text_size(zoom * 14.0)
+            .style(checkbox_style)
             .into());
     }
 
@@ -509,6 +535,7 @@ pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
             .on_toggle(SetChatConfig::Thinking)
             .size(zoom * 14.0)
             .text_size(zoom * 14.0)
+            .style(checkbox_style)
             .into(),
         Checkbox::new(config.enable_web_search)
             .label("Web Search")
@@ -519,6 +546,7 @@ pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
             })
             .size(zoom * 14.0)
             .text_size(zoom * 14.0)
+            .style(checkbox_style)
             .into(),
     ])
         .spacing(zoom * 8.0)
@@ -569,6 +597,7 @@ pub fn chat_config_ui3<'c>(config: &'c ChatConfig, system_prompts: &[String], zo
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
+                .style(radio_style)
                 .into(),
             Container::new(text!("{}", truncate_chars(&system_prompt.replace("\n", "\\n"), 256)).color(white()).size(zoom * 14.0))
                 .width(zoom * 400.0)
@@ -610,3 +639,4 @@ fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2
         ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into()
 }
+

@@ -7,6 +7,7 @@ use super::{
     gray,
     red,
     set_round_bg,
+    slider_style,
     skyblue,
     white,
 };

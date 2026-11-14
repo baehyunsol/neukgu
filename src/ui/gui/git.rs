@@ -309,14 +309,14 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .id(context.popup_scroll_id.clone())
             .into()
     } else {
-        text!("loading...").size(context.zoom * 14.0).into()
+        text!("loading...").size(context.zoom * 14.0).color(white()).into()
     };
 
     Column::from_vec(vec![
         render_tab_buttons(context),
         body,
         if let Some(error) = &context.error {
-            text!("{error}").color(red()).size(context.zoom * 18.0).into()
+            text!("{error}").color(red()).size(context.zoom * 18.0).color(white()).into()
         } else {
             Space::new().into()
         },
@@ -421,7 +421,7 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
         (true, Some(b)) => format!("branch: {b}"),
         (true, None) => String::from("Detached HEAD"),
     };
-    let mut column = vec![text!("{branch_desc}").color(white()).size(context.zoom * 14.0).into()];
+    let mut column = vec![text!("{branch_desc}").color(white()).size(context.zoom * 14.0).color(white()).into()];
     column.extend(
         git_info.recent_commits.iter().map(
             |commit| {
@@ -434,11 +434,11 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
                     },
                     Column::from_vec(vec![
                         Row::from_vec(vec![
-                            text!("{} (", truncate_chars(&commit.title, 88)).size(context.zoom * 14.0).into(),
+                            text!("{} (", truncate_chars(&commit.title, 88)).size(context.zoom * 14.0).color(white()).into(),
                             text!("+{}", commit.add).color(green()).size(context.zoom * 14.0).into(),
-                            text!(", ").size(context.zoom * 14.0).into(),
+                            text!(", ").size(context.zoom * 14.0).color(white()).into(),
                             text!("-{}", commit.remove).color(red()).size(context.zoom * 14.0).into(),
-                            text!(")").size(context.zoom * 14.0).into(),
+                            text!(")").size(context.zoom * 14.0).color(white()).into(),
                         ]).into(),
                         text!(
                             "{:09x} {} <{}> ({})",
@@ -448,6 +448,7 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
                             prettify_timestamp(commit.author_timestamp),
                         )
                             .size(context.zoom * 14.0)
+                            .color(white())
                             .into(),
                     ]).into(),
                 ])
@@ -458,7 +459,7 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
 
                 if is_expanded && let Some(message) = &commit.message {
                     column.push(
-                        Container::new(text!("{message}").size(context.zoom * 14.0))
+                        Container::new(text!("{message}").size(context.zoom * 14.0).color(white()))
                             .padding(context.zoom * 8.0)
                             .style(|_| set_round_bg(black(), context.zoom))
                             .into()
@@ -506,7 +507,7 @@ fn render_changes_unit<'d, 'e>(
     let mut column: Vec<Element<IcedMessage>> = vec![];
 
     if let Some(title) = title {
-        column.push(text!("{title}").size(zoom * 18.0).into());
+        column.push(text!("{title}").size(zoom * 18.0).color(white()).into());
     }
 
     for (i, change) in changes.iter().enumerate() {
@@ -520,11 +521,11 @@ fn render_changes_unit<'d, 'e>(
                 button("▶", IcedMessage::ExpandFileDiff(expand_key), white(), zoom).into()
             },
             Space::new().width(zoom * 8.0).into(),
-            text!("{title} (").size(zoom * 14.0).into(),
+            text!("{title} (").size(zoom * 14.0).color(white()).into(),
             text!("+{}", change.add).color(green()).size(zoom * 14.0).into(),
-            text!(", ").size(zoom * 14.0).into(),
+            text!(", ").size(zoom * 14.0).color(white()).into(),
             text!("-{}", change.remove).color(red()).size(zoom * 14.0).into(),
-            text!(")").size(zoom * 14.0).into(),
+            text!(")").size(zoom * 14.0).color(white()).into(),
         ]);
         let hunks: Vec<Element<IcedMessage>> = if is_expanded {
             change.hunks.iter().enumerate().map(
@@ -576,7 +577,7 @@ fn render_changes_unit<'d, 'e>(
     }
 
     if changes.is_empty() {
-        column.push(text!("{empty}").size(zoom * 14.0).into());
+        column.push(text!("{empty}").size(zoom * 14.0).color(white()).into());
     }
 
     Column::from_vec(column).spacing(zoom * 8.0).into()

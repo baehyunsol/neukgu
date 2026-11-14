@@ -321,7 +321,6 @@
     - skill 안에 들어있는 파일들을 모두 읽을 수 있어야함
     - 새로운 skill을 어떻게 반영..?? 지금은 세션이 탄생하는 순간에 skill이 동기화가 되는데?
 171. 클로드코드용 스킬을 늑구에서 사용해보기
-178. opus에서는 thinking.enabled가 지원이 안되고 thinking.adaptive만 된대...
 181. InvalidLogId -> `Path` 관련된 초대형 refactoring 한 다음에 GUI에서 이 오류가 자주 보임...
   - FailedToAcquireWriteLock도 자주 보이는 중... mock으로 sleep 꺼놓고 테스트하는데 거의 3번에 한번 꼴로 등장
 183. `ToolCall::run`에서 Error 반환하는 경우를 좀 더 줄이고 싶음. 예를 들어서, `ToolCall::Write { .. }`에서 `write_string`하다가 오류가 났다? 그럼 그 오류를 그대로 AI한테 던져주는게 맞는 듯...
@@ -419,9 +418,9 @@
     - 몇몇 dependency 빠져도 돌아가게 하기?
     - dependency 빠진 거 있으면 session 시작할 때 알려주기?
   - `/tmp/neukgu/` -> 이것도 windows에선 못 쓰잖아 ㅋㅋㅋ
-203. Press Ctrl+Down in the permission popup to scroll to bottom
 204. If the LLM is trying to run an invalid command (e.g. find, ls, cd, ...), it shouldn't ask for permission... it's soooooo annoying!!
 205. When the agent used the `<done>` tool, I want there to be a popup with the report.
+206. update models: it's too annoying to update models manually
 
 ## mock API
 

@@ -6,8 +6,18 @@ use iced::keyboard::Event as KeyboardEvent;
 use iced::time::{self, Duration};
 use iced::widget::{Space, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
+use iced::widget::checkbox::{Status as CheckboxStatus, Style as CheckboxStyle};
 use iced::widget::container::{Container, Style};
+use iced::widget::radio::{Status as RadioStatus, Style as RadioStyle};
+use iced::widget::slider::{
+    Handle as SliderHandle,
+    HandleShape as SliderHandleShape,
+    Rail as SliderRail,
+    Status as SliderStatus,
+    Style as SliderStyle,
+};
 use iced::window::Event as WindowEvent;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod api_key;
 mod browser;
@@ -43,7 +53,6 @@ const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
 
 pub fn run(cwd: Option<String>) -> Result<(), Error> {
     iced::application(move || tabs::boot(&cwd), tabs::update, tabs::view)
-        .theme(Theme::Dark)
         .font(include_bytes!("../../resources/SpaceMono-Bold.ttf"))
         .font(include_bytes!("../../resources/SpaceMono-BoldItalic.ttf"))
         .font(include_bytes!("../../resources/SpaceMono-Italic.ttf"))
@@ -74,7 +83,8 @@ fn disabled_button<'s, 'm, Message>(name: &'s str, bg_color: Color, zoom: f32) -
                 ButtonStatus::Hovered => Color::from_rgba(r, g, b, 0.5),
                 _ => bg_color,
             };
-            let text_color = if (r > 0.5 && g > 0.5 && b > 0.5) || g > 0.7 || r + g + b > 2.0 {
+            let invert_color = INVERT_COLOR.load(Ordering::Relaxed);
+            let text_color = if ((r > 0.5 && g > 0.5 && b > 0.5) || g > 0.7 || r + g + b > 2.0) ^ invert_color {
                 black()
             } else {
                 white()
@@ -92,6 +102,81 @@ fn disabled_button<'s, 'm, Message>(name: &'s str, bg_color: Color, zoom: f32) -
             }
         })
         .padding(zoom * 8.0)
+}
+
+fn radio_style(_: &Theme, status: RadioStatus) -> RadioStyle {
+    let (background, text_color) = match status {
+        RadioStatus::Active { .. } => (Background::Color(white()), Some(white())),
+        RadioStatus::Hovered { .. } => (Background::Color(white_transparent()), Some(white_transparent())),
+    };
+
+    RadioStyle {
+        background,
+        dot_color: purple(),
+        border_width: 1.0,
+        border_color: black(),
+        text_color,
+    }
+}
+
+fn checkbox_style(_: &Theme, status: CheckboxStatus) -> CheckboxStyle {
+    match status {
+        CheckboxStatus::Active { .. } => CheckboxStyle {
+            background: Background::Color(purple()),
+            icon_color: white(),
+            border: Border {
+                color: white(),
+                width: 0.0,
+                radius: Radius::new(4.0),
+            },
+            text_color: Some(white()),
+        },
+        CheckboxStatus::Hovered { .. } => CheckboxStyle {
+            background: Background::Color(purple_transparent()),
+            icon_color: white_transparent(),
+            border: Border {
+                color: white(),
+                width: 0.0,
+                radius: Radius::new(4.0),
+            },
+            text_color: Some(white_transparent()),
+        },
+        CheckboxStatus::Disabled { .. } => CheckboxStyle {
+            background: Background::Color(gray_transparent()),
+            icon_color: white(),
+            border: Border {
+                color: white(),
+                width: 0.0,
+                radius: Radius::new(6.0),
+            },
+            text_color: Some(white()),
+        },
+    }
+}
+
+fn slider_style(status: SliderStatus, zoom: f32) -> SliderStyle {
+    let handle_background = match status {
+        SliderStatus::Active => gray(0.5),
+        SliderStatus::Hovered | SliderStatus::Dragged => white(),
+    };
+
+    SliderStyle {
+        rail: SliderRail {
+            backgrounds: (Background::Color(purple()), Background::Color(gray(0.5))),
+            width: zoom * 4.0,
+            border: Border {
+                color: white(),
+                width: 0.0,
+                radius: Radius::new(0.0),
+            },
+        },
+        handle: SliderHandle {
+            shape: SliderHandleShape::Circle { radius: zoom * 8.0 },
+            background: Background::Color(handle_background),
+            border_width: 0.0,
+            border_color: white(),
+        },
+    }
 }
 
 fn circle<'m, Message: 'm>(radius: f32, color: Color) -> Element<'m, Message> {
@@ -125,60 +210,82 @@ fn set_bg(color: Color) -> Style {
     }
 }
 
+static INVERT_COLOR: AtomicBool = AtomicBool::new(false);
+
+fn invert_color(c: Color) -> Color {
+    if INVERT_COLOR.load(Ordering::Relaxed) {
+        c.inverse()
+    } else {
+        c
+    }
+}
+
 fn white() -> Color {
-    Color::from_rgb(1.0, 1.0, 1.0)
+    invert_color(Color::from_rgb(1.0, 1.0, 1.0))
+}
+
+fn white_transparent() -> Color {
+    invert_color(Color::from_rgba(1.0, 1.0, 1.0, 0.5))
 }
 
 fn black() -> Color {
-    Color::from_rgb(0.0, 0.0, 0.0)
+    invert_color(Color::from_rgb(0.0, 0.0, 0.0))
 }
 
 fn gray(c: f32) -> Color {
-    Color::from_rgb(c, c, c)
+    invert_color(Color::from_rgb(c, c, c))
+}
+
+fn gray_transparent() -> Color {
+    invert_color(Color::from_rgba(0.5, 0.5, 0.5, 0.5))
 }
 
 fn red() -> Color {
-    Color::from_rgb(0.8, 0.2, 0.2)
+    invert_color(Color::from_rgb(0.8, 0.2, 0.2))
 }
 
 fn red_transparent() -> Color {
-    Color::from_rgba(0.8, 0.2, 0.2, 0.5)
+    invert_color(Color::from_rgba(0.8, 0.2, 0.2, 0.5))
 }
 
 fn green() -> Color {
-    Color::from_rgb(0.2, 0.8, 0.2)
+    invert_color(Color::from_rgb(0.2, 0.8, 0.2))
 }
 
 fn green_transparent() -> Color {
-    Color::from_rgba(0.2, 0.8, 0.2, 0.5)
+    invert_color(Color::from_rgba(0.2, 0.8, 0.2, 0.5))
 }
 
 fn blue() -> Color {
-    Color::from_rgb(0.2, 0.2, 0.8)
+    invert_color(Color::from_rgb(0.2, 0.2, 0.8))
 }
 
 fn yellow() -> Color {
-    Color::from_rgb(0.8, 0.8, 0.2)
+    invert_color(Color::from_rgb(0.8, 0.8, 0.2))
 }
 
 fn brown() -> Color {
-    Color::from_rgb(0.5, 0.3, 0.2)
+    invert_color(Color::from_rgb(0.5, 0.3, 0.2))
 }
 
 fn pink() -> Color {
-    Color::from_rgb(0.9, 0.6, 0.7)
+    invert_color(Color::from_rgb(0.9, 0.6, 0.7))
 }
 
 fn purple() -> Color {
-    Color::from_rgb(0.6, 0.1, 0.6)
+    invert_color(Color::from_rgb(0.7, 0.5, 0.8))
+}
+
+fn purple_transparent() -> Color {
+    invert_color(Color::from_rgba(0.7, 0.5, 0.8, 0.5))
 }
 
 fn skyblue() -> Color {
-    Color::from_rgb(0.5, 0.7, 0.9)
+    invert_color(Color::from_rgb(0.5, 0.7, 0.9))
 }
 
 fn gold() -> Color {
-    Color::from_rgb(0.9, 0.8, 0.1)
+    invert_color(Color::from_rgb(0.9, 0.8, 0.1))
 }
 
 fn count_chars(s: &str) -> usize {
@@ -209,3 +316,4 @@ fn take_chars(s: &str, n: usize) -> String {
 
     chars.into_iter().collect()
 }
+
