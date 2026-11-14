@@ -340,6 +340,11 @@ impl IcedContext {
         })
     }
 
+    pub fn get_user_response_timer(&self) -> u64 {
+        let t = Instant::now().duration_since(self.user_response_timeout_counter.clone()).as_secs();
+        self.fe_context.config.user_response_timeout.max(t) - t
+    }
+
     // It returns a scroll-offset of the turn view.
     pub fn select_turn(&mut self, offset: i32) -> f32 {
         let new_selection = (self.selected_turn.map(|i| i as i32).unwrap_or(-1) + offset).min(self.fe_context.history.len() as i32 - 1).max(0) as usize;
@@ -629,7 +634,9 @@ impl IcedContext {
     }
 
     pub fn can_click_turn_entry(&self) -> bool {
-        self.curr_popup.is_none() && self.llm_request.is_none() && !self.is_interrupt_text_editor_focused
+        self.curr_popup.is_none() &&
+            !(self.llm_request.is_some() && self.show_llm_request) &&
+            !self.is_interrupt_text_editor_focused
     }
 
     pub fn zoom_in(&mut self) -> Task<IcedMessage> {
@@ -653,7 +660,7 @@ impl IcedContext {
 
 impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool {
-        self.llm_request.is_none() && match self.curr_popup {
+        !(self.llm_request.is_some() && self.show_llm_request) && match self.curr_popup {
             Some(Popup::GetApiKeys) | None => false,
             _ => true,
         }
@@ -712,6 +719,7 @@ pub enum IcedMessage {
     ClosePopup,
     CopyPopupContent,
     ToggleTurnVisibility(TurnId),
+    ToggleLLMRequest,
     PauseNeukgu,
     ResumeNeukgu,
     RespawnBeProcess,
@@ -870,6 +878,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                             context.close_popup();
                             context.user_response_timeout_counter = Instant::now();
                             context.llm_request = llm_request;
+                            context.show_llm_request = true;
                             tasks.push(scroll_to(context.turn_view_id.clone(), context.turn_view_scrolled));
                             tasks.push(focus(context.long_text_editor_id.clone()));
                             return Ok(Task::batch(tasks));
@@ -924,8 +933,8 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     return Ok(Task::done(IcedMessage::OpenPopup { curr: Popup::AskQuit, prev: None }));
                 }
 
-                else if context.llm_request.is_some() {
-                    return Ok(Task::done(IcedMessage::Notify(String::from("You can't close this popup."))));
+                else if context.llm_request.is_some() && context.show_llm_request {
+                    context.show_llm_request = false;
                 }
             },
             (Key::Named(NamedKey::ArrowUp), ctrl, false, false) => {
@@ -1194,7 +1203,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             context.fe_context.interrupt_be()?;
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
+        IcedMessage::ToggleLLMRequest => {
+            context.show_llm_request = !context.show_llm_request;
+        },
         IcedMessage::PauseNeukgu => {
+            if context.llm_request.is_some() && !context.show_llm_request {
+                return Ok(Task::done(IcedMessage::Notify(String::from("Answer neukgu's question before you pause!"))));
+            }
+
             context.pause = Some(true);
             context.fe_context.interrupt_be()?;
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
@@ -1408,7 +1424,15 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         |(i, p)| render_turn_preview(i, &p, context)
     ).collect();
 
-    turns.push(text!("{}", context.fe_context.curr_status()).color(white()).size(context.zoom * 14.0).into());
+    let mut status = vec![];
+    status.push(text!("{}", context.fe_context.curr_status()).color(white()).size(context.zoom * 14.0).into());
+
+    if context.llm_request.is_some() && !context.show_llm_request {
+        status.push(text!("({})", context.get_user_response_timer()).color(white()).size(context.zoom * 14.0).into());
+        status.push(button("Answer", IcedMessage::ToggleLLMRequest, blue(), context.zoom).into());
+    }
+
+    turns.push(Row::from_vec(status).spacing(context.zoom * 8.0).into());
 
     if let Some(error) = context.fe_context.curr_error() {
         turns.push(text!("{error}").color(white()).size(context.zoom * 14.0).color(red()).into());
@@ -1995,7 +2019,7 @@ pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clon
 }
 
 fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let elapsed_secs = Instant::now().duration_since(context.user_response_timeout_counter.clone()).as_secs();
+    let timer = context.get_user_response_timer();
     let Some((_, QuestionToUser { question, kind })) = &context.llm_request else { unreachable!() };
     let mut column: Vec<Element<IcedMessage>> = vec![
         text!("{question}").color(white()).size(context.zoom * 18.0).into(),
@@ -2025,7 +2049,8 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 Row::from_vec(vec![
                     button("Answer", IcedMessage::AnswerLLMRequest, green(), context.zoom).into(),
                     button("Dismiss", IcedMessage::DismissLLMRequest, red(), context.zoom).into(),
-                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).color(white()).size(context.zoom * 14.0).into(),
+                    button("Give me a second", IcedMessage::ToggleLLMRequest, blue(), context.zoom).into(),
+                    text!("{timer}").color(white()).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
                     .spacing(context.zoom * 20.0)
@@ -2079,7 +2104,8 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                     button(&format!("Always allow {}", kind.short_name() ), IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
                     button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
                     button(&format!("Always deny {}", kind.short_name()), IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
-                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).color(white()).size(context.zoom * 14.0).into(),
+                    button("Give me a second", IcedMessage::ToggleLLMRequest, blue(), context.zoom).into(),
+                    text!("{timer}").color(white()).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
                     .spacing(context.zoom * 20.0)
@@ -2103,7 +2129,8 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                     button(&format!("Always allow {binary}"), IcedMessage::AnswerPermissionRequest(Permission::AlwaysAllow), green(), context.zoom).into(),
                     button("Deny", IcedMessage::AnswerPermissionRequest(Permission::Deny), red(), context.zoom).into(),
                     button(&format!("Always deny {binary}"), IcedMessage::AnswerPermissionRequest(Permission::AlwaysDeny), red(), context.zoom).into(),
-                    text!("{}", context.fe_context.config.user_response_timeout.max(elapsed_secs) - elapsed_secs).color(white()).size(context.zoom * 14.0).into(),
+                    button("Give me a second", IcedMessage::ToggleLLMRequest, blue(), context.zoom).into(),
+                    text!("{timer}").color(white()).size(context.zoom * 14.0).into(),
                 ])
                     .align_y(Vertical::Center)
                     .spacing(context.zoom * 20.0)
