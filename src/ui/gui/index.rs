@@ -1087,6 +1087,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .id(context.long_text_editor_id.clone())
                     .min_height(300)
                     .on_action(IcedMessage::EditLongText)
+                    .style(move |_, status| text_editor_style(status, context.zoom))
                     .into(),
                 text!("body").color(white()).size(context.zoom * 18.0).into(),
                 TextEditor::new(&context.extra_text_editor_content)
@@ -1094,6 +1095,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .size(context.zoom * 14.0)
                     .min_height(500)
                     .on_action(IcedMessage::EditExtraText)
+                    .style(move |_, status| text_editor_style(status, context.zoom))
                     .into(),
                 button(
                     "Save",
@@ -1187,6 +1189,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .on_action(IcedMessage::EditLongText)
                     .min_height(400)
                     .id(context.long_text_editor_id.clone())
+                    .style(move |_, status| text_editor_style(status, context.zoom))
                     .into(),
                 button("Save", IcedMessage::EditChatSystemPrompt(i), green(), context.zoom).into(),
             ]).spacing(context.zoom * 8.0).align_x(Horizontal::Center)).id(context.popup_scroll_id.clone()).into(), context),
@@ -1561,7 +1564,8 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         .size(context.zoom * 14.0)
         .id(context.long_text_editor_id.clone())
         .min_height(400)
-        .on_action(IcedMessage::EditLongText);
+        .on_action(IcedMessage::EditLongText)
+        .style(move |_, status| text_editor_style(status, context.zoom));
 
     let file_selector = match &context.file_selector_context {
         Some(c) => file_selector::view(c, true, context.window_size.width * 0.65, context.zoom * 480.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),

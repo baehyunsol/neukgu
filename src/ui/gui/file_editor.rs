@@ -1,4 +1,4 @@
-use super::{blue, button, gray, set_round_bg, yellow};
+use super::{blue, button, gray, set_round_bg, text_editor_style, white, yellow};
 use super::file_change::render_udiff;
 use crate::{Error, patch_diff, revert_hunks};
 use iced::{Element, Size, Task};
@@ -138,7 +138,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     if context.history_view {
         if context.diffs.is_empty() {
             Column::from_vec(vec![
-                text!("No Changes").size(context.zoom * 14.0).into(),
+                text!("No Changes").size(context.zoom * 14.0).color(white()).into(),
                 button("Back", IcedMessage::ToggleHistoryView, yellow(), context.zoom).into(),
             ]).spacing(context.zoom * 8.0).into()
         }
@@ -165,7 +165,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     else {
         Column::from_vec(vec![
-            text!("{}", context.path).size(context.zoom * 18.0).into(),
+            text!("{}", context.path).size(context.zoom * 18.0).color(white()).into(),
             TextEditor::new(&context.text_editor_content)
                 .id(context.text_editor_id.clone())
                 .size(context.zoom * 14.0)
@@ -182,6 +182,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                         _ => Binding::from_key_press(key_press),
                     }
                 })
+                .style(move |_, status| text_editor_style(status, context.zoom))
                 .into(),
             Row::from_vec(vec![
                 button("Save", IcedMessage::Save, blue(), context.zoom).into(),
@@ -192,3 +193,4 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .into()
     }
 }
+

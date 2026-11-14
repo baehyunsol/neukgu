@@ -6,12 +6,14 @@ use super::{
     disabled_button,
     gray,
     green,
+    highlighter_theme,
     pink,
     purple,
     red,
     set_bg,
     set_round_bg,
     skyblue,
+    text_editor_style,
     text_input_style,
     white,
     yellow,
@@ -1092,10 +1094,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .color(white())
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
-        let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
-            &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
-            iced::highlighter::Theme::SolarizedDark,
-        );
+        let text_editor = TextEditor::new(&context.long_text_editor_content)
+            .size(context.zoom * 14.0)
+            .highlight(
+                &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
+                highlighter_theme(),
+            )
+            .style(move |_, status| text_editor_style(status, context.zoom));
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1323,7 +1328,8 @@ pub fn chat_ui<'c, Message: ChatMessage + Clone + 'c>(
         .size(zoom * 14.0)
         .id(editor_id)
         .width(window_size.width * 0.75)
-        .height(zoom * if is_focused { 256.0 } else { 32.0 });
+        .height(zoom * if is_focused { 256.0 } else { 32.0 })
+        .style(move |_, status| text_editor_style(status, zoom));
 
     if can_be_focused {
         text_editor = text_editor

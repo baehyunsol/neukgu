@@ -9,6 +9,7 @@ use super::{
     disabled_button,
     gray,
     green,
+    highlighter_theme,
     pink,
     radio_style,
     red,
@@ -16,6 +17,7 @@ use super::{
     set_round_bg,
     skyblue,
     spawn_be_process,
+    text_editor_style,
     text_input_style,
     white,
     yellow,
@@ -1655,7 +1657,8 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             .placeholder("What do you want neukgu to do?")
             .min_height(400)
             .id(context.long_text_editor_id.clone())
-            .on_action(|action| IcedMessage::EditLongText(action));
+            .on_action(|action| IcedMessage::EditLongText(action))
+            .style(move |_, status| text_editor_style(status, context.zoom));
         let reset_edit = Column::from_vec(vec![
             text!("New instruction").size(context.zoom * 14.0).into(),
             text_editor.into(),
@@ -1735,10 +1738,13 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             .color(white())
             .width(context.window_size.width)
             .size(context.zoom * 18.0);
-        let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
-            &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
-            iced::highlighter::Theme::SolarizedDark,
-        );
+        let text_editor = TextEditor::new(&context.long_text_editor_content)
+            .size(context.zoom * 14.0)
+            .highlight(
+                &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
+                highlighter_theme(),
+            )
+            .style(move |_, status| text_editor_style(status, context.zoom));
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -2049,6 +2055,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                             _ => Binding::from_key_press(key_press),
                         }
                     })
+                    .style(move |_, status| text_editor_style(status, context.zoom))
                     .into(),
             );
 
@@ -2401,7 +2408,8 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
                 TextEditor::new(&context.long_text_editor_content)
                     .width(context.window_size.width)
                     .size(context.zoom * 14.0)
-                    .highlight("md", iced::highlighter::Theme::SolarizedDark)
+                    .highlight("md", highlighter_theme())
+                    .style(move |_, status| text_editor_style(status, context.zoom))
                     .into(),
             ]).padding(context.zoom * 8.0).spacing(context.zoom * 20.0)
         ).id(context.popup_scroll_id.clone()).into(),

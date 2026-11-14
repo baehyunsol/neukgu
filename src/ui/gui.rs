@@ -2,6 +2,7 @@ use super::{FeContext, Truncation, spawn_be_process};
 use crate::Error;
 use iced::{Background, Color, Element, Event, Font, Subscription, Theme};
 use iced::border::{Border, Radius};
+use iced::highlighter::Theme as HighlightTheme;
 use iced::keyboard::Event as KeyboardEvent;
 use iced::time::{self, Duration};
 use iced::widget::{Space, text};
@@ -205,10 +206,10 @@ fn text_input_style(status: TextInputStatus, zoom: f32) -> TextInputStyle {
 
 fn text_editor_style(status: TextEditorStatus, zoom: f32) -> TextEditorStyle {
     let (background, border_color, border_width) = match status {
-        TextInputStatus::Active => (gray(0.3), gray(0.7), zoom * 2.0),
-        TextInputStatus::Hovered => (gray(0.3), white(), zoom * 4.0),
-        TextInputStatus::Focused { .. } => (gray(0.25), purple(), zoom * 4.0),
-        TextInputStatus::Disabled => (black(), black(), 0.0),
+        TextEditorStatus::Active => (gray(0.3), gray(0.7), zoom * 2.0),
+        TextEditorStatus::Hovered => (gray(0.3), white(), zoom * 4.0),
+        TextEditorStatus::Focused { .. } => (gray(0.25), purple(), zoom * 4.0),
+        TextEditorStatus::Disabled => (black(), black(), 0.0),
     };
 
     TextEditorStyle {
@@ -221,6 +222,14 @@ fn text_editor_style(status: TextEditorStatus, zoom: f32) -> TextEditorStyle {
         placeholder: gray(0.6),
         value: white(),
         selection: purple(),
+    }
+}
+
+fn highlighter_theme() -> HighlightTheme {
+    if INVERT_COLOR.load(Ordering::Relaxed) {
+        HighlightTheme::InspiredGitHub
+    } else {
+        HighlightTheme::SolarizedDark
     }
 }
 

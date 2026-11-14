@@ -8,6 +8,7 @@ use super::{
     disabled_button,
     gray,
     green,
+    highlighter_theme,
     pink,
     purple,
     radio_style,
@@ -16,6 +17,7 @@ use super::{
     set_round_bg,
     skyblue,
     take_chars,
+    text_editor_style,
     text_input_style,
     white,
     yellow,
@@ -1570,10 +1572,13 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         }
 
         else {
-            let text_editor = TextEditor::new(&context.long_text_editor_content).size(context.zoom * 14.0).highlight(
-                &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
-                iced::highlighter::Theme::SolarizedDark,
-            );
+            let text_editor = TextEditor::new(&context.long_text_editor_content)
+                .size(context.zoom * 14.0)
+                .highlight(
+                    &if let Some(extension) = &context.syntax_highlight { extension.to_string() } else { String::from("txt") },
+                    highlighter_theme(),
+                )
+                .style(move |_, status| text_editor_style(status, context.zoom));
 
             full_view_stacked = Stack::from_vec(vec![
                 full_view_stacked,
@@ -1867,7 +1872,8 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         .size(context.zoom * 14.0)
         .id(context.long_text_editor_id.clone())
         .min_height(400)
-        .on_action(IcedMessage::EditLongText);
+        .on_action(IcedMessage::EditLongText)
+        .style(move |_, status| text_editor_style(status, context.zoom));
 
     into_popup(
         Scrollable::new(
@@ -1899,7 +1905,8 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .size(context.zoom * 14.0)
         .id(context.long_text_editor_id.clone())
         .min_height(400)
-        .on_action(IcedMessage::EditLongText);
+        .on_action(IcedMessage::EditLongText)
+        .style(move |_, status| text_editor_style(status, context.zoom));
 
     let file_selector = match &context.file_selector_context {
         Some(c) => file_selector::view(c, true, context.window_size.width * 0.65, context.zoom * 480.0, context.zoom).map(IcedMessage::FileSelectorMessage).into(),
