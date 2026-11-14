@@ -16,6 +16,7 @@ use iced::widget::slider::{
     Status as SliderStatus,
     Style as SliderStyle,
 };
+use iced::widget::text_editor::{Status as TextEditorStatus, Style as TextEditorStyle};
 use iced::widget::text_input::{Status as TextInputStatus, Style as TextInputStyle};
 use iced::window::Event as WindowEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -183,8 +184,8 @@ fn slider_style(status: SliderStatus, zoom: f32) -> SliderStyle {
 fn text_input_style(status: TextInputStatus, zoom: f32) -> TextInputStyle {
     let (background, border_color, border_width) = match status {
         TextInputStatus::Active => (gray(0.3), gray(0.7), zoom * 2.0),
-        TextInputStatus::Hovered => (gray(0.3), white(), zoom * 2.0),
-        TextInputStatus::Focused { .. } => (gray(0.25), purple(), zoom * 3.0),
+        TextInputStatus::Hovered => (gray(0.3), white(), zoom * 4.0),
+        TextInputStatus::Focused { .. } => (gray(0.25), purple(), zoom * 4.0),
         TextInputStatus::Disabled => (black(), black(), 0.0),
     };
 
@@ -196,6 +197,27 @@ fn text_input_style(status: TextInputStatus, zoom: f32) -> TextInputStyle {
             radius: Radius::new(0.0),
         },
         icon: yellow(),  // what's this?
+        placeholder: gray(0.6),
+        value: white(),
+        selection: purple(),
+    }
+}
+
+fn text_editor_style(status: TextEditorStatus, zoom: f32) -> TextEditorStyle {
+    let (background, border_color, border_width) = match status {
+        TextInputStatus::Active => (gray(0.3), gray(0.7), zoom * 2.0),
+        TextInputStatus::Hovered => (gray(0.3), white(), zoom * 4.0),
+        TextInputStatus::Focused { .. } => (gray(0.25), purple(), zoom * 4.0),
+        TextInputStatus::Disabled => (black(), black(), 0.0),
+    };
+
+    TextEditorStyle {
+        background: Background::Color(background),
+        border: Border {
+            color: border_color,
+            width: border_width,
+            radius: Radius::new(0.0),
+        },
         placeholder: gray(0.6),
         value: white(),
         selection: purple(),
