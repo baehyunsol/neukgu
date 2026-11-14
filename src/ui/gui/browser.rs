@@ -16,6 +16,7 @@ use super::{
     set_round_bg,
     skyblue,
     take_chars,
+    text_input_style,
     white,
     yellow,
 };
@@ -1385,6 +1386,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                         .id(context.short_text_editor_id.clone())
                         .on_input(IcedMessage::EditShortText)
                         .on_submit(IcedMessage::CreateDir { parent: path.to_string() })
+                        .style(move |_, status| text_input_style(status, context.zoom))
                         .into(),
                     button("Create", IcedMessage::CreateDir { parent: path.to_string() }, green(), context.zoom).into(),
                 ])
@@ -1418,7 +1420,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             &context.short_text_editor_content,
         )
             .size(context.zoom * 14.0)
-            .id(context.short_text_editor_id.clone());
+            .id(context.short_text_editor_id.clone())
+            .style(move |_, status| text_input_style(status, context.zoom));
 
         if job_id.is_none() {
             text_editor = text_editor.on_input(IcedMessage::EditShortText).on_submit(IcedMessage::Find);
@@ -1888,7 +1891,8 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
         .size(context.zoom * 14.0)
         .id(context.short_text_editor_id.clone())
         .on_input(IcedMessage::EditShortText)
-        .on_submit(IcedMessage::FocusLongTextEdit);
+        .on_submit(IcedMessage::FocusLongTextEdit)
+        .style(move |_, status| text_input_style(status, context.zoom));
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
         .placeholder("What do you want neukgu to do?")

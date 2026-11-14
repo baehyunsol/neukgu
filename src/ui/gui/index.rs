@@ -14,6 +14,7 @@ use super::{
     set_bg,
     set_round_bg,
     skyblue,
+    text_input_style,
     white,
     yellow,
 };
@@ -1075,6 +1076,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .id(context.short_text_editor_id.clone())
                     .on_input(IcedMessage::EditShortText)
                     .on_submit(IcedMessage::FocusLongTextEdit)
+                    .style(move |_, status| text_input_style(status, context.zoom))
                     .into(),
                 text!("description").color(white()).size(context.zoom * 18.0).into(),
                 TextEditor::new(&context.long_text_editor_content)
@@ -1272,7 +1274,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     else if let Some(Popup::FindInChats { job_id, error }) = &context.curr_popup {
         let mut text_editor = TextInput::new("regex", &context.short_text_editor_content)
             .size(context.zoom * 14.0)
-            .id(context.short_text_editor_id.clone());
+            .id(context.short_text_editor_id.clone())
+            .style(move |_, status| text_input_style(status, context.zoom));
 
         if job_id.is_none() {
             text_editor = text_editor.on_input(IcedMessage::EditShortText).on_submit(IcedMessage::FindInChats);
@@ -1545,7 +1548,8 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
         .size(context.zoom * 14.0)
         .id(context.short_text_editor_id.clone())
         .on_input(IcedMessage::EditShortText)
-        .on_submit(IcedMessage::FocusLongTextEdit);
+        .on_submit(IcedMessage::FocusLongTextEdit)
+        .style(move |_, status| text_input_style(status, context.zoom));
 
     let long_text_editor = TextEditor::new(&context.long_text_editor_content)
         .placeholder("What do you want neukgu to do?")
@@ -1634,7 +1638,8 @@ fn render_new_chat_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessag
     let short_text_editor = TextInput::new("(untitled)", &context.short_text_editor_content)
         .size(context.zoom * 14.0)
         .id(context.short_text_editor_id.clone())
-        .on_input(IcedMessage::EditShortText);
+        .on_input(IcedMessage::EditShortText)
+        .style(move |_, status| text_input_style(status, context.zoom));
 
     into_popup(
         Scrollable::new(

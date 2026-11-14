@@ -1,4 +1,4 @@
-use super::{blue, button, green, red, white};
+use super::{blue, button, green, red, text_input_style, white};
 use crate::Error;
 use iced::{Element, Length, Task};
 use iced::alignment::{Horizontal, Vertical};
@@ -134,7 +134,7 @@ pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'
                     .width(zoom * 256.0)
                     .secure(true)
                     .on_input(IcedMessage::EditShortTextEdit)
-                    .on_submit(IcedMessage::EnterPassword)
+                    .style(move |_, status| text_input_style(status, zoom))   .on_submit(IcedMessage::EnterPassword)
                     .into(),
             ]).spacing(zoom * 8.0).align_y(Vertical::Center).into(),
             button("Enter", IcedMessage::EnterPassword, green(), zoom).into(),
@@ -152,12 +152,14 @@ pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'
                             .size(zoom * 14.0)
                             .width(zoom * 160.0)
                             .on_input(move |name| IcedMessage::SetApiKeyName(i, name))
+                            .style(move |_, status| text_input_style(status, zoom))
                             .into(),
                         text!(":").size(zoom * 14.0).into(),
                         TextInput::new("", key)
                             .size(zoom * 14.0)
                             .width(zoom * 320.0)
                             .on_input(move |name| IcedMessage::SetApiKeyKey(i, name))
+                            .style(move |_, status| text_input_style(status, zoom))
                             .into(),
                         button("Copy", IcedMessage::CopyString(key.to_string()), blue(), zoom).into(),
                         button("Delete", IcedMessage::DeleteApiKey(i), red(), zoom).into(),
@@ -174,6 +176,7 @@ pub fn view<'c>(context: &'c IcedContext, scroll_id: Id, zoom: f32) -> Element<'
                             .size(zoom * 14.0)
                             .width(zoom * 480.0)
                             .on_input(move |memo| IcedMessage::SetMemo(i, memo))
+                            .style(move |_, status| text_input_style(status, zoom))
                             .into(),
                         button("Copy", IcedMessage::CopyString(memo.to_string()), blue(), zoom).into(),
                         button("Delete", IcedMessage::DeleteMemo(i), red(), zoom).into(),

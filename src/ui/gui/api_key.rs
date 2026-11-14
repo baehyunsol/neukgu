@@ -1,4 +1,4 @@
-use super::{button, gray, green, white};
+use super::{button, gray, green, text_input_style, white};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use iced::{Background, Element, Length, Task};
 use iced::alignment::Horizontal;
@@ -122,6 +122,7 @@ pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
                     .width(zoom * 320.0)
                     .on_input(on_input)
                     .on_submit(on_submit)
+                    .style(move |_, status| text_input_style(status, zoom))
                     .into(),
             ])
                 .align_x(Horizontal::Center)

@@ -16,6 +16,7 @@ use iced::widget::slider::{
     Status as SliderStatus,
     Style as SliderStyle,
 };
+use iced::widget::text_input::{Status as TextInputStatus, Style as TextInputStyle};
 use iced::window::Event as WindowEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -176,6 +177,28 @@ fn slider_style(status: SliderStatus, zoom: f32) -> SliderStyle {
             border_width: 0.0,
             border_color: white(),
         },
+    }
+}
+
+fn text_input_style(status: TextInputStatus, zoom: f32) -> TextInputStyle {
+    let (background, border_color, border_width) = match status {
+        TextInputStatus::Active => (gray(0.3), gray(0.7), zoom * 2.0),
+        TextInputStatus::Hovered => (gray(0.3), white(), zoom * 2.0),
+        TextInputStatus::Focused { .. } => (gray(0.25), purple(), zoom * 3.0),
+        TextInputStatus::Disabled => (black(), black(), 0.0),
+    };
+
+    TextInputStyle {
+        background: Background::Color(background),
+        border: Border {
+            color: border_color,
+            width: border_width,
+            radius: Radius::new(0.0),
+        },
+        icon: yellow(),  // what's this?
+        placeholder: gray(0.6),
+        value: white(),
+        selection: purple(),
     }
 }
 

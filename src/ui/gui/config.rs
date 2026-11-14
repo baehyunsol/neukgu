@@ -8,6 +8,7 @@ use super::{
     red,
     set_round_bg,
     slider_style,
+    text_input_style,
     white,
 };
 use crate::{
@@ -627,6 +628,7 @@ fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2
                 .size(zoom * 14.0)
                 .on_input(set_base_url)
                 .width(zoom * 320.0)
+                .style(move |_, status| text_input_style(status, zoom))
                 .into(),
         ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
         Row::from_vec(vec![
@@ -635,6 +637,7 @@ fn openai_etc_config<'c, Message: Clone + 'c, F1: Fn(String) -> Message + 'c, F2
                 .size(zoom * 14.0)
                 .on_input(set_model)
                 .width(zoom * 320.0)
+                .style(move |_, status| text_input_style(status, zoom))
                 .into(),
         ]).align_y(Vertical::Center).spacing(zoom * 8.0).into(),
     ]).align_x(Horizontal::Center).spacing(zoom * 8.0).into()

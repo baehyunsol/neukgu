@@ -12,6 +12,7 @@ use super::{
     set_bg,
     set_round_bg,
     skyblue,
+    text_input_style,
     white,
     yellow,
 };
@@ -1001,6 +1002,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 .width(context.zoom * 512.0)
                 .on_input(IcedMessage::EditShortText)
                 .on_submit(IcedMessage::ChangeTitle)
+                .style(move |_, status| text_input_style(status, context.zoom))
                 .into(),
             button("Change", IcedMessage::ChangeTitle, blue(), context.zoom).into(),
         ]).spacing(context.zoom * 8.0);
@@ -1061,7 +1063,8 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             .size(context.zoom * 14.0)
             .id(context.short_text_editor_id.clone())
             .on_input(|input| IcedMessage::EditShortText(input))
-            .on_submit(IcedMessage::Find);
+            .on_submit(IcedMessage::Find)
+            .style(move |_, status| text_input_style(status, context.zoom));
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1262,16 +1265,17 @@ fn render_web_search_results<'s, 'c>(results: &'s [WebSearchResult], context: &'
                 text!("{}", search_result.title.clone().unwrap_or(String::from("(untitled)")))
                     .width(context.window_size.width)
                     .size(context.zoom * 18.0)
+                    .color(white())
                     .into(),
             ];
 
             if let Some(summary) = &search_result.summary {
-                elements.push(text!("{summary}").size(context.zoom * 14.0).into());
+                elements.push(text!("{summary}").size(context.zoom * 14.0).color(white()).into());
             }
 
             if let Some(url) = &search_result.url {
                 elements.push(Row::from_vec(vec![
-                    text!("{url}").size(context.zoom * 14.0).into(),
+                    text!("{url}").size(context.zoom * 14.0).color(white()).into(),
                     button("Copy", IcedMessage::CopyString(url.to_string()), blue(), context.zoom).into(),
                 ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into());
             }

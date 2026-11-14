@@ -16,6 +16,7 @@ use super::{
     set_round_bg,
     skyblue,
     spawn_be_process,
+    text_input_style,
     white,
     yellow,
 };
@@ -1683,7 +1684,8 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             .size(context.zoom * 14.0)
             .id(context.short_text_editor_id.clone())
             .on_input(|input| IcedMessage::EditShortText(input))
-            .on_submit(IcedMessage::Find);
+            .on_submit(IcedMessage::Find)
+            .style(move |_, status| text_input_style(status, context.zoom));
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
