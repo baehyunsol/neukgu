@@ -12,6 +12,7 @@ use super::{
     green,
     highlighter_theme,
     pink,
+    purple,
     radio_style,
     red,
     set_bg,
@@ -724,6 +725,7 @@ pub enum IcedMessage {
     BackPopup,
     ClosePopup,
     CopyPopupContent,
+    CopyString(String),
     ToggleTurnVisibility(TurnId),
     ToggleLLMRequest,
     PauseNeukgu,
@@ -1187,6 +1189,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::CopyPopupContent => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
+        },
+        IcedMessage::CopyString(s) => {
+            return Ok(iced::clipboard::write(s.to_string()));
         },
         // "" -> "hidden" -> "pinned"
         IcedMessage::ToggleTurnVisibility(id) => {
@@ -2269,7 +2274,21 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
                         .padding(context.zoom * 8.0)
                         .spacing(context.zoom * 8.0)
                         .into(),
-                    text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
+                    Row::from_vec(vec![
+                        text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
+                        button("Copy", IcedMessage::CopyString(llm.to_string()), blue(), context.zoom).into(),
+                        button(
+                            "Scratch Pad",
+                            IcedMessage::OpenScratchPad {
+                                title: Some(format!("{i:>3}. {} <|LLM|>", preview.preview_title_truncated)),
+                                content: ScratchPadContent::Text { content: llm.to_string(), extension: None },
+                            },
+                            purple(),
+                            context.zoom,
+                        ).into(),
+                    ])
+                        .spacing(context.zoom * 8.0)
+                        .into(),
                     Container::new(
                         text!("{llm}")
                             .color(white())
@@ -2279,7 +2298,21 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
                         .width(context.window_size.width)
                         .padding(context.zoom * 8.0)
                         .into(),
-                    text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
+                    Row::from_vec(vec![
+                        text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
+                        button("Copy", IcedMessage::CopyString(stringify_llm_tokens(result)), blue(), context.zoom).into(),
+                        button(
+                            "Scratch Pad",
+                            IcedMessage::OpenScratchPad {
+                                title: Some(format!("{i:>3}. {} <|result|>", preview.preview_title_truncated)),
+                                content: ScratchPadContent::Text { content: stringify_llm_tokens(result), extension: None },
+                            },
+                            purple(),
+                            context.zoom,
+                        ).into(),
+                    ])
+                        .spacing(context.zoom * 8.0)
+                        .into(),
                     Container::new(
                         render_llm_tokens(result.to_vec(), vec![], &context.fe_context.working_dir, context.zoom, context)
                     )

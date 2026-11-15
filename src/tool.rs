@@ -1152,8 +1152,8 @@ impl ToolCallSuccess {
                 LLMToken::String(format!("Successfully edited `{input}` and saved the result at `{output_path}`.")),
                 LLMToken::Image(*output_image),
             ],
-            ToolCallSuccess::Plan { plan } => vec![LLMToken::String(plan.to_string())],
-            ToolCallSuccess::Done { report } => vec![LLMToken::String(report.to_string())],
+            ToolCallSuccess::Plan { .. } => vec![LLMToken::String(String::from("Successfully updated the plan."))],
+            ToolCallSuccess::Done { .. } => vec![LLMToken::String(String::from("Session Complete!"))],
 
             // LLM shouldn't be able to see this.
             ToolCallSuccess::QuestionFromUser { q, a } => vec![LLMToken::String(format!("

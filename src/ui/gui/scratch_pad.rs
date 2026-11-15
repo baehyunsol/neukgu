@@ -209,6 +209,8 @@ pub enum IcedMessage {
     UpdateCalendar(CalendarMessage),
     EditText(TextEditorAction),
     SetSyntax(Syntax),
+    CopyTextViewerContent,
+    EditTextViewerContent,
     ZoomIn,
     ZoomOut,
     Notify(String),
@@ -388,6 +390,14 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::SetSyntax(syntax) => {
             context.text_viewer_context.1 = Some(syntax.extension().to_string());
         },
+        IcedMessage::CopyTextViewerContent => {
+            return iced::clipboard::write(context.text_viewer_context.0.to_string());
+        },
+        IcedMessage::EditTextViewerContent => {
+            context.tab = Tab::TextEdit;
+            context.text_editor_context = context.text_viewer_context.0.to_string();
+            context.set_text_editor_content(context.text_editor_context.to_string());
+        },
         IcedMessage::ZoomIn => {
             return context.zoom_in();
         },
@@ -517,6 +527,12 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
             ])
                 .spacing(context.zoom * 8.0)
                 .into(),
+        );
+        content_with_title.push(
+            Row::from_vec(vec![
+                button("Copy", IcedMessage::CopyTextViewerContent, blue(), context.zoom).into(),
+                button("Edit", IcedMessage::EditTextViewerContent, blue(), context.zoom).into(),
+            ]).spacing(context.zoom * 8.0).into(),
         );
     }
 
