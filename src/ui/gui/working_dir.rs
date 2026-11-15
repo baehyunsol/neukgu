@@ -347,7 +347,7 @@ impl IcedContext {
     }
 
     pub fn get_user_response_timer(&self) -> u64 {
-        let t = Instant::now().duration_since(self.user_response_timeout_counter.clone()).as_secs();
+        let t = Instant::now().duration_since(self.user_response_timeout_counter).as_secs();
         self.fe_context.config.user_response_timeout.max(t) - t
     }
 
@@ -620,7 +620,7 @@ impl IcedContext {
 
                 for (file, original_content) in changed_files.iter() {
                     let udiff = self.fe_context.get_file_change(file, original_content)?;
-                    let abs_path = join(&self.fe_context.working_dir, &file)?;
+                    let abs_path = join(&self.fe_context.working_dir, file)?;
 
                     if let Some(udiff) = udiff {
                         changes.push(FileChange {
@@ -1588,7 +1588,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let image_view: Element<_> = into_popup(
             ImageViewer::new(ImageHandle::from_path(loaded_image.path(&context.fe_context.working_dir).unwrap())).content_fit(ContentFit::Contain).into(),
             context,
-        ).into();
+        );
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
@@ -1614,14 +1614,14 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let diff_view = Scrollable::new(render_udiff(context.text_diff.as_ref().unwrap(), context.window_size.width, context.zoom, false)).id(context.popup_scroll_id.clone());
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(diff_view.into(), context).into(),
+            into_popup(diff_view.into(), context),
         ]).into();
     }
 
     else if let Some(Popup::FileChanges(changes)) = &context.curr_popup {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(render_file_changes(changes, context), context).into(),
+            into_popup(render_file_changes(changes, context), context),
         ]).into();
     }
 
@@ -1639,7 +1639,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let config_popup = Scrollable::new(
             Column::from_vec(vec![
                 text!("Config").size(context.zoom * 18.0).into(),
-                config_ui(&context.tmp_config, false, context.zoom).map(IcedMessage::SetTmpConfig).into(),
+                config_ui(&context.tmp_config, false, context.zoom).map(IcedMessage::SetTmpConfig),
                 button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
             ])
                 .align_x(Horizontal::Center)
@@ -1648,7 +1648,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ).id(context.popup_scroll_id.clone());
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(config_popup.into(), context).into(),
+            into_popup(config_popup.into(), context),
         ]).into();
     }
 
@@ -1658,7 +1658,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
             .placeholder("What do you want neukgu to do?")
             .min_height(400)
             .id(context.long_text_editor_id.clone())
-            .on_action(|action| IcedMessage::EditLongText(action))
+            .on_action(IcedMessage::EditLongText)
             .style(move |_, status| text_editor_style(status, context.zoom));
         let reset_edit = Column::from_vec(vec![
             text!("New instruction").size(context.zoom * 14.0).into(),
@@ -1679,7 +1679,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(reset_edit.into(), context).into(),
+            into_popup(reset_edit.into(), context),
         ]).into();
     }
 
@@ -1719,7 +1719,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(q.into(), context).into(),
+            into_popup(q.into(), context),
         ]).into();
     }
 
@@ -1730,7 +1730,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         ]).spacing(context.zoom * 20.0).align_x(Horizontal::Center).width(Length::Fill);
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(q.into(), context).into(),
+            into_popup(q.into(), context),
         ]).into();
     }
 
@@ -1769,7 +1769,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
     full_view_stacked
 }
 
-fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> {
+fn render_buttons<'m>(context: &IcedContext) -> Element<'m, IcedMessage> {
     let mut buttons_row1: Vec<Button<IcedMessage>> = if context.be_process.is_none() {
         vec![button("Respawn", IcedMessage::RespawnBeProcess, blue(), context.zoom)]
     } else if context.is_paused {
@@ -1812,7 +1812,7 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
     ]).into()
 }
 
-fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
+fn render_turn_preview<'m>(index: usize, p: &TurnPreview, context: &IcedContext) -> Element<'m, IcedMessage> {
     let roll_back: Element<_> = {
         let (can_rollback, color, text, enabled) = if context.fe_context.snapshots.contains(&p.id) {
             (true, red(), "R", context.can_click_turn_entry())
@@ -1915,8 +1915,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         result.push(text!(">> ").color(white()).size(context.zoom * 14.0).into());
     }
 
-    result.extend(vec![roll_back.into(), context_engineering.into(), with_mouse_area]);
-
+    result.extend(vec![roll_back, context_engineering, with_mouse_area]);
     Row::from_vec(result)
         .width(Length::Fixed(context.window_size.width))
         .align_y(Vertical::Center)
@@ -1924,7 +1923,7 @@ fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'
         .into()
 }
 
-fn render_turn<'t, 'c>(index: usize, turn: &'t Turn, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+fn render_turn<'c>(index: usize, turn: &Turn, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut turn_content = vec![
         text!("# {index}. {}", turn.preview().preview_title).color(white()).size(context.zoom * 18.0).into(),
         text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
@@ -2329,7 +2328,7 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
     )
 }
 
-fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+fn render_summaries<'c>(summaries: &[SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {
     if summaries.is_empty() {
         return into_popup(text!("(There are no summaries yet.)").color(white()).size(context.zoom * 14.0).into(), context);
     }
@@ -2399,7 +2398,7 @@ fn render_summaries<'s, 'c>(summaries: &'s [SessionSummary], context: &'c IcedCo
     )
 }
 
-fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+fn render_summary<'c>(summary: &SessionSummary, context: &'c IcedContext) -> Element<'c, IcedMessage> {
     into_popup(
         Scrollable::new(
             Column::from_vec(vec![
@@ -2420,7 +2419,7 @@ fn render_summary<'s, 'c>(summary: &'s SessionSummary, context: &'c IcedContext)
 }
 
 fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    fn render_file_change<'c, 'a>(change: &'c FileChange, context: &'c IcedContext, all_expanded: &'a mut bool) -> Element<'c, IcedMessage> {
+    fn render_file_change<'c>(change: &'c FileChange, context: &'c IcedContext, all_expanded: &mut bool) -> Element<'c, IcedMessage> {
         let (mut add, mut remove) = (0, 0);
 
         for line in change.udiff.lines() {

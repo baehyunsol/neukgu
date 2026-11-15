@@ -102,11 +102,11 @@ fn button_with_tooltip<'n, 't, 'm, Message: 'm + Clone>(name: &'n str, tooltip: 
         )
 }
 
-fn button<'s, 'm, Message>(name: &'s str, message: Message, bg_color: Color, zoom: f32) -> Button<'m, Message> {
+fn button<'m, Message>(name: &str, message: Message, bg_color: Color, zoom: f32) -> Button<'m, Message> {
     disabled_button(name, bg_color, zoom).on_press(message)
 }
 
-fn disabled_button<'s, 'm, Message>(name: &'s str, bg_color: Color, zoom: f32) -> Button<'m, Message> {
+fn disabled_button<'m, Message>(name: &str, bg_color: Color, zoom: f32) -> Button<'m, Message> {
     Button::new(text!("{name}").size(zoom * 14.0))
         .style(move |_, status| {
             let (r, g, b) = (bg_color.r, bg_color.g, bg_color.b);
@@ -123,7 +123,7 @@ fn disabled_button<'s, 'm, Message>(name: &'s str, bg_color: Color, zoom: f32) -
 
             ButtonStyle {
                 background: Some(Background::Color(bg_color)),
-                text_color: text_color,
+                text_color,
                 border: Border {
                     color: black(),
                     width: 0.0,

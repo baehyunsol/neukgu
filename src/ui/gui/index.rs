@@ -1224,7 +1224,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(ask.into(), context).into(),
+            into_popup(ask.into(), context),
         ]).into();
     }
 
@@ -1239,7 +1239,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(ask.into(), context).into(),
+            into_popup(ask.into(), context),
         ]).into();
     }
 
@@ -1258,7 +1258,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(ask.into(), context).into(),
+            into_popup(ask.into(), context),
         ]).into();
     }
 
@@ -1273,7 +1273,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
-            into_popup(ask.into(), context).into(),
+            into_popup(ask.into(), context),
         ]).into();
     }
 
@@ -1313,7 +1313,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     .width(Length::Fill)
                     .into(),
                 context,
-            ).into(),
+            ),
         ]).into();
     }
 
@@ -1334,7 +1334,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     context.zoom,
                 ).map(IcedMessage::UpdateModelStore),
                 context,
-            ).into(),
+            ),
         ]).into();
     }
 
@@ -1740,7 +1740,7 @@ fn render_battery_state<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage
     }
 }
 
-fn render_find_in_chats_result<'r, 'm, 'c>(regex: &'r str, matches: &'m [(ChatId, Vec<MatchPreview>)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
+fn render_find_in_chats_result<'c>(regex: &str, matches: &[(ChatId, Vec<MatchPreview>)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let mut column: Vec<Element<IcedMessage>> = vec![
         text!("Find: {regex}").color(white()).size(context.zoom * 14.0).into(),
     ];

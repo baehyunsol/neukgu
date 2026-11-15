@@ -170,7 +170,7 @@ impl Workers {
             self.workers[index] = init_worker();
         }
 
-        let result = result.into_iter().map(
+        result.into_iter().map(
             |msg| {
                 let tab_id = match msg.id {
                     Some(id) => self.tab_id_by_job_id.remove(&id).unwrap(),
@@ -178,8 +178,7 @@ impl Workers {
                 };
                 (msg, tab_id)
             }
-        ).collect();
-        result
+        ).collect()
     }
 }
 
@@ -432,7 +431,7 @@ fn match_glob(path: &str, matcher: &GlobMatcher, timeout: u64) -> JobResultKind 
 }
 
 fn match_glob_worker(path: &str, matcher: &GlobMatcher, started_at: Instant, timeout: u64, buffer: &mut Vec<GlobMatch>) -> bool {
-    if Instant::now().duration_since(started_at.clone()).as_secs() > timeout {
+    if Instant::now().duration_since(started_at).as_secs() > timeout {
         return true;
     }
 

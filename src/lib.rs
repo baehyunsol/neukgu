@@ -210,7 +210,7 @@ pub async fn step(context: &mut Context, config: &mut Config) -> Result<(), Erro
 
     if has_new_turn {
         context.updated_at = Local::now().timestamp_millis();
-        update_global_index(&context)?;
+        update_global_index(context)?;
     }
 
     // It sleeps 500ms in order to add *stability* to the program.
@@ -443,7 +443,7 @@ pub fn init_working_dir(
     }
 
     let log_dir = &join3(working_dir, ".neukgu", "logs")?;
-    init_log_dir(&log_dir)?;
+    init_log_dir(log_dir)?;
 
     write_string(
         &join3(working_dir, ".neukgu", "snapshots.json")?,
@@ -477,9 +477,7 @@ pub fn init_working_dir(
     } else {
         config.activated_tools = config.activated_tools.iter().filter(
             |t| **t != ToolKind::Plan
-        ).map(
-            |t| *t
-        ).collect();
+        ).copied().collect();
     }
 
     let context = Context::new(
@@ -600,9 +598,7 @@ pub fn reset_working_dir(
         } else {
             config.activated_tools = config.activated_tools.iter().filter(
                 |t| **t != ToolKind::Plan
-            ).map(
-                |t| *t
-            ).collect();
+            ).copied().collect();
         }
 
         config.orchestrator = orchestrator;
@@ -676,7 +672,7 @@ pub fn roll_back_working_dir(id: &TurnId, working_dir: &str) -> Result<(), Error
     let sessions_snapshot = join3(&snapshot_at, ".neukgu", "sessions")?;
     let sessions_working_dir = join3(working_dir, ".neukgu", "sessions")?;
     let snapshots: Vec<Snapshot> = load_json(&snapshots_at)?;
-    let snapshot = snapshots.into_iter().filter(|snapshot| &snapshot.turn == id).next();
+    let snapshot = snapshots.into_iter().find(|snapshot| &snapshot.turn == id);
     let Some(snapshot) = snapshot else { return Err(Error::CannotFindSnapshot(id.clone())); };
 
     clean_dangling_sandboxes(working_dir)?;

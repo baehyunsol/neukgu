@@ -182,7 +182,7 @@ pub fn view<'c>(context: &'c IcedContext, window_size: Size, zoom: f32) -> Eleme
 
     if context.parent_kind == RulerKind::Sin2x || context.child_kind == RulerKind::Sin2x {
         column.push(
-            text!("{} rad = 1 deg", render_f64(3.1415926535 / 180.0))
+            text!("{} rad = 1 deg", render_f64(std::f64::consts::PI / 180.0))
                 .color(black())
                 .size(zoom * 14.0)
                 .into()

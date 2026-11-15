@@ -522,7 +522,7 @@ impl Context {
             |turn| (turn.clone(), false)
         ).collect();
 
-        vec![
+        [
             pre_turns,
             pinned_turns,
             post_turns.into_iter().rev().collect(),

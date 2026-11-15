@@ -350,7 +350,7 @@ impl FeContext {
             instruction: be_context.instruction.to_string(),
             neukgu_id: be_context.neukgu_id,
             session_id: be_context.session_id,
-            parent: be_context.parent.clone(),
+            parent: be_context.parent,
             history,
             summaries,
             curr_tool_call,
@@ -392,7 +392,7 @@ impl FeContext {
     fn update(&mut self) -> Result<(), Error> {
         *self = FeContext {
             previews: self.previews.clone(),
-            initialized_at: self.initialized_at.clone(),
+            initialized_at: self.initialized_at,
             hidden_turns: self.hidden_turns.clone(),
             pinned_turns: self.pinned_turns.clone(),
             ..FeContext::load_without_preview(&self.working_dir)?
@@ -508,7 +508,7 @@ impl FeContext {
         if self.is_paused().unwrap_or(false) {
             format!("Paused")
         } else if let Some(question_from_user) = &self.question_from_user {
-            format!("Question from user {:?} (processing, elapsed {})", truncate_chars(&question_from_user, 36), prettify_time(self.question_from_user_elapsed.unwrap()))
+            format!("Question from user {:?} (processing, elapsed {})", truncate_chars(question_from_user, 36), prettify_time(self.question_from_user_elapsed.unwrap()))
         } else if self.is_done {
             format!("Neukgu has completed his job and is proud of his work!")
         } else if self.get_llm_request().unwrap_or(None).is_some() {
@@ -568,7 +568,7 @@ impl FeContext {
     // It takes about 0.5~1 second for backend to start.
     // I don't want to print "Neukgu is not responding" at that moment...
     fn is_waking_up(&self) -> bool {
-        Instant::now().duration_since(self.initialized_at.clone()).as_millis() < 3000
+        Instant::now().duration_since(self.initialized_at).as_millis() < 3000
     }
 
     pub fn get_llm_request(&self) -> Result<Option<(InterruptId, QuestionToUser)>, Error> {

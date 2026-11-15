@@ -482,7 +482,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     let curr_tab = if let Some(selected_tab) = context.selected_tab {
         let selected_tab = &context.tabs[selected_tab];
         let selected_tab_id = selected_tab.id;
-        tab::view(&selected_tab).map(move |message| IcedMessage::Tab { id: selected_tab_id, message })
+        tab::view(selected_tab).map(move |message| IcedMessage::Tab { id: selected_tab_id, message })
     } else {
         index::view(&context.index).map(IcedMessage::Index)
     };
@@ -495,12 +495,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 
     view = Stack::from_vec(vec![
         view,
-        scratch_pad::view(&context.scratch_pad).map(IcedMessage::ScratchPad).into(),
+        scratch_pad::view(&context.scratch_pad).map(IcedMessage::ScratchPad),
     ]).into();
 
     view = Stack::from_vec(vec![
         view,
-        render_notes(&context.notes, &context),
+        render_notes(&context.notes, context),
     ]).into();
 
     view
@@ -573,8 +573,8 @@ fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     ).width(context.window_size.width).padding(4.0).style(|_| set_bg(gray(0.1))).into()
 }
 
-fn render_tab_title<'t, 'm>(
-    title: &'t str,
+fn render_tab_title<'m>(
+    title: &str,
     flag: Color,
     curr_selected: bool,
     select_action: IcedMessage,
@@ -594,7 +594,7 @@ fn render_tab_title<'t, 'm>(
     };
     let title = Button::new(
         Row::from_vec(vec![
-            flag.into(),
+            flag,
             text!("{title}").size(14.0).into(),
         ])
             .align_y(Vertical::Center)
@@ -643,7 +643,7 @@ fn render_tab_title<'t, 'm>(
     Container::new(
         Row::from_vec(vec![
             title.into(),
-            close.into(),
+            close,
         ])
             .align_y(Vertical::Center)
             .width(width)

@@ -343,7 +343,7 @@ impl IcedContext {
                     let mut post_offset = file_size - TEXT_EDITOR_CONTENT_LIMIT / 2;
                     post_offset -= post_offset % 32;
                     let post = read_bytes_offset(&path, post_offset as u64, file_size as u64)?;
-                    Some(vec![
+                    Some([
                         dump_hex(&pre, 0),
                         dump_hex(&post, post_offset),
                     ].concat())
@@ -2015,7 +2015,7 @@ pub fn load_entries(path: &str) -> Result<Vec<FileEntry>, Error> {
     dirs.sort_by_key(|e| e.name.to_ascii_lowercase());
     files.sort_by_key(|e| e.name.to_ascii_lowercase());
 
-    Ok(vec![dirs, files].concat())
+    Ok([dirs, files].concat())
 }
 
 fn check_neukgu_index(path: &str) -> Result<bool, Error> {
