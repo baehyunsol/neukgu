@@ -421,6 +421,9 @@
 204. If the LLM is trying to run an invalid command (e.g. find, ls, cd, ...), it shouldn't ask for permission... it's soooooo annoying!!
 205. When the agent used the `<done>` tool, I want there to be a popup with the report.
 206. update models: it's too annoying to update models manually
+207. strange parse error
+  - `<write><path>src/elf/writer.rs</path><mode=create><content>...</content></write>`
+  - `<write>`를 parse하다가 `<mode=create>`를 만나서 `<write>`의 parse 자체를 끝내버림. 그리고 아예 새로 parsing을 시작을 해서 `<content>`가 문제라고 오류 메시지를 내 버림...
 
 ## mock API
 
