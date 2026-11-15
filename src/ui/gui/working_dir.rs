@@ -5,6 +5,7 @@ use super::{
     black,
     blue,
     button,
+    button_with_tooltip,
     checkbox_style,
     disabled_button,
     gray,
@@ -1812,36 +1813,37 @@ fn render_buttons<'c, 'm>(context: &'c IcedContext) -> Element<'m, IcedMessage> 
 }
 
 fn render_turn_preview<'t, 'c, 'm>(index: usize, p: &'t TurnPreview, context: &'c IcedContext) -> Element<'m, IcedMessage> {
-    let roll_back = {
-        let (color, text, enabled) = if context.fe_context.snapshots.contains(&p.id) {
-            (red(), "R", context.can_click_turn_entry())
+    let roll_back: Element<_> = {
+        let (can_rollback, color, text, enabled) = if context.fe_context.snapshots.contains(&p.id) {
+            (true, red(), "R", context.can_click_turn_entry())
         } else {
-            (gray(0.2), " ", false)
+            (false, gray(0.2), " ", false)
         };
+        let message = IcedMessage::OpenPopup { curr: Popup::AskRollBack { id: p.id.clone(), title: format!("{index:>3}. [{}] {}", p.timestamp, p.preview_title_truncated) }, prev: None };
 
-        if enabled {
-            button(text, IcedMessage::OpenPopup { curr: Popup::AskRollBack { id: p.id.clone(), title: format!("{index:>3}. [{}] {}", p.timestamp, p.preview_title_truncated) }, prev: None }, color, context.zoom)
-        } else {
-            disabled_button(text, color, context.zoom)
+        match (can_rollback, enabled) {
+            (true, true) => button_with_tooltip(text, "rollback to this turn", message, color, context.zoom).into(),
+            (false, true) => button(text, message, color, context.zoom).into(),
+            (_, false) => disabled_button(text, color, context.zoom).into(),
         }
     };
 
-    let context_engineering = {
+    let context_engineering: Element<_> = {
         let color = match context.fe_context.truncation.get(&p.id).unwrap() {
             Truncation::Hidden => red(),
             Truncation::FullRender => green(),
             Truncation::ShortRender => blue(),
         };
-        let text = match (context.fe_context.hidden_turns.get(&p.id), context.fe_context.pinned_turns.get(&p.id)) {
-            (Some(_), _) => "hidden",
-            (_, Some(_)) => "pinned",
-            (None, None) => "      ",
+        let (text, tooltip) = match (context.fe_context.hidden_turns.get(&p.id), context.fe_context.pinned_turns.get(&p.id)) {
+            (Some(_), _) => ("hidden", "pin this turn in the context"),
+            (_, Some(_)) => ("pinned", "remove pin"),
+            (None, None) => ("      ", "hide this turn from the context"),
         };
 
         if context.can_click_turn_entry() {
-            button(text, IcedMessage::ToggleTurnVisibility(p.id.clone()), color, context.zoom)
+            button_with_tooltip(text, tooltip, IcedMessage::ToggleTurnVisibility(p.id.clone()), color, context.zoom).into()
         } else {
-            disabled_button(text, color, context.zoom)
+            disabled_button(text, color, context.zoom).into()
         }
     };
 
@@ -2261,7 +2263,7 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
             column.push(
                 Column::from_vec(vec![
                     Row::from_vec(vec![
-                        button("▼", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
+                        button_with_tooltip("▼", "collapse", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
                         title.into(),
                     ])
                         .align_y(Vertical::Center)
@@ -2295,7 +2297,7 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
         else {
             column.push(
                 Row::from_vec(vec![
-                    button("▶", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
+                    button_with_tooltip("▶", "expand", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
                     title.into(),
                 ])
                     .align_y(Vertical::Center)
@@ -2451,7 +2453,7 @@ fn render_file_changes<'c>(changes: &'c [FileChange], context: &'c IcedContext) 
         } else {
             *all_expanded = false;
             Row::from_vec(vec![
-                button("▶", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
+                button_with_tooltip("▶", "expand", IcedMessage::ExpandFileChange(change.path.to_string()), white(), context.zoom).into(),
                 Space::new().width(context.zoom * 8.0).into(),
                 if let Some((dir, file)) = change.browser_path.clone() {
                     button("Open", IcedMessage::OpenBrowser { dir, file: Some(file) }, skyblue(), context.zoom).into()

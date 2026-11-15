@@ -4,11 +4,13 @@ use iced::{Background, Color, Element, Event, Font, Subscription, Theme};
 use iced::border::{Border, Radius};
 use iced::highlighter::Theme as HighlightTheme;
 use iced::keyboard::Event as KeyboardEvent;
+use iced::overlay::menu::Style as PickMenuStyle;
 use iced::time::{self, Duration};
 use iced::widget::{Space, text};
 use iced::widget::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
 use iced::widget::checkbox::{Status as CheckboxStatus, Style as CheckboxStyle};
-use iced::widget::container::{Container, Style};
+use iced::widget::container::{Container, Style as ContainerStyle};
+use iced::widget::pick_list::{Status as PickListStatus, Style as PickListStyle};
 use iced::widget::radio::{Status as RadioStatus, Style as RadioStyle};
 use iced::widget::slider::{
     Handle as SliderHandle,
@@ -19,6 +21,7 @@ use iced::widget::slider::{
 };
 use iced::widget::text_editor::{Status as TextEditorStatus, Style as TextEditorStyle};
 use iced::widget::text_input::{Status as TextInputStatus, Style as TextInputStyle};
+use iced::widget::tooltip::{Position, Tooltip};
 use iced::window::Event as WindowEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -72,6 +75,31 @@ pub fn run(cwd: Option<String>) -> Result<(), Error> {
         .run()?;
 
     Ok(())
+}
+
+fn button_with_tooltip<'n, 't, 'm, Message: 'm + Clone>(name: &'n str, tooltip: &'t str, message: Message, bg_color: Color, zoom: f32) -> Tooltip<'m, Message> {
+    Tooltip::new(
+        button(name, message, bg_color, zoom),
+        Container::new(text!("{tooltip}").size(zoom * 14.0).color(white())),
+        Position::FollowCursor,
+    )
+        .delay(Duration::from_millis(500))
+        .snap_within_viewport(true)
+        .padding(zoom * 8.0)
+        .gap(zoom * 40.0)
+        .style(
+            move |_| ContainerStyle {
+                text_color: None,
+                background: Some(Background::Color(gray(0.3))),
+                border: Border {
+                    color: white(),
+                    width: zoom * 4.0,
+                    radius: Radius::new(zoom * 8.0),
+                },
+                shadow: Default::default(),
+                snap: true,
+            }
+        )
 }
 
 fn button<'s, 'm, Message>(name: &'s str, message: Message, bg_color: Color, zoom: f32) -> Button<'m, Message> {
@@ -225,6 +253,41 @@ fn text_editor_style(status: TextEditorStatus, zoom: f32) -> TextEditorStyle {
     }
 }
 
+fn pick_list_style(status: PickListStatus, zoom: f32) -> PickListStyle {
+    let (border_color, border_width) = match status {
+        PickListStatus::Active => (white(), zoom * 2.0),
+        PickListStatus::Hovered => (white(), zoom * 4.0),
+        PickListStatus::Opened { .. } => (purple(), zoom * 4.0),
+    };
+
+    PickListStyle {
+        text_color: white(),
+        placeholder_color: white(),
+        handle_color: white(),
+        background: Background::Color(gray(0.2)),
+        border: Border {
+            color: border_color,
+            width: border_width,
+            radius: Radius::new(0.0),
+        },
+    }
+}
+
+fn pick_menu_style(_: &Theme) -> PickMenuStyle {
+    PickMenuStyle {
+        background: Background::Color(gray(0.2)),
+        text_color: white(),
+        selected_background: Background::Color(purple()),
+        selected_text_color: black(),
+        border: Border {
+            color: white(),
+            width: 0.0,
+            radius: Radius::new(0.0),
+        },
+        shadow: Default::default(),
+    }
+}
+
 fn highlighter_theme() -> HighlightTheme {
     if INVERT_COLOR.load(Ordering::Relaxed) {
         HighlightTheme::InspiredGitHub
@@ -233,34 +296,42 @@ fn highlighter_theme() -> HighlightTheme {
     }
 }
 
+fn highlighter_theme_invert() -> HighlightTheme {
+    if INVERT_COLOR.load(Ordering::Relaxed) {
+        HighlightTheme::SolarizedDark
+    } else {
+        HighlightTheme::InspiredGitHub
+    }
+}
+
 fn circle<'m, Message: 'm>(radius: f32, color: Color) -> Element<'m, Message> {
-    Container::new(Space::new()).padding(radius).style(move |_| Style {
+    Container::new(Space::new()).padding(radius).style(move |_| ContainerStyle {
         background: Some(Background::Color(color)),
         border: Border {
             color: black(),
             width: 0.0,
             radius: Radius::new(radius),
         },
-        ..Style::default()
+        ..Default::default()
     }).into()
 }
 
-fn set_round_bg(color: Color, zoom: f32) -> Style {
-    Style {
+fn set_round_bg(color: Color, zoom: f32) -> ContainerStyle {
+    ContainerStyle {
         background: Some(Background::Color(color)),
         border: Border {
             color: white(),
             width: 0.0,
             radius: Radius::new(zoom * 8.0),
         },
-        ..Style::default()
+        ..Default::default()
     }
 }
 
-fn set_bg(color: Color) -> Style {
-    Style {
+fn set_bg(color: Color) -> ContainerStyle {
+    ContainerStyle {
         background: Some(Background::Color(color)),
-        ..Style::default()
+        ..Default::default()
     }
 }
 

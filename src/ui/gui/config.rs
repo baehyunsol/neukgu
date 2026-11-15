@@ -4,6 +4,8 @@ use super::{
     checkbox_style,
     gray,
     green,
+    pick_list_style,
+    pick_menu_style,
     radio_style,
     red,
     set_round_bg,
@@ -530,6 +532,8 @@ pub fn chat_config_ui1<'c>(config: &'c ChatConfig, zoom: f32) -> Element<'c, Set
         )
             .text_size(zoom * 14.0)
             .width(zoom * 160.0)
+            .style(move |_, status| pick_list_style(status, zoom))
+            .menu_style(pick_menu_style)
             .into(),
         Checkbox::new(config.thinking != Thinking::Disabled)
             .label("Thinking")

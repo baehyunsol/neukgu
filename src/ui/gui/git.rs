@@ -2,6 +2,7 @@ use super::{
     black,
     blue,
     button,
+    button_with_tooltip,
     gray,
     green,
     red,
@@ -428,9 +429,9 @@ fn render_commits<'c>(git_info: &'c GitInfo, context: &'c IcedContext) -> Elemen
                 let is_expanded = context.expanded_commits.contains(&commit.commit_hash);
                 let title = Row::from_vec(vec![
                     if is_expanded {
-                        button("▼", IcedMessage::ExpandCommit(commit.commit_hash), white(), context.zoom).into()
+                        button_with_tooltip("▼", "collapse", IcedMessage::ExpandCommit(commit.commit_hash), white(), context.zoom).into()
                     } else {
-                        button("▶", IcedMessage::ExpandCommit(commit.commit_hash), white(), context.zoom).into()
+                        button_with_tooltip("▶", "expand", IcedMessage::ExpandCommit(commit.commit_hash), white(), context.zoom).into()
                     },
                     Column::from_vec(vec![
                         Row::from_vec(vec![
@@ -516,9 +517,9 @@ fn render_changes_unit<'d, 'e>(
         let is_expanded = expanded_file_diffs.contains(&expand_key);
         let title = Row::from_vec(vec![
             if is_expanded {
-                button("▼", IcedMessage::ExpandFileDiff(expand_key), white(), zoom).into()
+                button_with_tooltip("▼", "collapse", IcedMessage::ExpandFileDiff(expand_key), white(), zoom).into()
             } else {
-                button("▶", IcedMessage::ExpandFileDiff(expand_key), white(), zoom).into()
+                button_with_tooltip("▶", "expand", IcedMessage::ExpandFileDiff(expand_key), white(), zoom).into()
             },
             Space::new().width(zoom * 8.0).into(),
             text!("{title} (").size(zoom * 14.0).color(white()).into(),

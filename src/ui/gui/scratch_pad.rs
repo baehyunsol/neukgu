@@ -2,9 +2,13 @@ use super::{
     black,
     blue,
     button,
+    button_with_tooltip,
     disabled_button,
     gold,
     gray,
+    highlighter_theme_invert,
+    pick_list_style,
+    pick_menu_style,
     red,
     set_round_bg,
     slider_style,
@@ -23,6 +27,7 @@ use iced::widget::image::{
     Viewer as ImageViewer,
 };
 use iced::widget::operation::{RelativeOffset, snap_to};
+use iced::widget::PickList;
 use iced::widget::text_editor::{
     Action as TextEditorAction,
     Content as TextEditorContent,
@@ -31,6 +36,7 @@ use iced::widget::text_editor::{
     Style as TextEditorStyle,
     TextEditor,
 };
+use std::fmt;
 use std::sync::Arc;
 
 mod calendar;
@@ -202,6 +208,7 @@ pub enum IcedMessage {
     UpdateSlideRule(SlideRuleMessage),
     UpdateCalendar(CalendarMessage),
     EditText(TextEditorAction),
+    SetSyntax(Syntax),
     ZoomIn,
     ZoomOut,
     Notify(String),
@@ -225,6 +232,95 @@ pub enum Content {
         content: String,
         extension: Option<String>,
     },
+}
+
+// This is a helper type for `IcedMessage::SetSyntax`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Syntax {
+    Text,
+    Rust,
+    Python,
+    Markdown,
+    C,
+    Javascript,
+    Diff,
+    Etc(String),
+}
+
+impl Syntax {
+    pub fn all_extensions() -> Vec<Syntax> {
+        vec![
+            Syntax::Text,
+            Syntax::Rust,
+            Syntax::Python,
+            Syntax::Markdown,
+            Syntax::C,
+            Syntax::Javascript,
+            Syntax::Diff,
+        ]
+    }
+
+    pub fn extension(&self) -> &str {
+        match self {
+            Syntax::Text => "txt",
+            Syntax::Rust => "rs",
+            Syntax::Python => "py",
+            Syntax::Markdown => "md",
+            Syntax::C => "c",
+            Syntax::Javascript => "js",
+            Syntax::Diff => "diff",
+            Syntax::Etc(ext) => ext.as_str(),
+        }
+    }
+
+    pub fn get_list(curr_ext: &Option<String>) -> Vec<Syntax> {
+        let mut result = vec![];
+        let mut is_in_list = false;
+
+        for ext in Syntax::all_extensions() {
+            if let Some(curr_ext) = curr_ext && curr_ext.to_ascii_lowercase() == ext.extension() {
+                is_in_list = true;
+            }
+
+            result.push(ext);
+        }
+
+        if let Some(curr_ext) = curr_ext && !is_in_list {
+            result.push(Syntax::Etc(curr_ext.to_string()));
+        }
+
+        result
+    }
+
+    pub fn from_extension(ext: &Option<String>) -> Syntax {
+        match ext {
+            Some(ext) => match ext.to_ascii_lowercase().as_str() {
+                "rs" => Syntax::Rust,
+                "py" => Syntax::Python,
+                "md" => Syntax::Markdown,
+                "c" | "h" => Syntax::C,
+                "js" => Syntax::Javascript,
+                "diff" => Syntax::Diff,
+                ext => Syntax::Etc(ext.to_string()),
+            },
+            None => Syntax::Text,
+        }
+    }
+}
+
+impl fmt::Display for Syntax {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            Syntax::Text => write!(fmt, "plain text"),
+            Syntax::Rust => write!(fmt, "rust"),
+            Syntax::Python => write!(fmt, "python"),
+            Syntax::Markdown => write!(fmt, "markdown"),
+            Syntax::C => write!(fmt, "c"),
+            Syntax::Javascript => write!(fmt, "javascript"),
+            Syntax::Diff => write!(fmt, "diff"),
+            Syntax::Etc(ext) => write!(fmt, "{ext}"),
+        }
+    }
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -289,6 +385,9 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::EditText(a) => {
             context.text_editor_content.perform(a);
         },
+        IcedMessage::SetSyntax(syntax) => {
+            context.text_viewer_context.1 = Some(syntax.extension().to_string());
+        },
         IcedMessage::ZoomIn => {
             return context.zoom_in();
         },
@@ -334,7 +433,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
 }
 
 fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'c, IcedMessage> {
-    let mut content: Element<IcedMessage> = match context.tab {
+    let content: Element<IcedMessage> = match context.tab {
         Tab::Hidden => unreachable!(),
         Tab::TextView if context.text_viewer_context.1.as_ref().map(|e| e.as_str()) == Some("diff") => render_udiff(
             &context.text_editor_content.text(),
@@ -348,7 +447,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
             .size(context.zoom * 14.0)
             .highlight(
                 &if let Some(extension) = &context.text_viewer_context.1 { extension.to_string() } else { String::from("txt") },
-                iced::highlighter::Theme::InspiredGitHub,
+                highlighter_theme_invert(),
             )
             .style(|_, _| TextEditorStyle {
                 background: Background::Color(gray(0.85)),
@@ -393,17 +492,39 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
         Tab::Calendar => calendar::view(&context.calendar_context, context.window_size, context.zoom).map(IcedMessage::UpdateCalendar),
     };
 
+    let mut content_with_title = vec![];
+
     if let Some(title) = &context.title && context.tab != Tab::TextEdit {
-        content = Column::from_vec(vec![
-            text!("{title}").color(black()).size(context.zoom * 18.0).into(),
-            content,
-        ]).spacing(context.zoom * 8.0).into();
+        content_with_title.push(text!("{title}").color(black()).size(context.zoom * 18.0).into());
     }
 
+    content_with_title.push(content);
+
+    if let Tab::TextView = context.tab {
+        content_with_title.push(
+            Row::from_vec(vec![
+                text!("syntax: ").size(context.zoom * 14.0).color(black()).into(),
+                PickList::new(
+                    Syntax::get_list(&context.text_viewer_context.1),
+                    Some(Syntax::from_extension(&context.text_viewer_context.1)),
+                    IcedMessage::SetSyntax,
+                )
+                    .text_size(context.zoom * 14.0)
+                    .width(context.zoom * 160.0)
+                    .style(move |_, status| pick_list_style(status, context.zoom))
+                    .menu_style(pick_menu_style)
+                    .into(),
+            ])
+                .spacing(context.zoom * 8.0)
+                .into(),
+        );
+    }
+
+    let content_with_title = Column::from_vec(content_with_title).spacing(context.zoom * 8.0);
     Container::new(
         Column::from_vec(vec![
             render_top_buttons(context),
-            Scrollable::new(Container::new(content).padding(context.zoom * 8.0)).id(context.popup_scroll_id.clone()).into(),
+            Scrollable::new(Container::new(content_with_title).padding(context.zoom * 8.0)).id(context.popup_scroll_id.clone()).into(),
         ]).spacing(context.zoom * 8.0)
     ).style(|_| Style {
         background: Some(Background::Color(white())),
@@ -420,28 +541,28 @@ fn render_top_buttons<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> 
     let mut buttons = vec![
         button("X", IcedMessage::Close, red(), context.zoom).into(),
         if context.is_expanded {
-            button("▼", IcedMessage::ToggleExpand, black(), context.zoom).into()
+            button_with_tooltip("▼", "collapse", IcedMessage::ToggleExpand, black(), context.zoom).into()
         } else {
-            button("▶", IcedMessage::ToggleExpand, black(), context.zoom).into()
+            button_with_tooltip("▶", "expand", IcedMessage::ToggleExpand, black(), context.zoom).into()
         },
     ];
 
     match context.alignment {
         Horizontal::Left => {
             buttons.push(disabled_button("<<", blue(), context.zoom).into());
-            buttons.push(button(">>", IcedMessage::SetAlignment(Horizontal::Center), blue(), context.zoom).into());
+            buttons.push(button_with_tooltip(">>", "move right", IcedMessage::SetAlignment(Horizontal::Center), blue(), context.zoom).into());
         },
         Horizontal::Center => {
-            buttons.push(button("<<", IcedMessage::SetAlignment(Horizontal::Left), blue(), context.zoom).into());
-            buttons.push(button(">>", IcedMessage::SetAlignment(Horizontal::Right), blue(), context.zoom).into());
+            buttons.push(button_with_tooltip("<<", "move left", IcedMessage::SetAlignment(Horizontal::Left), blue(), context.zoom).into());
+            buttons.push(button_with_tooltip(">>", "move right", IcedMessage::SetAlignment(Horizontal::Right), blue(), context.zoom).into());
         },
         Horizontal::Right => {
-            buttons.push(button("<<", IcedMessage::SetAlignment(Horizontal::Center), blue(), context.zoom).into());
+            buttons.push(button_with_tooltip("<<", "move left", IcedMessage::SetAlignment(Horizontal::Center), blue(), context.zoom).into());
             buttons.push(disabled_button(">>", blue(), context.zoom).into());
         },
     }
 
-    buttons.push(button("-", IcedMessage::ZoomOut, blue(), context.zoom).into());
-    buttons.push(button("+", IcedMessage::ZoomIn, blue(), context.zoom).into());
+    buttons.push(button_with_tooltip("-", "zoom out", IcedMessage::ZoomOut, blue(), context.zoom).into());
+    buttons.push(button_with_tooltip("+", "zoom in", IcedMessage::ZoomIn, blue(), context.zoom).into());
     Row::from_vec(buttons).spacing(context.zoom * 8.0).into()
 }

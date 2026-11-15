@@ -5,6 +5,7 @@ use super::{
     blue,
     brown,
     button,
+    button_with_tooltip,
     circle,
     disabled_button,
     gray,
@@ -898,11 +899,11 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         entries: Element<'c, IcedMessage>,
         context: &'c IcedContext,
     ) -> Column<'c, IcedMessage> {
-        let expand_button: Button<IcedMessage> = match (context.curr_popup.is_some(), is_expanded) {
-            (true, true) => disabled_button("▼", white(), context.zoom),
-            (false, true) => button("▼", expand_message, white(), context.zoom),
-            (true, false) => disabled_button("▶", white(), context.zoom),
-            (false, false) => button("▶", expand_message, white(), context.zoom),
+        let expand_button: Element<IcedMessage> = match (context.curr_popup.is_some(), is_expanded) {
+            (true, true) => disabled_button("▼", white(), context.zoom).into(),
+            (false, true) => button_with_tooltip("▼", "collapse", expand_message, white(), context.zoom).into(),
+            (true, false) => disabled_button("▶", white(), context.zoom).into(),
+            (false, false) => button_with_tooltip("▶", "expand", expand_message, white(), context.zoom).into(),
         };
         let buttons: Vec<Element<IcedMessage>> = if context.curr_popup.is_some() {
             buttons.into_iter().map(|button| button.on_press_maybe(None).into()).collect()
@@ -916,12 +917,12 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 Row::from_vec(buttons).spacing(context.zoom * 8.0).into(),
             ]).spacing(context.zoom * 8.0).align_y(Vertical::Center).into(),
             Row::from_vec(vec![
-                expand_button.into(),
+                expand_button,
                 Container::new(Scrollable::new(entries).width(Length::Fill))
                     .style(|_| set_round_bg(black(), context.zoom))
                     .padding(context.zoom * 8.0)
                     .width(context.window_size.width)
-                    .height(if is_expanded { context.window_size.height * 0.6 } else { context.window_size.height * 0.2 })
+                    .height(if is_expanded { context.window_size.height * 0.7 } else { context.window_size.height * 0.25 })
                     .into(),
             ]).spacing(context.zoom * 8.0).into(),
         ])

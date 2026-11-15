@@ -1,4 +1,4 @@
-use super::{blue, button, gray, set_round_bg, text_editor_style, white, yellow};
+use super::{blue, button, gray, highlighter_theme, set_round_bg, text_editor_style, white, yellow};
 use super::file_change::render_udiff;
 use crate::{Error, patch_diff, revert_hunks};
 use iced::{Element, Size, Task};
@@ -171,7 +171,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                 .size(context.zoom * 14.0)
                 .width(context.window_size.width)
                 .height(context.window_size.height * 0.5)
-                .highlight(&context.syntax_highlight, iced::highlighter::Theme::SolarizedDark)
+                .highlight(&context.syntax_highlight, highlighter_theme())
                 .on_action(IcedMessage::EditText)
                 .key_binding(move |key_press| {
                     let KeyPress { key, modifiers, .. } = &key_press;

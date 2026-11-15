@@ -124,6 +124,8 @@ You can create or initialize a neukgu working directory in file browser.
 - Alt+Up: `cd ..`
 - (Ctrl)+Up/Down: prev/next file entry (Ctrl to move faster)
 - Ctrl+Plus/Minus: zoom
+- Ctrl+Tab: toggle focus command line
+- Ctrl+Enter: run command (when long-text-editor is focused)
 - Ctrl+D: create new dir
 - Ctrl+E: edit file (in file preview popup)
 - Ctrl+H: help message
