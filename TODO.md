@@ -446,3 +446,61 @@ echo "spawning gui...";
 
 run `sample_instructions/check-ai-api.md`
 
+## Project Bukhang (북항)
+
+1. An AI coding harness that 1) writes a software from scratch or 2) updates an existing software which is written by bukhang. This draft is only about the first scenario (writing a software from scratch)
+2. There are 4 kinds of agents.
+  - Planner: it takes a module specification as an input.
+    - It decides whether the module should have sub-modules.
+      - It's lazily splitted. It won't use modules in the first attempt. If the reivewer (or other agents) complain that there should be modules, then it will update the spec.
+    - If there are sub-modules, it writes specifications of the sub-modules.
+    - If there are no sub-modules, it doesn't write any documents.
+  - Writer: it takes the specifications of the current module and the sub-modules, if exist.
+    - It implements the module!
+  - Code reviewer: it takes the module specification and the code as an input.
+    - Automatic tests run before the reviewer enters. The auto-test checks syntax errors and type errors.
+    - The module shouldn't have any impure functions unless the specification explicitly requires.
+    - The tester will add pre- and post- assertions, so the module doesn't have to add ones.
+    - If the module is long and does not use any modules, it'll ask the planner to use sub-modules.
+    - Overall feedbacks.
+  - Tester: it takes the module specification as an input. It cannot read the code.
+    - If it's trivial to generate a sample input and output, it'll generate the samples and test.
+    - It can add pre-assertions. They're asserted with the state before the module is invoked.
+    - It can add post-assertions. They're asserted with the state after the module returns.
+3. A module is a function that looks like either of these: `fn foo<State>(state: &mut State) -> Result<(), String>` or `fn foo<State>(state: &mut State, db: &mut KVDB) -> Result<(), String>`
+  - I chose `&mut` for performance reasons. Pure-immutable functions in Rust are too slow.
+  - A module can be implemented in any languages. Currently, the harness supports two languages: Rust and Python.
+    - If a module is implemented in multiple languages, the harness can run more variety of tests.
+    - If it's python, the module should throw an exception instead of returning `Err(_)`.
+  - `T` must derive `Clone`, `Debug`, `Default`, `Deserialize` and `Serialize` in Rust. It has to be a struct.
+    - It shouldn't use any enums except `Option<T>` because enums don't work very well with the json syntax.
+    - The agent must write `T`'s schema using Rust's struct definition syntax. The other language users will use the struct definition as the schema document.
+  - `KVDB` is a file-based key-value DB. The agent may use this type if the module has to read/write a lot of data.
+  - A sub-module may inherit the parent's `State`, or use another type. The module planner will decide this.
+4. Updating the spec
+  - The reviewer may ask the planner to update the spec.
+  - If the test fails a lot of times, the harness will ask the reviewer to ask the planner to update the spec.
+5. Integration with 늑구
+  - Every agent is just a 늑구 session.
+  - I have to implement 늑구-sneak mode in GUI. You can view a 늑구 session without invoking its backend.
+  - I have to implement the module-tree-viewer in 늑구 GUI.
+  - configs for agents
+    - module planner: ... well it doesn't fit very well with 늑구...
+    - module writer: just writes the code with write/patch tool. It doesn't run the code. The tester will.
+    - module code reviewer: only reads the code and writes the report. The report should never include the exact input that breaks the code. LLMs will attempt to naively patch the exact input...
+    - module tester: can it actually run the test? Or, will the harness run the tests?
+  - By default, it'll disable all the human-interaction tools. But you can enable them if you want.
+    - I also want a 북항-specific human-interaction tools. (e.g. modify the specifications manually)
+6. More issues
+  - Interface (e.g. CLI, TUI, server with REST API, ...)
+    - How about this? 북항 can only implement the pure logics (with very little impure actions with KVDB). In order to implement interfaces, you have to use other AI harnesses.
+  - What if the user requires a specific language? What if the language is not supported by the harness?
+  - What if the agents want to update the specification?
+    - This is very important. The first version of the specification is not perfect. There should be an update path.
+    - Writer, Reviewer and Tester can give feedbacks to Planner. But we have to prevent them from giving feedbacks too frequently. The specs have to be updated only when there's a serious flaw.
+    - When the spec is updated, we have to re-generate the sub-tree.
+7. Samples: let's test 북항 with these sample projects
+  - C compiler
+  - verilog simulator
+  - simple webgame (only the backend)
+
