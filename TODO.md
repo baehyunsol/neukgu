@@ -324,10 +324,6 @@
 181. InvalidLogId -> `Path` 관련된 초대형 refactoring 한 다음에 GUI에서 이 오류가 자주 보임...
   - FailedToAcquireWriteLock도 자주 보이는 중... mock으로 sleep 꺼놓고 테스트하는데 거의 3번에 한번 꼴로 등장
 183. `ToolCall::run`에서 Error 반환하는 경우를 좀 더 줄이고 싶음. 예를 들어서, `ToolCall::Write { .. }`에서 `write_string`하다가 오류가 났다? 그럼 그 오류를 그대로 AI한테 던져주는게 맞는 듯...
-184. Change themes
-  - 일단, 모든 element의 색깔을 직접 지정해야함. (ui::gui::colors의 함수들 이용)
-  - ui::gui::colors의 모든 색깔을 일거에 뒤집는 코드를 집어넣어야함. ... 그러면 테마 변경 가능!!
-  - 이거 하고 있는데 생각보다 빡셈. TextInput, TextEditor, Radio, Checkbox, Slider등은 기본 테마가 적용되어 있는데 그걸 다 다시 설정해야함...
 185. api_key가 env-var에 박혀있는 상태로 gui를 열면, api_key 입력창이 안 뜨겠지??
 186. AskQuestionToUser가 있을 때 neukgu gui를 통째로 닫았다가 곧바로 다시 들어가봤음
   - 다시 들어가니까 get_api_keys popup이 씹히고 (잠깐 떴다가 사라짐) 질문창이 뜸. timeout은 300초부터 다시 세는 중...
@@ -424,6 +420,11 @@
 207. strange parse error
   - `<write><path>src/elf/writer.rs</path><mode=create><content>...</content></write>`
   - `<write>`를 parse하다가 `<mode=create>`를 만나서 `<write>`의 parse 자체를 끝내버림. 그리고 아예 새로 parsing을 시작을 해서 `<content>`가 문제라고 오류 메시지를 내 버림...
+208. more on scratch pad
+  - index tab에 section이 3개가 있잖아? (projects, chats, tabs) 각 section을 scratch pad에 붙일 수 있게 하자!
+    - tab은 실시간으로 업데이트가 되면 좋을 듯...
+    - 여기에 조금 더 욕심을 내면, scratch pad에 있는 project/chat/tab을 클릭하면 실제로 그 tab이 열림
+  - working dir에서 sessions에서 turns를 누르면 turns가 요약돼서 보이잖아? 그 화면을 통째로 scratch pad로 띄우고 싶음
 
 ## mock API
 
