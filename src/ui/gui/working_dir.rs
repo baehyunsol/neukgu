@@ -1,5 +1,6 @@
 use super::{
     FeContext,
+    NGContext,
     TEXT_EDITOR_CONTENT_LIMIT,
     Truncation,
     black,
@@ -665,6 +666,16 @@ impl IcedContext {
     }
 }
 
+impl NGContext for IcedContext {
+    fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    fn window_size(&self) -> Size {
+        self.window_size
+    }
+}
+
 impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool {
         !(self.llm_request.is_some() && self.show_llm_request) && match self.curr_popup {
@@ -683,8 +694,6 @@ impl PopupContext for IcedContext {
             _ => false,
         }
     }
-
-    fn zoom(&self) -> f32 { self.zoom }
 }
 
 impl ImagePopup for IcedContext {
@@ -706,6 +715,20 @@ impl LogsContext for IcedContext {
             curr: Popup::Log((log_title, log_id)),
             prev: Some(Popup::Logs),
         }
+    }
+}
+
+impl SessionsContext for IcedContext {
+    fn popup_scroll_id(&self) -> &Id {
+        &self.popup_scroll_id
+    }
+
+    fn contains_session_preview_id(&self, id: &TurnId) -> bool {
+        self.session_preview_expansions.contains(id)
+    }
+
+    fn working_dir(&self) -> &str {
+        &self.fe_context.working_dir
     }
 }
 
@@ -793,6 +816,24 @@ impl ChatMessage for IcedMessage {
     }
 }
 
+impl SessionsMessage for IcedMessage {
+    fn copy_string(s: String) -> Self {
+        IcedMessage::CopyString(s)
+    }
+
+    fn open_scratch_pad_raw(title: Option<String>, content: ScratchPadContent) -> Self {
+        IcedMessage::OpenScratchPad { title, content }
+    }
+
+    fn expand_session_preview(id: TurnId) -> Self {
+        IcedMessage::ExpandSessionPreview(id)
+    }
+
+    fn open_popup(curr: Popup, prev: Option<Popup>) -> Self {
+        IcedMessage::OpenPopup { curr, prev }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Popup {
     GetApiKeys,
@@ -835,6 +876,19 @@ pub struct FileChange {
     pub browser_path: Option<(String, String)>,  // (dir, file)
     pub udiff: String,
     pub expanded: bool,
+}
+
+pub trait SessionsContext {
+    fn popup_scroll_id(&self) -> &Id;
+    fn contains_session_preview_id(&self, id: &TurnId) -> bool;
+    fn working_dir(&self) -> &str;
+}
+
+pub trait SessionsMessage {
+    fn copy_string(s: String) -> Self;
+    fn open_scratch_pad_raw(title: Option<String>, content: ScratchPadContent) -> Self;
+    fn expand_session_preview(id: TurnId) -> Self;
+    fn open_popup(curr: Popup, prev: Option<Popup>) -> Self;
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -2172,7 +2226,23 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
     )
 }
 
-fn render_session<'c>(session: &'c SessionInfo, context: &'c IcedContext) -> Element<'c, IcedMessage> {
+fn render_sessions<'c, Context: NGContext + SessionsContext + PopupContext, Message: PopupMessage + SessionsMessage + Clone + 'c>(sessions: &'c [SessionInfo], context: &'c Context) -> Element<'c, Message> {
+    into_popup(
+        Scrollable::new(
+            Column::from_vec(
+                sessions.iter().map(
+                    |session| render_session(session, context)
+                ).collect()
+            )
+                .spacing(context.zoom() * 8.0)
+        )
+            .id(context.popup_scroll_id().clone())
+            .into(),
+        context,
+    )
+}
+
+fn render_session<'c, Context: NGContext + SessionsContext + PopupContext, Message: SessionsMessage + Clone + 'c>(session: &'c SessionInfo, context: &'c Context) -> Element<'c, Message> {
     let description = match (session.selected, session.finished) {
         (true, true) => "(selected, finished)",
         (true, false) => "(selected, unfinished)",
@@ -2183,28 +2253,28 @@ fn render_session<'c>(session: &'c SessionInfo, context: &'c IcedContext) -> Ele
     let mut column = vec![
         Row::from_vec(vec![
             if session.selected {
-                text!(">> ").color(green()).size(context.zoom * 18.0).into()
+                text!(">> ").color(green()).size(context.zoom() * 18.0).into()
             } else {
                 Space::new().into()
             },
-            text!("{}", session.name.as_ref().unwrap_or(&String::from("untitled-session"))).color(white()).size(context.zoom * 18.0).into(),
+            text!("{}", session.name.as_ref().unwrap_or(&String::from("untitled-session"))).color(white()).size(context.zoom() * 18.0).into(),
             // TODO: "Rename" button
             // TODO: "Switch" button
-            button("Turns", IcedMessage::OpenPopup { curr: Popup::Session(session.id), prev: Some(Popup::Sessions) }, yellow(), context.zoom).into(),
-            text!("{description}").color(white()).size(context.zoom * 14.0).into(),
+            button("Turns", Message::open_popup(Popup::Session(session.id), Some(Popup::Sessions)), yellow(), context.zoom()).into(),
+            text!("{description}").color(white()).size(context.zoom() * 14.0).into(),
         ])
             .align_y(Vertical::Center)
-            .spacing(context.zoom * 8.0)
+            .spacing(context.zoom() * 8.0)
             .into(),
-        Container::new(text!("{}", truncate_chars(&session.instruction, 512)).color(white()).size(context.zoom * 14.0))
-            .width(context.window_size.width)
-            .padding(context.zoom * 8.0)
-            .style(|_| set_round_bg(black(), context.zoom))
+        Container::new(text!("{}", truncate_chars(&session.instruction, 512)).color(white()).size(context.zoom() * 14.0))
+            .width(context.window_size().width)
+            .padding(context.zoom() * 8.0)
+            .style(|_| set_round_bg(black(), context.zoom()))
             .into(),
     ];
 
     if !session.sub_agents.is_empty() {
-        column.push(text!("Sub-Agents").color(white()).size(context.zoom * 14.0).into());
+        column.push(text!("Sub-Agents").color(white()).size(context.zoom() * 14.0).into());
     }
 
     for (i, session) in session.sub_agents.iter().enumerate() {
@@ -2212,116 +2282,100 @@ fn render_session<'c>(session: &'c SessionInfo, context: &'c IcedContext) -> Ele
             column.push(
                 Container::new(Space::new())
                     .style(|_| set_bg(white()))
-                    .width(context.window_size.width)
-                    .height(context.zoom * 4.0)
+                    .width(context.window_size().width)
+                    .height(context.zoom() * 4.0)
                     .into(),
             );
         }
 
         column.push(Row::from_vec(vec![
-            Space::new().width(context.zoom * 60.0).into(),
+            Space::new().width(context.zoom() * 60.0).into(),
             render_session(session, context),
         ]).into());
     }
 
     Container::new(
         Column::from_vec(column)
-            .spacing(context.zoom * 4.0)
+            .spacing(context.zoom() * 4.0)
     )
-        .padding(context.zoom * 8.0)
-        .style(|_| set_round_bg(gray(0.2), context.zoom))
+        .padding(context.zoom() * 8.0)
+        .style(|_| set_round_bg(gray(0.2), context.zoom()))
         .into()
 }
 
-fn render_sessions<'c>(sessions: &'c [SessionInfo], context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    into_popup(
-        Scrollable::new(
-            Column::from_vec(
-                sessions.iter().map(
-                    |session| render_session(session, context)
-                ).collect()
-            )
-                .spacing(context.zoom * 8.0)
-        )
-            .id(context.popup_scroll_id.clone())
-            .into(),
-        context,
-    )
-}
-
-fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)], context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    let mut column: Vec<Element<IcedMessage>> = Vec::with_capacity(turns.len());
+fn render_session_preview<'c, Context: NGContext + SessionsContext + PopupContext + ImagePopup<Message=Message>, Message: PopupMessage + SessionsMessage + Clone + 'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)], context: &'c Context) -> Element<'c, Message> {
+    let mut column: Vec<Element<Message>> = Vec::with_capacity(turns.len());
 
     for (i, (preview, llm, result)) in turns.iter().enumerate() {
         let title = Row::from_vec(vec![
-            text!("{i:>3}. ").color(white()).size(context.zoom * 14.0).into(),
-            text!("{}", preview.preview_title_truncated).color(white()).size(context.zoom * 14.0).into(),
+            text!("{i:>3}. ").color(white()).size(context.zoom() * 14.0).into(),
+            text!("{}", preview.preview_title_truncated).color(white()).size(context.zoom() * 14.0).into(),
             match preview.result {
-                TurnResultSummary::ParseError => text!(" (parse-error)").color(red()).size(context.zoom * 14.0).into(),
-                TurnResultSummary::ToolCallError => text!(" (tool-call-error)").color(yellow()).size(context.zoom * 14.0).into(),
-                TurnResultSummary::ToolCallSuccess => text!("").size(context.zoom * 14.0).into(),
+                TurnResultSummary::ParseError => text!(" (parse-error)").color(red()).size(context.zoom() * 14.0).into(),
+                TurnResultSummary::ToolCallError => text!(" (tool-call-error)").color(yellow()).size(context.zoom() * 14.0).into(),
+                TurnResultSummary::ToolCallSuccess => text!("").size(context.zoom() * 14.0).into(),
             },
         ]);
 
-        if context.session_preview_expansions.contains(&preview.id) {
+        if context.contains_session_preview_id(&preview.id) {
             column.push(
                 Column::from_vec(vec![
                     Row::from_vec(vec![
-                        button_with_tooltip("▼", "collapse", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
+                        button_with_tooltip("▼", "collapse", Message::expand_session_preview(preview.id.clone()), white(), context.zoom()).into(),
                         title.into(),
                     ])
                         .align_y(Vertical::Center)
-                        .padding(context.zoom * 8.0)
-                        .spacing(context.zoom * 8.0)
+                        .padding(context.zoom() * 8.0)
+                        .spacing(context.zoom() * 8.0)
                         .into(),
                     Row::from_vec(vec![
-                        text!("<|LLM|>").color(white()).size(context.zoom * 14.0).into(),
-                        button("Copy", IcedMessage::CopyString(llm.to_string()), blue(), context.zoom).into(),
+                        text!("<|LLM|>").color(white()).size(context.zoom() * 14.0).into(),
+                        button("Copy", Message::copy_string(llm.to_string()), blue(), context.zoom()).into(),
                         button(
                             "Scratch Pad",
-                            IcedMessage::OpenScratchPad {
-                                title: Some(format!("{i:>3}. {} <|LLM|>", preview.preview_title_truncated)),
-                                content: ScratchPadContent::Text { content: llm.to_string(), extension: None },
-                            },
+                            Message::open_scratch_pad_raw(
+                                Some(format!("{i:>3}. {} <|LLM|>", preview.preview_title_truncated)),
+                                ScratchPadContent::Text { content: llm.to_string(), extension: None },
+                            ),
                             purple(),
-                            context.zoom,
+                            context.zoom(),
                         ).into(),
                     ])
-                        .spacing(context.zoom * 8.0)
+                        .spacing(context.zoom() * 8.0)
                         .into(),
                     Container::new(
                         text!("{llm}")
                             .color(white())
-                            .size(context.zoom * 14.0)
+                            .size(context.zoom() * 14.0)
                     )
                         .style(|_| set_bg(black()))
-                        .width(context.window_size.width)
-                        .padding(context.zoom * 8.0)
+                        .width(context.window_size().width)
+                        .padding(context.zoom() * 8.0)
                         .into(),
                     Row::from_vec(vec![
-                        text!("<|result|>").color(white()).size(context.zoom * 14.0).into(),
-                        button("Copy", IcedMessage::CopyString(stringify_llm_tokens(result)), blue(), context.zoom).into(),
+                        text!("<|result|>").color(white()).size(context.zoom() * 14.0).into(),
+                        button("Copy", Message::copy_string(stringify_llm_tokens(result)), blue(), context.zoom()).into(),
                         button(
                             "Scratch Pad",
-                            IcedMessage::OpenScratchPad {
-                                title: Some(format!("{i:>3}. {} <|result|>", preview.preview_title_truncated)),
-                                content: ScratchPadContent::Text { content: stringify_llm_tokens(result), extension: None },
-                            },
+                            Message::open_scratch_pad_raw(
+                                Some(format!("{i:>3}. {} <|result|>", preview.preview_title_truncated)),
+                                ScratchPadContent::Text { content: stringify_llm_tokens(result), extension: None },
+                            ),
                             purple(),
-                            context.zoom,
+                            context.zoom(),
                         ).into(),
                     ])
-                        .spacing(context.zoom * 8.0)
+                        .spacing(context.zoom() * 8.0)
                         .into(),
                     Container::new(
-                        render_llm_tokens(result.to_vec(), vec![], &context.fe_context.working_dir, context.zoom, context)
+                        render_llm_tokens(result.to_vec(), vec![], context.working_dir(), context.zoom(), context)
                     )
                         .style(|_| set_bg(black()))
-                        .width(context.window_size.width)
-                        .padding(context.zoom * 8.0)
+                        .width(context.window_size().width)
+                        .padding(context.zoom() * 8.0)
                         .into(),
                 ])
-                    .spacing(context.zoom * 8.0)
+                    .spacing(context.zoom() * 8.0)
                     .into(),
             );
         }
@@ -2329,12 +2383,12 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
         else {
             column.push(
                 Row::from_vec(vec![
-                    button_with_tooltip("▶", "expand", IcedMessage::ExpandSessionPreview(preview.id.clone()), white(), context.zoom).into(),
+                    button_with_tooltip("▶", "expand", Message::expand_session_preview(preview.id.clone()), white(), context.zoom()).into(),
                     title.into(),
                 ])
                     .align_y(Vertical::Center)
-                    .padding(context.zoom * 8.0)
-                    .spacing(context.zoom * 8.0)
+                    .padding(context.zoom() * 8.0)
+                    .spacing(context.zoom() * 8.0)
                     .into(),
             );
         }
@@ -2343,9 +2397,9 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
     column = column.into_iter().map(
         |column| {
             Container::new(column)
-                .width(context.window_size.width)
-                .padding(context.zoom * 8.0)
-                .style(|_| set_round_bg(gray(0.15), context.zoom))
+                .width(context.window_size().width)
+                .padding(context.zoom() * 8.0)
+                .style(|_| set_round_bg(gray(0.15), context.zoom()))
                 .into()
         }
     ).collect();
@@ -2353,9 +2407,9 @@ fn render_session_preview<'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)],
     into_popup(
         Scrollable::new(
             Column::from_vec(column)
-                .spacing(context.zoom * 8.0)
+                .spacing(context.zoom() * 8.0)
         )
-            .id(context.popup_scroll_id.clone())
+            .id(context.popup_scroll_id().clone())
             .into(),
         context,
     )

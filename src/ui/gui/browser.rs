@@ -1,5 +1,6 @@
 use super::{
     MEMORY_LOAD_LIMIT,
+    NGContext,
     TEXT_EDITOR_CONTENT_LIMIT,
     black,
     blue,
@@ -504,6 +505,16 @@ impl IcedContext {
     }
 }
 
+impl NGContext for IcedContext {
+    fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    fn window_size(&self) -> Size {
+        self.window_size
+    }
+}
+
 impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { false }
@@ -516,8 +527,6 @@ impl PopupContext for IcedContext {
             _ => false,
         }
     }
-
-    fn zoom(&self) -> f32 { self.zoom }
 }
 
 #[derive(Clone, Debug)]

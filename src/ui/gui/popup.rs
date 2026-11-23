@@ -1,4 +1,4 @@
-use super::{black, blue, button, purple, red, set_bg, white};
+use super::{NGContext, black, blue, button, purple, red, set_bg, white};
 use iced::{Background, Color, Element, Length};
 use iced::border::{Border, Radius};
 use iced::widget::{Column, Row};
@@ -9,7 +9,6 @@ pub trait PopupContext {
     fn has_prev_popup(&self) -> bool;
     fn has_something_to_copy(&self) -> bool;
     fn can_open_scratch_pad(&self) -> bool;
-    fn zoom(&self) -> f32;
 }
 
 pub trait PopupMessage {
@@ -19,7 +18,7 @@ pub trait PopupMessage {
     fn open_scratch_pad() -> Self;
 }
 
-pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupContext>(element: Element<'e, Message>, context: &'c Context) -> Element<'e, Message> {
+pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: NGContext + PopupContext>(element: Element<'e, Message>, context: &'c Context) -> Element<'e, Message> {
     let mut buttons: Vec<Element<Message>> = vec![];
     let zoom = context.zoom();
 
@@ -64,3 +63,4 @@ pub fn into_popup<'e, 'c, Message: Clone + PopupMessage + 'e, Context: PopupCont
     .padding(zoom * 32.0)
     .into()
 }
+

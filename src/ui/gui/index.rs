@@ -1,5 +1,6 @@
 use super::{
     INVERT_COLOR,
+    NGContext,
     TEXT_EDITOR_CONTENT_LIMIT,
     black,
     blue,
@@ -353,6 +354,16 @@ impl IcedContext {
     }
 }
 
+impl NGContext for IcedContext {
+    fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    fn window_size(&self) -> Size {
+        self.window_size
+    }
+}
+
 impl PopupContext for IcedContext {
     fn can_close_popup(&self) -> bool { self.curr_popup.is_some() }
     fn has_prev_popup(&self) -> bool { self.prev_popup.is_some() }
@@ -365,8 +376,6 @@ impl PopupContext for IcedContext {
             false
         }
     }
-
-    fn zoom(&self) -> f32 { self.zoom }
 }
 
 #[derive(Clone, Debug)]

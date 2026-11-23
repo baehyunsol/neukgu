@@ -1,4 +1,4 @@
-use super::{button, gray, set_round_bg, white, yellow};
+use super::{NGContext, button, gray, set_round_bg, white, yellow};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use crate::{LogId, Model, TokenUsage, prettify_tokens};
 use iced::{Element, Length};
@@ -15,7 +15,7 @@ pub trait LogsContext {
     fn open_log_popup(&self, log_title: String, log_id: LogId) -> Self::Message;
 }
 
-pub fn render_logs<'l, 'c, Context: LogsContext<Message=Message> + PopupContext, Message: Clone + PopupMessage + 'c>(
+pub fn render_logs<'l, 'c, Context: NGContext + LogsContext<Message=Message> + PopupContext, Message: Clone + PopupMessage + 'c>(
     logs: &'l [String],
     context: &'c Context,
     scroll_id: Id,
@@ -47,7 +47,7 @@ pub fn render_logs<'l, 'c, Context: LogsContext<Message=Message> + PopupContext,
     into_popup(logs.into(), context)
 }
 
-pub fn render_token_usage<'u, 'c, Context: PopupContext, Message: Clone + PopupMessage + 'c>(
+pub fn render_token_usage<'u, 'c, Context: NGContext + PopupContext, Message: Clone + PopupMessage + 'c>(
     token_usage: &'u TokenUsage,
     context: &'c Context,
     scroll_id: Id,

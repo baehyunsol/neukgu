@@ -1,4 +1,5 @@
 use super::{
+    NGContext,
     TEXT_EDITOR_CONTENT_LIMIT,
     black,
     blue,
@@ -388,8 +389,6 @@ impl PopupContext for IcedContext {
             _ => false,
         }
     }
-
-    fn zoom(&self) -> f32 { self.zoom }
 }
 
 impl ImagePopup for IcedContext {
@@ -447,6 +446,16 @@ pub enum IcedMessage {
     // Dead: Tell the caller that this tab is okay to be closed.
     Kill,
     Dead,
+}
+
+impl NGContext for IcedContext {
+    fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    fn window_size(&self) -> Size {
+        self.window_size
+    }
 }
 
 impl PopupMessage for IcedMessage {

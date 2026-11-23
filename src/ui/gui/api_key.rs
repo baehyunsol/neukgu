@@ -1,4 +1,4 @@
-use super::{button, gray, green, text_input_style, white};
+use super::{NGContext, button, gray, green, text_input_style, white};
 use super::popup::{PopupContext, PopupMessage, into_popup};
 use iced::{Background, Element, Length, Task};
 use iced::alignment::Horizontal;
@@ -93,7 +93,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
     Task::none()
 }
 
-pub fn get_api_keys_popup<'ac, 'pc, Context: PopupContext>(
+pub fn get_api_keys_popup<'ac, 'pc, Context: NGContext + PopupContext>(
     api_keys_context: &'ac IcedContext,
     popup_context: &'pc Context,
     zoom: f32,

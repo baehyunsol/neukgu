@@ -1,6 +1,6 @@
 use super::{FeContext, Truncation, spawn_be_process};
 use crate::Error;
-use iced::{Background, Color, Element, Event, Font, Subscription, Theme};
+use iced::{Background, Color, Element, Event, Font, Size, Subscription, Theme};
 use iced::border::{Border, Radius};
 use iced::highlighter::Theme as HighlightTheme;
 use iced::keyboard::Event as KeyboardEvent;
@@ -56,6 +56,11 @@ const TEXT_EDITOR_CONTENT_LIMIT: usize = 65536;
 const MEMORY_LOAD_LIMIT: usize = 33554432;
 
 const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
+
+trait NGContext {
+    fn zoom(&self) -> f32;
+    fn window_size(&self) -> Size;
+}
 
 pub fn run(cwd: Option<String>) -> Result<(), Error> {
     iced::application(move || tabs::boot(&cwd), tabs::update, tabs::view)
