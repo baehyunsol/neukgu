@@ -247,6 +247,7 @@ impl LocalContext {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TabId(u64);
 
+#[derive(Clone, Debug)]
 pub struct TabPreview {
     pub id: TabId,
     pub neukgu_id: Option<NeukguId>,  // if it's `Tab::WorkingDir`

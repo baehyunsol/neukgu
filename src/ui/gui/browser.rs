@@ -513,6 +513,10 @@ impl NGContext for IcedContext {
     fn window_size(&self) -> Size {
         self.window_size
     }
+
+    fn has_popup(&self) -> bool {
+        self.curr_popup.is_some()
+    }
 }
 
 impl PopupContext for IcedContext {

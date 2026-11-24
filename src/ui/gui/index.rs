@@ -1,4 +1,5 @@
 use super::{
+    FeContext,
     INVERT_COLOR,
     NGContext,
     TEXT_EDITOR_CONTENT_LIMIT,
@@ -13,6 +14,7 @@ use super::{
     green,
     highlighter_theme,
     pink,
+    purple,
     red,
     set_bg,
     set_round_bg,
@@ -39,19 +41,25 @@ use super::scratch_pad::Content as ScratchPadContent;
 use super::tab::{TabId, TabPreview};
 use super::tabs::Tab;
 use super::worker::{Job, JobId, JobKind, JobResult, JobResultKind};
+use super::working_dir::{ImagePopup, SessionsContext, SessionsMessage, render_session_preview, render_sessions};
 use chrono::Local;
 use crate::{
     Chat,
     ChatId,
     Config,
-    ContextJson,
     Error,
+    ImageId,
+    LLMToken,
     MatchPreview,
     NeukguId,
     Project,
     ProjectJson,
+    SessionId,
+    SessionInfo,
     Skill,
     SkillSchemaError,
+    TurnId,
+    TurnPreview,
     build_info,
     clean_global_index_dir,
     delete_chat,
@@ -76,12 +84,13 @@ use crate::{
     validate_project_name,
 };
 use crate::chat::Config as ChatConfig;
-use iced::{Background, Color, Element, Length, Size, Task};
+use iced::{Background, Color, ContentFit, Element, Length, Size, Task};
 use iced::alignment::{Horizontal, Vertical};
 use iced::border::{Border, Radius};
 use iced::keyboard::{Key, Modifiers, key::Named as NamedKey};
 use iced::widget::{Button, Column, Id, MouseArea, Row, Scrollable, Space, Stack, TextInput, text};
 use iced::widget::container::{Container, Style};
+use iced::widget::image::{Handle as ImageHandle, Viewer as ImageViewer};
 use iced::widget::operation::{AbsoluteOffset, RelativeOffset, focus, scroll_to, snap_to};
 use iced::widget::text_editor::{
     Action as TextEditorAction,
@@ -97,7 +106,7 @@ use ragit_fs::{
     join3,
     remove_dir_all,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -154,6 +163,10 @@ pub struct IcedContext {
     pub now: String,
     pub battery: Option<(battery::State, f32)>,
     pub hovered_tab: Option<TabId>,
+    pub loaded_sessions: Option<Vec<SessionInfo>>,
+    pub loaded_session: Option<Vec<(TurnPreview, String, Vec<LLMToken>)>>,
+    pub loaded_image: Option<(String, ImageId)>,
+    pub session_preview_expansions: HashSet<TurnId>,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
     pub copy_buffer: Option<String>,
@@ -199,6 +212,10 @@ impl IcedContext {
             now: Local::now().to_rfc2822(),
             battery: None,
             hovered_tab: None,
+            loaded_sessions: None,
+            loaded_session: None,
+            loaded_image: None,
+            session_preview_expansions: HashSet::new(),
             curr_popup: None,
             prev_popup: None,
             copy_buffer: None,
@@ -279,11 +296,14 @@ impl IcedContext {
             Popup::EditChatSystemPrompt(i) => {
                 self.set_long_text_editor_content(self.system_prompts[i].to_string());
             },
-            Popup::Instruction { working_dir } => {
-                let context: ContextJson = load_json(&join3(&working_dir, ".neukgu", "context.json")?)?;
-                self.copy_buffer = Some(context.instruction.to_string());
-                self.set_long_text_editor_content(context.instruction.to_string());
-                self.syntax_highlight = Some(String::from("md"));
+            Popup::Sessions { working_dir } => {
+                let fe_context = FeContext::load(&working_dir)?;
+                self.loaded_sessions = Some(fe_context.get_sessions()?);
+            },
+            Popup::Session { working_dir, session_id } => {
+                let fe_context = FeContext::load(&working_dir)?;
+                self.loaded_session = Some(fe_context.get_session_preview(session_id)?);
+                self.session_preview_expansions = HashSet::new();
             },
             Popup::AskDeleteProject { .. } => {},
             Popup::AskDeleteSkill { .. } => {},
@@ -300,6 +320,9 @@ impl IcedContext {
                 self.set_long_text_editor_content(HELP_MESSAGE.to_string());
                 self.syntax_highlight = Some(String::from("md"));
             },
+            Popup::Image { working_dir, image_id } => {
+                self.loaded_image = Some((working_dir, image_id));
+            },
             Popup::Error(_) => {},
         }
 
@@ -313,6 +336,10 @@ impl IcedContext {
         self.long_text_editor_content = TextEditorContent::with_text("");
         self.syntax_highlight = None;
         self.file_selector_context = None;
+        self.loaded_sessions = None;
+        self.loaded_session = None;
+        self.loaded_image = None;
+        self.session_preview_expansions = HashSet::new();
     }
 
     pub fn copy_attached_files(&self, project_path: &str) -> Result<(), Error> {
@@ -362,6 +389,10 @@ impl NGContext for IcedContext {
     fn window_size(&self) -> Size {
         self.window_size
     }
+
+    fn has_popup(&self) -> bool {
+        self.curr_popup.is_some()
+    }
 }
 
 impl PopupContext for IcedContext {
@@ -370,11 +401,46 @@ impl PopupContext for IcedContext {
     fn has_something_to_copy(&self) -> bool { self.copy_buffer.is_some() }
 
     fn can_open_scratch_pad(&self) -> bool {
-        if let Some(c) = &self.copy_buffer && c.len() < TEXT_EDITOR_CONTENT_LIMIT {
-            true
-        } else {
-            false
+        match (&self.loaded_image, &self.copy_buffer) {
+            (Some(_), _) => true,
+            (_, Some(c)) if c.len() < TEXT_EDITOR_CONTENT_LIMIT => true,
+            _ => false,
         }
+    }
+}
+
+impl ImagePopup for IcedContext {
+    type Message = IcedMessage;
+
+    fn open_image_popup(&self, working_dir: &str, id: ImageId) -> IcedMessage {
+        IcedMessage::OpenPopup {
+            curr: Popup::Image { working_dir: working_dir.to_string(), image_id: id },
+            prev: self.curr_popup.clone(),
+        }
+    }
+}
+
+impl SessionsContext for IcedContext {
+    fn popup_scroll_id(&self) -> &Id {
+        &self.popup_scroll_id
+    }
+
+    fn contains_session_preview_id(&self, id: &TurnId) -> bool {
+        self.session_preview_expansions.contains(id)
+    }
+
+    fn working_dir(&self) -> &str {
+        match (&self.curr_popup, &self.prev_popup) {
+            (Some(Popup::Sessions { working_dir }), _) => working_dir,
+            (_, Some(Popup::Sessions { working_dir })) => working_dir,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl TabsContext for IcedContext {
+    fn hovered_tab(&self) -> Option<TabId> {
+        self.hovered_tab
     }
 }
 
@@ -416,7 +482,9 @@ pub enum IcedMessage {
     BackPopup,
     ClosePopup,
     CopyPopupContent,
+    CopyString(String),
     FindInChats,
+    ExpandSessionPreview(TurnId),
     EditShortText(String),
     EditLongText(TextEditorAction),
     EditExtraText(TextEditorAction),
@@ -433,6 +501,7 @@ pub enum IcedMessage {
     Focus,
     PrepareScratchPad,
     OpenScratchPad { title: Option<String>, content: ScratchPadContent },
+    OpenTabsScratchPad,
     ChangeTheme,
 }
 
@@ -441,6 +510,34 @@ impl PopupMessage for IcedMessage {
     fn back_popup() -> Self { IcedMessage::BackPopup }
     fn copy_popup_content() -> Self { IcedMessage::CopyPopupContent }
     fn open_scratch_pad() -> Self { IcedMessage::PrepareScratchPad }
+}
+
+impl SessionsMessage for IcedMessage {
+    fn copy_string(s: String) -> Self {
+        IcedMessage::CopyString(s)
+    }
+
+    fn open_scratch_pad_raw(title: Option<String>, content: ScratchPadContent) -> Self {
+        IcedMessage::OpenScratchPad { title, content }
+    }
+
+    fn expand_session_preview(id: TurnId) -> Self {
+        IcedMessage::ExpandSessionPreview(id)
+    }
+
+    fn open_session_popup(working_dir: &str, id: SessionId) -> Self {
+        IcedMessage::OpenPopup { curr: Popup::Session { working_dir: working_dir.to_string(), session_id: id }, prev: Some(Popup::Sessions { working_dir: working_dir.to_string() }) }
+    }
+}
+
+impl TabsMessage for IcedMessage {
+    fn hover_on_tab(tab: Option<TabId>) -> Self {
+        IcedMessage::HoverOnTab(tab)
+    }
+
+    fn open_tab(id: TabId, index: usize) -> Self {
+        IcedMessage::OpenTab { id, index }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -458,8 +555,12 @@ pub enum Popup {
     ExistingChatConfig(ChatId),
     ChatSystemPrompts,
     EditChatSystemPrompt(usize),
-    Instruction {
+    Sessions {
         working_dir: String,
+    },
+    Session {
+        working_dir: String,
+        session_id: SessionId,
     },
     AskDeleteProject {
         project_name: String,
@@ -483,7 +584,17 @@ pub enum Popup {
     },
     ModelStore,
     Help,
+    Image { working_dir: String, image_id: ImageId },
     Error(String),
+}
+
+pub trait TabsContext {
+    fn hovered_tab(&self) -> Option<TabId>;
+}
+
+pub trait TabsMessage {
+    fn hover_on_tab(tab: Option<TabId>) -> Self;
+    fn open_tab(id: TabId, index: usize) -> Self;
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -800,6 +911,9 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         IcedMessage::CopyPopupContent => {
             return Ok(iced::clipboard::write(context.copy_buffer.clone().unwrap()));
         },
+        IcedMessage::CopyString(s) => {
+            return Ok(iced::clipboard::write(s));
+        },
         IcedMessage::FindInChats => {
             let new_job_id = JobId::new();
 
@@ -814,6 +928,11 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                     regex: context.short_text_editor_content.to_string(),
                 },
             })));
+        },
+        IcedMessage::ExpandSessionPreview(id) => {
+            if !context.session_preview_expansions.remove(&id) {
+                context.session_preview_expansions.insert(id);
+            }
         },
         IcedMessage::EditShortText(s) => {
             context.short_text_editor_content = s;
@@ -884,12 +1003,16 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(scroll_to(context.main_view_id.clone(), context.main_view_scrolled));
         },
         IcedMessage::PrepareScratchPad => {
-            return Ok(Task::done(IcedMessage::OpenScratchPad {
-                title: None,
-                content: ScratchPadContent::Text { content: context.copy_buffer.clone().unwrap(), extension: context.syntax_highlight.clone() },
-            }));
+            let content = match (&context.loaded_image, &context.copy_buffer) {
+                (Some((working_dir, id)), _) => ScratchPadContent::Image { path: id.path(working_dir)? },
+                (_, Some(s)) => ScratchPadContent::Text { content: s.to_string(), extension: context.syntax_highlight.clone() },
+                (None, None) => unreachable!(),
+            };
+
+            return Ok(Task::done(IcedMessage::OpenScratchPad { title: None, content }));
         },
         IcedMessage::OpenScratchPad { .. } => unreachable!(),
+        IcedMessage::OpenTabsScratchPad => unreachable!(),
         IcedMessage::ChangeTheme => {
             let invert_color = INVERT_COLOR.load(Ordering::Relaxed);
             INVERT_COLOR.store(!invert_color, Ordering::Relaxed);
@@ -1014,18 +1137,26 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ).into(),
         section(
             "Current tabs",
-            vec![button(
-                "New (t)ab",
-                IcedMessage::NewTab {
-                    tab: Tab::Browser { dir: context.home_dir.to_string(), file: None },
-                    force_new_tab: true,
-                },
-                skyblue(),
-                context.zoom,
-            )],
+            vec![
+                button(
+                    "New (t)ab",
+                    IcedMessage::NewTab {
+                        tab: Tab::Browser { dir: context.home_dir.to_string(), file: None },
+                        force_new_tab: true,
+                    },
+                    skyblue(),
+                    context.zoom,
+                ),
+                button(
+                    "Scratch Pad",
+                    IcedMessage::OpenTabsScratchPad,
+                    purple(),
+                    context.zoom,
+                ),
+            ],
             context.tab_section_expanded,
             IcedMessage::ExpandTabSection,
-            render_tabs(context),
+            render_tabs(&context.current_tabs, false, context),
             context,
         ).into(),
         {
@@ -1347,7 +1478,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         ]).into();
     }
 
-    else if let Some(Popup::Instruction { .. } | Popup::Help) = context.curr_popup {
+    else if let Some(Popup::Help) = context.curr_popup {
         let text_editor = TextEditor::new(&context.long_text_editor_content)
             .size(context.zoom * 14.0)
             .highlight(
@@ -1359,6 +1490,32 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
         full_view_stacked = Stack::from_vec(vec![
             full_view_stacked,
             into_popup(Scrollable::new(text_editor).id(context.popup_scroll_id.clone()).width(Length::Fill).into(), context),
+        ]).into();
+    }
+
+    else if let Some(sessions) = &context.loaded_sessions {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_sessions(sessions, context),
+        ]).into();
+    }
+
+    else if let Some(session_preview) = &context.loaded_session {
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            render_session_preview(session_preview, context),
+        ]).into();
+    }
+
+    else if let Some((working_dir, image_id)) = &context.loaded_image {
+        let image_view: Element<_> = into_popup(
+            ImageViewer::new(ImageHandle::from_path(image_id.path(working_dir).unwrap())).content_fit(ContentFit::Contain).into(),
+            context,
+        );
+
+        full_view_stacked = Stack::from_vec(vec![
+            full_view_stacked,
+            image_view,
         ]).into();
     }
 
@@ -1411,8 +1568,8 @@ fn render_projects<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
                     curr: Popup::ExistingProjectConfig(project.neukgu_id),
                     prev: None,
                 }, blue(), context.zoom),
-                button("Instruction", IcedMessage::OpenPopup {
-                    curr: Popup::Instruction { working_dir: project.working_dir.to_string() },
+                button("Sessions", IcedMessage::OpenPopup {
+                    curr: Popup::Sessions { working_dir: project.working_dir.to_string() },
                     prev: None,
                 }, yellow(), context.zoom),
             ];
@@ -1500,65 +1657,76 @@ fn render_chats<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
     Column::from_vec(column).spacing(context.zoom * 8.0).into()
 }
 
-fn render_tabs<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
-    fn draw_bg(e: Row<IcedMessage>, is_hovered: bool, window_width: f32, zoom: f32) -> Container<IcedMessage> {
+pub fn render_tabs<'c, Context: NGContext + TabsContext, Message: TabsMessage + Clone + 'c>(tabs: &[TabPreview], invert_color: bool, context: &'c Context) -> Element<'c, Message> {
+    fn draw_bg<'c, Message: 'c>(e: Row<'c, Message>, invert_color: bool, is_hovered: bool, window_width: f32, zoom: f32) -> Container<'c, Message> {
         Container::new(e)
-            .style(move |_| set_round_bg(if is_hovered { gray(0.45) } else { gray(0.15) }, zoom))
+            .style(move |_| {
+                let color = if is_hovered {
+                    if invert_color { gray(0.55) } else { gray(0.45) }
+                } else {
+                    if invert_color { gray(0.85) } else { gray(0.15) }
+                };
+                set_round_bg(color, zoom)
+            })
             .width(window_width)
             .padding(zoom * 8.0)
     }
 
-    let mut column: Vec<Element<IcedMessage>> = vec![draw_bg(
+    let real_white = white();
+    let (black, white) = if invert_color { (white(), black()) } else { (black(), white()) };
+    let mut column: Vec<Element<Message>> = vec![draw_bg(
         Row::from_vec(vec![
-            text!("1. ").color(white()).size(context.zoom * 14.0).into(),
-            circle(context.zoom * 6.0, white()),
-            text!("Index").color(white()).size(context.zoom * 14.0).into(),
+            text!("1. ").color(white).size(context.zoom() * 14.0).into(),
+            circle(context.zoom() * 6.0, real_white),
+            text!("Index").color(white).size(context.zoom() * 14.0).into(),
         ])
-            .spacing(context.zoom * 4.0)
+            .spacing(context.zoom() * 4.0)
             .align_y(Vertical::Center),
+        invert_color,
         false,
-        context.window_size.width,
-        context.zoom,
+        context.window_size().width,
+        context.zoom(),
     ).into()];
 
-    column.extend(context.current_tabs.iter().enumerate().map(
+    column.extend(tabs.iter().enumerate().map(
         |(i, tab)| {
-            let mut texts: Vec<Element<IcedMessage>> = vec![text!("{}", tab.title).color(white()).size(context.zoom * 14.0).into()];
+            let mut texts: Vec<Element<Message>> = vec![text!("{}", tab.title).color(white).size(context.zoom() * 14.0).into()];
 
             if let Some(status) = &tab.status {
-                texts.push(text!("{status}").color(white()).size(context.zoom * 14.0).into());
+                texts.push(text!("{status}").color(white).size(context.zoom() * 14.0).into());
             }
 
             if let Some(error) = &tab.error {
-                texts.push(text!("{error}").color(red()).size(context.zoom * 14.0).into());
+                texts.push(text!("{error}").color(red()).size(context.zoom() * 14.0).into());
             }
 
             let tab_view = draw_bg(
                 Row::from_vec(vec![
-                    text!("{}. ", i + 2).color(white()).size(context.zoom * 14.0).into(),
-                    circle(context.zoom * 6.0, tab.flag),
+                    text!("{}. ", i + 2).color(white).size(context.zoom() * 14.0).into(),
+                    circle(context.zoom() * 6.0, tab.flag),
                     if texts.len() == 1 { texts.remove(0).into() } else { Column::from_vec(texts).into() },
                 ])
-                    .spacing(context.zoom * 4.0)
+                    .spacing(context.zoom() * 4.0)
                     .align_y(Vertical::Center),
-                Some(tab.id) == context.hovered_tab && context.curr_popup.is_none(),
-                context.window_size.width,
-                context.zoom,
+                invert_color,
+                Some(tab.id) == context.hovered_tab() && !context.has_popup(),
+                context.window_size().width,
+                context.zoom(),
             );
 
-            if context.curr_popup.is_some() {
+            if context.has_popup() {
                 tab_view.into()
             } else {
                 MouseArea::new(tab_view)
-                    .on_enter(IcedMessage::HoverOnTab(Some(tab.id)))
-                    .on_exit(IcedMessage::HoverOnTab(None))
-                    .on_press(IcedMessage::OpenTab { id: tab.id, index: tab.index })
+                    .on_enter(Message::hover_on_tab(Some(tab.id)))
+                    .on_exit(Message::hover_on_tab(None))
+                    .on_press(Message::open_tab(tab.id, tab.index))
                     .into()
             }
         }
     ));
 
-    Column::from_vec(column).spacing(context.zoom * 8.0).into()
+    Column::from_vec(column).spacing(context.zoom() * 8.0).into()
 }
 
 fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {

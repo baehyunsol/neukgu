@@ -1,4 +1,5 @@
 use super::{
+    NGContext,
     black,
     blue,
     button,
@@ -16,6 +17,8 @@ use super::{
     white,
 };
 use super::file_change::render_udiff;
+use super::index::{TabsContext, TabsMessage, render_tabs};
+use super::tab::{TabId, TabPreview};
 use iced::{Background, Element, Size, Task};
 use iced::alignment::Horizontal;
 use iced::border::{Border, Radius};
@@ -61,6 +64,7 @@ pub struct IcedContext {
     pub image_path: String,
     pub slide_rule_context: SlideRuleContext,
     pub calendar_context: CalendarContext,
+    pub tabs_context: (Vec<TabPreview>, Option<TabId>),
 
     pub text_editor_content: TextEditorContent,
 }
@@ -81,6 +85,7 @@ impl IcedContext {
             image_path: String::new(),
             slide_rule_context: SlideRuleContext::new(),
             calendar_context: CalendarContext::new(),
+            tabs_context: (vec![], None),
             text_editor_content: TextEditorContent::new(),
         }
     }
@@ -99,7 +104,7 @@ impl IcedContext {
             Tab::TextEdit => {
                 self.text_editor_context = self.text_editor_content.text();
             },
-            Tab::Hidden | Tab::Image | Tab::SlideRule | Tab::Calendar => {},
+            Tab::Hidden | Tab::Image | Tab::SlideRule | Tab::Calendar | Tab::Tabs => {},
         }
     }
 
@@ -199,6 +204,16 @@ impl IcedContext {
     }
 }
 
+impl NGContext for IcedContext {
+    fn zoom(&self) -> f32 { self.zoom }
+    fn window_size(&self) -> Size { self.window_size }
+    fn has_popup(&self) -> bool { false }
+}
+
+impl TabsContext for IcedContext {
+    fn hovered_tab(&self) -> Option<TabId> { self.tabs_context.1 }
+}
+
 #[derive(Clone, Debug)]
 pub enum IcedMessage {
     KeyPressed { key: Key, modifiers: Modifiers },
@@ -209,12 +224,24 @@ pub enum IcedMessage {
     UpdateCalendar(CalendarMessage),
     EditText(TextEditorAction),
     SetSyntax(Syntax),
+    HoverOnTab(Option<TabId>),
+    OpenTab { id: TabId, index: usize },
     CopyTextViewerContent,
     EditTextViewerContent,
     ZoomIn,
     ZoomOut,
     Notify(String),
     Close,
+}
+
+impl TabsMessage for IcedMessage {
+    fn hover_on_tab(tab: Option<TabId>) -> Self {
+        IcedMessage::HoverOnTab(tab)
+    }
+
+    fn open_tab(id: TabId, index: usize) -> Self {
+        IcedMessage::OpenTab { id, index }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -225,6 +252,7 @@ pub enum Tab {
     Image,
     SlideRule,
     Calendar,
+    Tabs,
 }
 
 #[derive(Clone, Debug)]
@@ -390,6 +418,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         IcedMessage::SetSyntax(syntax) => {
             context.text_viewer_context.1 = Some(syntax.extension().to_string());
         },
+        IcedMessage::HoverOnTab(tab) => {
+            context.tabs_context.1 = tab;
+        },
+        IcedMessage::OpenTab { .. } => unreachable!(),
         IcedMessage::CopyTextViewerContent => {
             return iced::clipboard::write(context.text_viewer_context.0.to_string());
         },
@@ -500,6 +532,7 @@ fn render_scratch_pad<'c>(context: &'c IcedContext, w: f32, h: f32) -> Element<'
         Tab::Image => ImageViewer::new(ImageHandle::from_path(&context.image_path)).into(),
         Tab::SlideRule => slide_rule::view(&context.slide_rule_context, context.window_size, context.zoom).map(IcedMessage::UpdateSlideRule),
         Tab::Calendar => calendar::view(&context.calendar_context, context.window_size, context.zoom).map(IcedMessage::UpdateCalendar),
+        Tab::Tabs => render_tabs(&context.tabs_context.0, true, context),
     };
 
     let mut content_with_title = vec![];

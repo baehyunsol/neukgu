@@ -60,6 +60,7 @@ const DEFAULT_MONO_FONT: Font = Font::with_name("Space Mono");
 trait NGContext {
     fn zoom(&self) -> f32;
     fn window_size(&self) -> Size;
+    fn has_popup(&self) -> bool;
 }
 
 pub fn run(cwd: Option<String>) -> Result<(), Error> {

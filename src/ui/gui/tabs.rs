@@ -161,6 +161,11 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.workers.push(None, w).unwrap();
             Task::none()
         },
+        IcedMessage::Index(IndexMessage::OpenTabsScratchPad) => {
+            context.scratch_pad.save_context();
+            context.scratch_pad.tab = ScratchPadTab::Tabs;
+            Task::none()
+        },
         IcedMessage::Index(m) => match context.selected_tab {
             Some(_) => Task::none(),
             None => index::update(&mut context.index, m).map(IcedMessage::Index),
@@ -192,6 +197,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             // perhaps it's already dead?
             Task::none()
         },
+        IcedMessage::ScratchPad(ScratchPadMessage::OpenTab { id, index }) => Task::done(IcedMessage::Index(IndexMessage::OpenTab { id, index })),
         IcedMessage::ScratchPad(ScratchPadMessage::Close) => {
             context.scratch_pad.save_context();
             context.scratch_pad.tab = ScratchPadTab::Hidden;
@@ -245,6 +251,10 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             context.notes = context.notes.drain(..).filter(
                 |(_, life)| *life > 0
             ).collect();
+
+            if context.scratch_pad.tab == ScratchPadTab::Tabs {
+                context.scratch_pad.tabs_context.0 = context.index.current_tabs.to_vec();
+            }
 
             Task::batch(tasks)
         },

@@ -394,7 +394,7 @@ impl PopupContext for IcedContext {
 impl ImagePopup for IcedContext {
     type Message = IcedMessage;
 
-    fn open_image_popup(&self, id: ImageId) -> IcedMessage {
+    fn open_image_popup(&self, _: &str, id: ImageId) -> IcedMessage {
         IcedMessage::OpenPopup {
             curr: Popup::Image(id),
             prev: self.curr_popup.clone(),
@@ -455,6 +455,10 @@ impl NGContext for IcedContext {
 
     fn window_size(&self) -> Size {
         self.window_size
+    }
+
+    fn has_popup(&self) -> bool {
+        self.curr_popup.is_some()
     }
 }
 

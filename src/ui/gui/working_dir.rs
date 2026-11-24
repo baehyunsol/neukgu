@@ -674,6 +674,10 @@ impl NGContext for IcedContext {
     fn window_size(&self) -> Size {
         self.window_size
     }
+
+    fn has_popup(&self) -> bool {
+        !self.can_click_turn_entry()
+    }
 }
 
 impl PopupContext for IcedContext {
@@ -699,7 +703,7 @@ impl PopupContext for IcedContext {
 impl ImagePopup for IcedContext {
     type Message = IcedMessage;
 
-    fn open_image_popup(&self, id: ImageId) -> IcedMessage {
+    fn open_image_popup(&self, _: &str, id: ImageId) -> IcedMessage {
         IcedMessage::OpenPopup {
             curr: Popup::Image(id),
             prev: self.curr_popup.clone(),
@@ -829,8 +833,8 @@ impl SessionsMessage for IcedMessage {
         IcedMessage::ExpandSessionPreview(id)
     }
 
-    fn open_popup(curr: Popup, prev: Option<Popup>) -> Self {
-        IcedMessage::OpenPopup { curr, prev }
+    fn open_session_popup(_: &str, id: SessionId) -> Self {
+        IcedMessage::OpenPopup { curr: Popup::Session(id), prev: Some(Popup::Sessions) }
     }
 }
 
@@ -888,7 +892,7 @@ pub trait SessionsMessage {
     fn copy_string(s: String) -> Self;
     fn open_scratch_pad_raw(title: Option<String>, content: ScratchPadContent) -> Self;
     fn expand_session_preview(id: TurnId) -> Self;
-    fn open_popup(curr: Popup, prev: Option<Popup>) -> Self;
+    fn open_session_popup(working_dir: &str, id: SessionId) -> Self;
 }
 
 pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessage> {
@@ -1302,7 +1306,6 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
         },
         IcedMessage::ResetNeukgu => {
             context.kill_be_process()?;
-            println!("asdf: {:?}", context.orchestrator_for_new_session);
             reset_working_dir(
                 None,   // name
                 context.long_text_editor_content.text(),
@@ -2046,7 +2049,7 @@ fn render_turn<'c>(index: usize, turn: &Turn, context: &'c IcedContext) -> Eleme
 
 pub trait ImagePopup {
     type Message;
-    fn open_image_popup(&self, id: ImageId) -> Self::Message;
+    fn open_image_popup(&self, working_dir: &str, image_id: ImageId) -> Self::Message;
 }
 
 pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clone + 'c>(
@@ -2086,7 +2089,7 @@ pub fn render_llm_tokens<'c, Context: ImagePopup<Message=Message>, Message: Clon
                     .width(Length::Fixed(zoom * 480.0))
                     .height(Length::Fixed(zoom * 480.0))
                     .content_fit(ContentFit::Contain),
-            ).on_press(context.open_image_popup(*id)).into(),
+            ).on_press(context.open_image_popup(working_dir, *id)).into(),
         }
     ).collect()).width(Length::Fill)
 }
@@ -2226,7 +2229,7 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
     )
 }
 
-fn render_sessions<'c, Context: NGContext + SessionsContext + PopupContext, Message: PopupMessage + SessionsMessage + Clone + 'c>(sessions: &'c [SessionInfo], context: &'c Context) -> Element<'c, Message> {
+pub fn render_sessions<'c, Context: NGContext + SessionsContext + PopupContext, Message: PopupMessage + SessionsMessage + Clone + 'c>(sessions: &'c [SessionInfo], context: &'c Context) -> Element<'c, Message> {
     into_popup(
         Scrollable::new(
             Column::from_vec(
@@ -2260,7 +2263,7 @@ fn render_session<'c, Context: NGContext + SessionsContext + PopupContext, Messa
             text!("{}", session.name.as_ref().unwrap_or(&String::from("untitled-session"))).color(white()).size(context.zoom() * 18.0).into(),
             // TODO: "Rename" button
             // TODO: "Switch" button
-            button("Turns", Message::open_popup(Popup::Session(session.id), Some(Popup::Sessions)), yellow(), context.zoom()).into(),
+            button("Turns", Message::open_session_popup(context.working_dir(), session.id), yellow(), context.zoom()).into(),
             text!("{description}").color(white()).size(context.zoom() * 14.0).into(),
         ])
             .align_y(Vertical::Center)
@@ -2303,7 +2306,7 @@ fn render_session<'c, Context: NGContext + SessionsContext + PopupContext, Messa
         .into()
 }
 
-fn render_session_preview<'c, Context: NGContext + SessionsContext + PopupContext + ImagePopup<Message=Message>, Message: PopupMessage + SessionsMessage + Clone + 'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)], context: &'c Context) -> Element<'c, Message> {
+pub fn render_session_preview<'c, Context: NGContext + SessionsContext + PopupContext + ImagePopup<Message=Message>, Message: PopupMessage + SessionsMessage + Clone + 'c>(turns: &'c [(TurnPreview, String, Vec<LLMToken>)], context: &'c Context) -> Element<'c, Message> {
     let mut column: Vec<Element<Message>> = Vec::with_capacity(turns.len());
 
     for (i, (preview, llm, result)) in turns.iter().enumerate() {
