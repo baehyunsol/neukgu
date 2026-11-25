@@ -55,7 +55,7 @@ pub use chat::{
     init_chat,
     load_all_chats,
 };
-pub use config::Config;
+pub use config::{Config, load_global_config_presets};
 pub use context::{
     ChosenTurn,
     Context,

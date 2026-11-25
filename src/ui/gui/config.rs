@@ -27,6 +27,7 @@ use crate::chat::Config as ChatConfig;
 use iced::Element;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{Checkbox, Column, Container, PickList, Radio, Row, Slider, TextInput, text};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Questionable {
@@ -57,9 +58,14 @@ pub enum SetProjectConfig {
     OpenaiEtc3Model(String),
     InitGit(bool),
     Orchestrator(bool),
+    Preset(String),
 }
 
-pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
+pub fn set_project_config(
+    config: &mut Config,
+    presets: &HashMap<String, Config>,
+    set: SetProjectConfig,
+) {
     match set {
         SetProjectConfig::BigAgent(m) => {
             config.agents.big = m;
@@ -77,9 +83,9 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
             config.agents.image_edit = m;
 
             if m == Model::Disabled {
-                set_project_config(config, SetProjectConfig::ToggleTool(ToolKind::ImageEdit, false));
+                set_project_config(config, presets, SetProjectConfig::ToggleTool(ToolKind::ImageEdit, false));
             } else {
-                set_project_config(config, SetProjectConfig::ToggleTool(ToolKind::ImageEdit, true));
+                set_project_config(config, presets, SetProjectConfig::ToggleTool(ToolKind::ImageEdit, true));
             }
         },
         SetProjectConfig::AgentQuestionable(q) => {
@@ -181,6 +187,11 @@ pub fn set_project_config(config: &mut Config, set: SetProjectConfig) {
         SetProjectConfig::Orchestrator(orchestrator) => {
             config.orchestrator = orchestrator;
         },
+        SetProjectConfig::Preset(name) => {
+            if let Some(preset) = presets.get(&name) {
+                *config = preset.clone();
+            }
+        },
     }
 }
 
@@ -269,8 +280,28 @@ pub fn panel_container<'m, Message: 'm>(panel: Element<'m, Message>, zoom: f32) 
     Container::new(panel).style(move |_| set_round_bg(gray(0.15), zoom)).padding(zoom * 8.0).into()
 }
 
-pub fn config_ui<'c>(config: &'c Config, new_project: bool, zoom: f32) -> Element<'c, SetProjectConfig> {
+pub fn config_ui<'c>(
+    config: &'c Config,
+    presets: &HashMap<String, Config>,
+    new_project: bool,
+    zoom: f32,
+) -> Element<'c, SetProjectConfig> {
     let mut panels = vec![];
+    let mut preset_names: Vec<String> = presets.clone().into_keys().collect();
+    preset_names.sort();
+    panels.push(Row::from_vec(vec![
+        text!("Load from preset:").color(white()).size(zoom * 14.0).into(),
+        PickList::new(
+            preset_names,
+            None::<String>,
+            SetProjectConfig::Preset,
+        )
+            .text_size(zoom * 14.0)
+            .width(zoom * 160.0)
+            .style(move |_, status| pick_list_style(status, zoom))
+            .menu_style(pick_menu_style)
+            .into(),
+    ]).spacing(zoom * 8.0).into());
     let agent_panels: Vec<(&str, fn(&Model) -> bool, Model, fn(Model) -> SetProjectConfig)> = vec![
         ("Big Agent: ", |m| m.is_real() && m.is_llm(), config.agents.big, SetProjectConfig::BigAgent),
         ("Small Agent: ", |m| m.is_real() && m.is_llm(), config.agents.small, SetProjectConfig::SmallAgent),

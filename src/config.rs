@@ -11,6 +11,7 @@ use crate::{
 };
 use crate::request::Config as RequestConfig;
 use ragit_fs::{
+    FileError,
     WriteMode,
     join3,
     read_string,
@@ -110,5 +111,9 @@ impl Default for Config {
             orchestrator: false,
         }
     }
+}
+
+pub fn load_global_config_presets(global_index_dir: &str) -> Result<HashMap<String, Config>, FileError> {
+    todo!()
 }
 

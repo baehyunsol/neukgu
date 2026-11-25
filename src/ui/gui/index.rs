@@ -73,6 +73,7 @@ use crate::{
     init_working_dir,
     load_all_chats,
     load_all_indexes,
+    load_global_config_presets,
     load_global_skills,
     load_json,
     prettify_timestamp,
@@ -149,6 +150,9 @@ pub struct IcedContext {
     // This is synchronized with `<global-index-dir>/skills/` and is read-only.
     pub skills: Vec<(String, Result<Skill, SkillSchemaError>)>,
 
+    // This is synchronized with `<global-index-dir>/config-presets/` and is read-only.
+    pub config_presets: HashMap<String, Config>,
+
     pub current_tabs: Vec<TabPreview>,
     pub working_dir_tab_indexes: HashMap<NeukguId, usize>,
     pub main_view_id: Id,
@@ -198,6 +202,7 @@ impl IcedContext {
             recent_projects: vec![],
             recent_chats: vec![],
             skills: load_global_skills(&global_index_dir).unwrap(),
+            config_presets: load_global_config_presets(&global_index_dir).unwrap(),
             current_tabs: vec![],
             working_dir_tab_indexes: HashMap::new(),
             main_view_id: Id::unique(),
@@ -612,6 +617,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 context.recent_projects = load_all_indexes(&context.global_index_dir);
                 context.recent_chats = load_all_chats(&context.global_index_dir)?;
                 context.skills = load_global_skills(&context.global_index_dir)?;
+                context.config_presets = load_global_config_presets(&context.global_index_dir)?;
 
                 // let's just assume that there's no overflow!
                 context.recent_projects.sort_by_key(|p| -p.updated_at);
@@ -953,7 +959,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(focus(context.long_text_editor_id.clone()));
         },
         IcedMessage::SetProjectConfig(c) => {
-            set_project_config(&mut context.new_project_config, c);
+            set_project_config(&mut context.new_project_config, &context.config_presets, c);
         },
         IcedMessage::SetChatConfig(c) => {
             set_chat_config(&mut context.new_chat_config, &context.system_prompts, c);
@@ -1198,7 +1204,7 @@ pub fn view<'c>(context: &'c IcedContext) -> Element<'c, IcedMessage> {
             full_view_stacked,
             into_popup(Scrollable::new(
                 Column::from_vec(vec![
-                    config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig),
+                    config_ui(&context.new_project_config, &context.config_presets, true, context.zoom).map(IcedMessage::SetProjectConfig),
                     button("Save", save_action, green(), context.zoom).into(),
                 ])
                     .spacing(context.zoom * 20.0)
@@ -1762,7 +1768,7 @@ fn render_new_project_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
                 short_text_editor.into(),
                 long_text_editor.into(),
                 file_selector,
-                config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
+                config_ui(&context.new_project_config, &context.config_presets, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::NewProject, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)

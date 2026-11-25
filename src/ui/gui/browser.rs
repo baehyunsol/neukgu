@@ -2307,3 +2307,4 @@ fn render_run_result<'cm, 'o, 'e, 'cn>(
         _ => unreachable!(),
     }
 }
+
