@@ -478,10 +478,10 @@ impl IcedContext {
                 self.popup_title = Some(title);
             },
             Popup::Sessions => {
-                self.loaded_sessions = Some(self.fe_context.get_sessions()?);
+                self.loaded_sessions = Some(vec![]);  // IcedMessage::Tick will fetch the actual data
             },
-            Popup::Session(session_id) => {
-                self.loaded_session = Some(self.fe_context.get_session_preview(session_id)?);
+            Popup::Session(_) => {
+                self.loaded_session = Some(vec![]);  // IcedMessage::Tick will fetch the actual data
                 self.session_preview_expansions = HashSet::new();
             },
             Popup::Summaries => {},
@@ -973,6 +973,12 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
                 // 2. If we update this while the config popup is on, the user cannot use the config popup.
                 if !context.can_close_popup() {
                     context.tmp_config = context.fe_context.config.clone();
+                }
+
+                if let Some(Popup::Sessions) = &context.curr_popup {
+                    context.loaded_sessions = Some(context.fe_context.get_sessions()?);
+                } else if let Some(Popup::Session(session_id)) = &context.curr_popup {
+                    context.loaded_session = Some(context.fe_context.get_session_preview(*session_id)?);
                 }
             }
 
@@ -2230,19 +2236,26 @@ fn render_ask_to_user_popup<'c>(context: &'c IcedContext) -> Element<'c, IcedMes
 }
 
 pub fn render_sessions<'c, Context: NGContext + SessionsContext + PopupContext, Message: PopupMessage + SessionsMessage + Clone + 'c>(sessions: &'c [SessionInfo], context: &'c Context) -> Element<'c, Message> {
-    into_popup(
-        Scrollable::new(
-            Column::from_vec(
-                sessions.iter().map(
-                    |session| render_session(session, context)
-                ).collect()
-            )
-                .spacing(context.zoom() * 8.0)
+    if sessions.is_empty() {
+        into_popup(
+            text!("loading...").color(white()).size(context.zoom() * 14.0).into(),
+            context,
         )
-            .id(context.popup_scroll_id().clone())
-            .into(),
-        context,
-    )
+    } else {
+        into_popup(
+            Scrollable::new(
+                Column::from_vec(
+                    sessions.iter().map(
+                        |session| render_session(session, context)
+                    ).collect()
+                )
+                    .spacing(context.zoom() * 8.0)
+            )
+                .id(context.popup_scroll_id().clone())
+                .into(),
+            context,
+        )
+    }
 }
 
 fn render_session<'c, Context: NGContext + SessionsContext + PopupContext, Message: SessionsMessage + Clone + 'c>(session: &'c SessionInfo, context: &'c Context) -> Element<'c, Message> {
@@ -2407,15 +2420,22 @@ pub fn render_session_preview<'c, Context: NGContext + SessionsContext + PopupCo
         }
     ).collect();
 
-    into_popup(
-        Scrollable::new(
-            Column::from_vec(column)
-                .spacing(context.zoom() * 8.0)
+    if column.is_empty() {
+        into_popup(
+            text!("loading...").color(white()).size(context.zoom() * 14.0).into(),
+            context,
         )
-            .id(context.popup_scroll_id().clone())
-            .into(),
-        context,
-    )
+    } else {
+        into_popup(
+            Scrollable::new(
+                Column::from_vec(column)
+                    .spacing(context.zoom() * 8.0)
+            )
+                .id(context.popup_scroll_id().clone())
+                .into(),
+            context,
+        )
+    }
 }
 
 fn render_summaries<'c>(summaries: &[SessionSummary], context: &'c IcedContext) -> Element<'c, IcedMessage> {

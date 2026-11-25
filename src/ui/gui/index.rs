@@ -296,13 +296,11 @@ impl IcedContext {
             Popup::EditChatSystemPrompt(i) => {
                 self.set_long_text_editor_content(self.system_prompts[i].to_string());
             },
-            Popup::Sessions { working_dir } => {
-                let fe_context = FeContext::load(&working_dir)?;
-                self.loaded_sessions = Some(fe_context.get_sessions()?);
+            Popup::Sessions { .. } => {
+                self.loaded_sessions = Some(vec![]);  // IcedMessage::Tick will fetch the actual value
             },
-            Popup::Session { working_dir, session_id } => {
-                let fe_context = FeContext::load(&working_dir)?;
-                self.loaded_session = Some(fe_context.get_session_preview(session_id)?);
+            Popup::Session { .. } => {
+                self.loaded_session = Some(vec![]);  // IcedMessage::Tick will fetch the actual value
                 self.session_preview_expansions = HashSet::new();
             },
             Popup::AskDeleteProject { .. } => {},
@@ -622,6 +620,14 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
 
                 context.system_prompts = get_chat_system_prompts(&context.global_index_dir)?;
                 context.update_battery_state();
+
+                if let Some(Popup::Sessions { working_dir }) = &context.curr_popup {
+                    let fe_context = FeContext::load(working_dir)?;
+                    context.loaded_sessions = Some(fe_context.get_sessions()?);
+                } else if let Some(Popup::Session { working_dir, session_id }) = &context.curr_popup {
+                    let fe_context = FeContext::load(working_dir)?;
+                    context.loaded_session = Some(fe_context.get_session_preview(*session_id)?);
+                }
             }
 
             if frame % 32 == 0 {
@@ -1673,7 +1679,7 @@ pub fn render_tabs<'c, Context: NGContext + TabsContext, Message: TabsMessage + 
     }
 
     let real_white = white();
-    let (black, white) = if invert_color { (white(), black()) } else { (black(), white()) };
+    let white = if invert_color { black() } else { white() };
     let mut column: Vec<Element<Message>> = vec![draw_bg(
         Row::from_vec(vec![
             text!("1. ").color(white).size(context.zoom() * 14.0).into(),
