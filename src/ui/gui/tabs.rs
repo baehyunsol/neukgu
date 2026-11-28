@@ -409,7 +409,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
             }
 
             else {
-                let new_tab = TabContext::new(&context.home_dir, context.api_keys.clone(), tab, context.window_size);
+                let new_tab = TabContext::new(&context.home_dir, context.api_keys.clone(), context.index.config_presets.clone(), tab, context.window_size);
                 let new_tab_id = new_tab.id;
                 let new_tab_index = match context.selected_tab {
                     Some(i) => i + 1,

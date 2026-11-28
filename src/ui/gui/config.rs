@@ -437,19 +437,19 @@ pub fn config_ui<'c>(
     for binary in list_binaries() {
         permission_radios.push(Row::from_vec(vec![
             text!("{}{binary}:", " ".repeat(16 - binary.len())).color(white()).size(zoom * 14.0).into(),
-            Radio::new("Allow", PermissionConfig::Allow, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+            Radio::new("Allow", PermissionConfig::Allow, Some(config.run_permissions.get(binary).cloned().unwrap_or(config.default_run_permission)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .style(radio_style)
                 .into(),
-            Radio::new("Deny", PermissionConfig::Deny, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+            Radio::new("Deny", PermissionConfig::Deny, Some(config.run_permissions.get(binary).cloned().unwrap_or(config.default_run_permission)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)
                 .style(radio_style)
                 .into(),
-            Radio::new("Ask", PermissionConfig::Ask, Some(config.run_permissions.get(binary).cloned().unwrap_or(PermissionConfig::Ask)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
+            Radio::new("Ask", PermissionConfig::Ask, Some(config.run_permissions.get(binary).cloned().unwrap_or(config.default_run_permission)), |p| SetProjectConfig::SetRunPermission(binary.to_string(), p))
                 .spacing(zoom * 8.0)
                 .text_size(zoom * 14.0)
                 .size(zoom * 14.0)

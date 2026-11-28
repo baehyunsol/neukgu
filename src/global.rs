@@ -5,6 +5,7 @@ use crate::{
     Config,
     Error,
     NeukguId,
+    init_default_config_presets,
     init_default_skills,
     init_log_dir,
     load_json,
@@ -88,6 +89,10 @@ pub fn init_global_index_dir(global_index_dir: &str) -> Result<(), Error> {
 
     if !exists(&join(global_index_dir, "cargo-targets")?) {
         create_dir(&join(global_index_dir, "cargo-targets")?)?;
+    }
+
+    if !exists(&join(global_index_dir, "config-presets")?) {
+        init_default_config_presets(global_index_dir)?;
     }
 
     // For thumbnails for the file browser.

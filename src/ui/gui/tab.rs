@@ -22,7 +22,7 @@ use super::working_dir::{
     IcedContext as WorkingDirContext,
     IcedMessage as WorkingDirMessage,
 };
-use crate::{NeukguId, prettify_timestamp, truncate_chars};
+use crate::{Config, NeukguId, prettify_timestamp, truncate_chars};
 use iced::{Color, Element, Size, Task};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::Id;
@@ -32,6 +32,7 @@ use std::collections::HashMap;
 pub struct IcedContext {
     pub id: TabId,
     pub api_keys: HashMap<String, String>,
+    pub config_presets: HashMap<String, Config>,
     pub local: LocalContext,
 }
 
@@ -39,6 +40,7 @@ impl IcedContext {
     pub fn new(
         home_dir: &str,
         api_keys: HashMap<String, String>,
+        config_presets: HashMap<String, Config>,
         tab: Tab,
         window_size: Size,
     ) -> IcedContext {
@@ -52,6 +54,7 @@ impl IcedContext {
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
                     api_keys,
+                    config_presets,
                     local: local_context,
                 }
             },
@@ -64,12 +67,13 @@ impl IcedContext {
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
                     api_keys,
+                    config_presets,
                     local: local_context,
                 }
             },
             Tab::WorkingDir(dir) => {
                 // TODO: make `no_backend` configurable
-                let local_context = match WorkingDirContext::new(false, api_keys.clone(), &dir, window_size, 1.0) {
+                let local_context = match WorkingDirContext::new(false, api_keys.clone(), &dir, &config_presets, window_size, 1.0) {
                     Ok(c) => LocalContext::WorkingDir(c),
                     Err(e) => LocalContext::Error(ErrorContext::new(format!("{e:?}"), window_size, 1.0)),
                 };
@@ -77,6 +81,7 @@ impl IcedContext {
                 IcedContext {
                     id: TabId(rand::random::<u64>()),
                     api_keys,
+                    config_presets,
                     local: local_context,
                 }
             },
@@ -281,7 +286,7 @@ pub fn update(context: &mut IcedContext, message: IcedMessage) -> Task<IcedMessa
         },
         (local_context, IcedMessage::Browser(BrowserMessage::Launch { path })) => {
             // TODO: make `no_backend` configurable
-            match WorkingDirContext::new(false, context.api_keys.clone(), &path, local_context.window_size(), local_context.zoom()) {
+            match WorkingDirContext::new(false, context.api_keys.clone(), &path, &context.config_presets, local_context.window_size(), local_context.zoom()) {
                 Ok(c) => {
                     *local_context = LocalContext::WorkingDir(c);
                 },

@@ -91,6 +91,7 @@ pub use permission::{
     ToolPermissionKind,
     ask_permission_to_user,
     default_tool_permissions,
+    yolo_permissions,
 };
 pub use read::{
     FileEntry,

@@ -55,7 +55,7 @@ pub use chat::{
     init_chat,
     load_all_chats,
 };
-pub use config::{Config, load_global_config_presets};
+pub use config::{Config, init_default_config_presets, load_global_config_presets};
 pub use context::{
     ChosenTurn,
     Context,
@@ -143,6 +143,7 @@ pub use tool::{
     list_binaries,
     patch_diff,
     revert_hunks,
+    yolo_permissions,
 };
 pub use turn::{
     Turn,

@@ -235,6 +235,7 @@ pub struct IcedContext {
     pub loaded_session: Option<Vec<(TurnPreview, String, Vec<LLMToken>)>>,
     pub loaded_token_usage: Option<TokenUsage>,
     pub loaded_image: Option<ImageId>,
+    pub config_presets: HashMap<String, Config>,
     pub user_response_timeout_counter: Instant,
     pub curr_popup: Option<Popup>,
     pub prev_popup: Option<Popup>,
@@ -277,6 +278,7 @@ impl IcedContext {
         mut no_backend: bool,
         api_keys: HashMap<String, String>,
         working_dir: &str,
+        config_presets: &HashMap<String, Config>,
         window_size: Size,
         zoom: f32,
     ) -> Result<IcedContext, Error> {
@@ -319,6 +321,7 @@ impl IcedContext {
             loaded_session: None,
             loaded_token_usage: None,
             loaded_image: None,
+            config_presets: config_presets.clone(),
             user_response_timeout_counter: Instant::now(),
             curr_popup,
             prev_popup: None,
@@ -1344,7 +1347,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(Task::done(IcedMessage::Tick { frame: 0, force_update: true }));
         },
         IcedMessage::SetTmpConfig(c) => {
-            set_project_config(&mut context.tmp_config, c);
+            set_project_config(&mut context.tmp_config, &context.config_presets, c);
         },
         IcedMessage::ApplyTmpConfig => {
             context.close_popup();
@@ -1707,7 +1710,7 @@ pub fn view<'a>(context: &'a IcedContext) -> Element<'a, IcedMessage> {
         let config_popup = Scrollable::new(
             Column::from_vec(vec![
                 text!("Config").size(context.zoom * 18.0).into(),
-                config_ui(&context.tmp_config, false, context.zoom).map(IcedMessage::SetTmpConfig),
+                config_ui(&context.tmp_config, &context.config_presets, false, context.zoom).map(IcedMessage::SetTmpConfig),
                 button("Apply", IcedMessage::ApplyTmpConfig, green(), context.zoom).into(),
             ])
                 .align_x(Horizontal::Center)

@@ -112,6 +112,17 @@ pub fn default_tool_permissions() -> HashMap<ToolPermissionKind, PermissionConfi
     ].into_iter().collect()
 }
 
+pub fn yolo_permissions() -> HashMap<ToolPermissionKind, PermissionConfig> {
+    [
+        (ToolPermissionKind::Read, PermissionConfig::Allow),
+        (ToolPermissionKind::ReadExt, PermissionConfig::Allow),
+        (ToolPermissionKind::Write, PermissionConfig::Allow),
+        (ToolPermissionKind::WriteExt, PermissionConfig::Allow),
+        (ToolPermissionKind::Remove, PermissionConfig::Allow),
+        (ToolPermissionKind::RemoveExt, PermissionConfig::Allow),
+    ].into_iter().collect()
+}
+
 pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, config: &Config) -> Result<Result<(), ToolCallError>, Error> {
     let mut tools = vec![];
     let mut runs = vec![];
@@ -244,7 +255,7 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
 
     for command in runs.into_iter() {
         let binary = &command[0];
-        let permission = config.run_permissions.get(binary).unwrap_or(&PermissionConfig::Ask);
+        let permission = config.run_permissions.get(binary).unwrap_or(&config.default_run_permission);
 
         match permission {
             PermissionConfig::Allow => continue,
@@ -286,3 +297,4 @@ pub async fn ask_permission_to_user(tool: &ToolCall, context: &mut Context, conf
 
     Ok(Ok(()))
 }
+

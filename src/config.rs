@@ -8,13 +8,19 @@ use crate::{
     ToolKind,
     ToolPermissionKind,
     default_tool_permissions,
+    list_binaries,
+    yolo_permissions,
 };
 use crate::request::Config as RequestConfig;
 use ragit_fs::{
-    FileError,
     WriteMode,
+    create_dir,
+    file_name,
+    join,
     join3,
+    read_dir,
     read_string,
+    set_extension,
     write_string,
 };
 use serde::{Deserialize, Serialize};
@@ -37,8 +43,9 @@ pub struct Config {
     pub tool_permissions: HashMap<ToolPermissionKind, PermissionConfig>,
 
     // A key is the name of the binary.
-    // If an entry is missing, it's `PermissionConfig::Ask` by default.
+    // If an entry is missing, it uses `default_run_permission`.
     pub run_permissions: HashMap<String, PermissionConfig>,
+    pub default_run_permission: PermissionConfig,
 
     // If the agent doesn't write summary and keeps reading files,
     // the harness will force it to write a summary file.
@@ -85,6 +92,22 @@ impl Config {
     pub fn remove_skill(&mut self, skill: &str) {
         self.skills.remove(skill);
     }
+
+    pub fn yolo() -> Self {
+        Config {
+            user_response_timeout: 0,
+            tool_permissions: yolo_permissions(),
+            run_permissions: list_binaries().iter().map(
+                |binary| (binary.to_string(), PermissionConfig::Allow)
+            ).collect(),
+            default_run_permission: PermissionConfig::Allow,
+            ..Default::default()
+        }
+    }
+
+    pub fn human_driver() -> Self {
+        Default::default()
+    }
 }
 
 impl Default for Config {
@@ -93,7 +116,7 @@ impl Default for Config {
             agents: Agents::default(),
             activated_tools: ToolKind::all(),
             skills: HashMap::new(),
-            sandbox_root: String::from("/tmp/neukgu-sandbox/"),
+            sandbox_root: default_sandbox_root(),
             llm_context_max_len: 262_144,
             text_file_max_len: 32_768,
             text_file_max_lines: 512,
@@ -104,6 +127,7 @@ impl Default for Config {
             user_response_timeout: 300,
             tool_permissions: default_tool_permissions(),
             run_permissions: HashMap::new(),
+            default_run_permission: PermissionConfig::Ask,
             max_read_without_write: 10,
             command_max_timeout: 3 * 3600,
             etc_models: EtcModels::default(),
@@ -113,7 +137,39 @@ impl Default for Config {
     }
 }
 
-pub fn load_global_config_presets(global_index_dir: &str) -> Result<HashMap<String, Config>, FileError> {
-    todo!()
+pub fn init_default_config_presets(global_index_dir: &str) -> Result<(), Error> {
+    let presets_at = join(global_index_dir, "config-presets")?;
+    create_dir(&presets_at)?;
+
+    for (name, config) in [
+        ("yolo", Config::yolo()),
+        ("human-driver", Config::human_driver()),
+    ] {
+        write_string(
+            &join(&presets_at, &set_extension(name, "json")?)?,
+            &serde_json::to_string_pretty(&config)?,
+            WriteMode::AlwaysCreate,
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn load_global_config_presets(global_index_dir: &str) -> Result<HashMap<String, Config>, Error> {
+    let presets_at = join(global_index_dir, "config-presets")?;
+    let mut presets = HashMap::new();
+
+    for file in read_dir(&presets_at, false)? {
+        let preset_name = file_name(&file)?;
+        let s = read_string(&file)?;
+        presets.insert(preset_name, serde_json::from_str(&s)?);
+    }
+
+    Ok(presets)
+}
+
+// TODO: impl for Windows
+pub fn default_sandbox_root() -> String {
+    String::from("/tmp/neukgu-sandbox/")
 }
 

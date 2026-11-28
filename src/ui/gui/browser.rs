@@ -46,6 +46,7 @@ use crate::{
     get_global_config,
     get_global_index_dir,
     init_working_dir,
+    load_global_config_presets,
     prettify_bytes,
     prettify_time,
     prettify_timestamp,
@@ -106,7 +107,7 @@ use ragit_fs::{
     remove_file,
 };
 use ragit_fs::is_symlink;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const HELP_MESSAGE: &str = r#"
@@ -170,6 +171,7 @@ pub struct IcedContext {
     pub popup_title: Option<String>,
     pub loaded_symlink: Option<SymlinkInfo>,
     pub loaded_file_info: Option<FileInfo>,
+    pub config_presets: HashMap<String, Config>,
     pub file_editor_context: Option<FileEditorContext>,
     pub git_info_context: Option<GitInfoContext>,
     pub file_selector_context: Option<FileSelectorContext>,
@@ -215,6 +217,7 @@ impl IcedContext {
             popup_title: None,
             loaded_symlink: None,
             loaded_file_info: None,
+            config_presets: load_global_config_presets(&global_index_dir)?,
             file_editor_context: None,
             git_info_context: None,
             file_selector_context: None,
@@ -1182,7 +1185,7 @@ fn try_update(context: &mut IcedContext, message: IcedMessage) -> Result<Task<Ic
             return Ok(focus(context.long_text_editor_id.clone()));
         },
         IcedMessage::SetProjectConfig(c) => {
-            set_project_config(&mut context.new_project_config, c);
+            set_project_config(&mut context.new_project_config, &context.config_presets, c);
         },
         IcedMessage::FileEditorMessage(m) => {
             if let Some(c) = &mut context.file_editor_context {
@@ -1894,7 +1897,7 @@ fn render_init_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Element
         Scrollable::new(
             Column::from_vec(vec![
                 text_editor.into(),
-                config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
+                config_ui(&context.new_project_config, &context.config_presets, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Init", IcedMessage::Init { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
@@ -1934,7 +1937,7 @@ fn render_create_popup<'p, 'c>(path: &'p str, context: &'c IcedContext) -> Eleme
                 short_text_editor.into(),
                 long_text_editor.into(),
                 file_selector,
-                config_ui(&context.new_project_config, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
+                config_ui(&context.new_project_config, &context.config_presets, true, context.zoom).map(IcedMessage::SetProjectConfig).into(),
                 button("Create", IcedMessage::CreateWorkingDir { path: path.to_string() }, green(), context.zoom).padding(context.zoom * 20.0).into(),
             ])
                 .spacing(context.zoom * 20.0)
